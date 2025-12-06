@@ -33,10 +33,24 @@ export default function RoomPage() {
   const [characterStats, setCharacterStats] = useState<Record<string, any>>({});
   const [characterNotes, setCharacterNotes] = useState("");
   
+  // Player info from session storage (read reactively to handle navigation timing)
+  const [playerName, setPlayerName] = useState(() => sessionStorage.getItem("playerName") || "Anonymous");
+  const [playerId, setPlayerId] = useState(() => sessionStorage.getItem("playerId") || "");
+  
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const playerName = sessionStorage.getItem("playerName") || "Anonymous";
-  const playerId = sessionStorage.getItem("playerId") || "";
+  
+  // Re-read session storage on mount to catch values written during navigation
+  useEffect(() => {
+    const storedPlayerName = sessionStorage.getItem("playerName");
+    const storedPlayerId = sessionStorage.getItem("playerId");
+    if (storedPlayerName && storedPlayerName !== playerName) {
+      setPlayerName(storedPlayerName);
+    }
+    if (storedPlayerId && storedPlayerId !== playerId) {
+      setPlayerId(storedPlayerId);
+    }
+  }, []);
 
   const { data: roomData, isLoading, error } = useQuery<Room & { players: Player[] }>({
     queryKey: ["/api/rooms", code],
