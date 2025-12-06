@@ -5,7 +5,7 @@ import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { parseDiceExpression } from "./dice";
 import { generateDMResponse, generateStartingScene } from "./grok";
-import { insertRoomSchema, type Message } from "@shared/schema";
+import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, type Message, type Character, type InventoryItem } from "@shared/schema";
 
 const roomConnections = new Map<string, Set<WebSocket>>();
 
@@ -166,7 +166,7 @@ export async function registerRoutes(
         code: "",
       });
 
-      await storage.createPlayer({
+      const hostPlayer = await storage.createPlayer({
         roomId: room.id,
         name: hostName,
         isHost: true,
@@ -188,7 +188,7 @@ export async function registerRoutes(
         currentScene: startingScene.slice(0, 200),
       });
 
-      res.status(201).json(room);
+      res.status(201).json({ ...room, hostPlayer });
     } catch (error) {
       console.error("Room creation error:", error);
       res.status(500).json({ error: "Failed to create room" });
@@ -333,6 +333,123 @@ export async function registerRoutes(
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to roll dice" });
+    }
+  });
+
+  // Character routes
+  app.get("/api/rooms/:code/characters", async (req, res) => {
+    try {
+      const room = await storage.getRoomByCode(req.params.code.toUpperCase());
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+      const characters = await storage.getCharactersByRoom(room.id);
+      res.json(characters);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch characters" });
+    }
+  });
+
+  app.get("/api/rooms/:code/characters/:playerId", async (req, res) => {
+    try {
+      const room = await storage.getRoomByCode(req.params.code.toUpperCase());
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+      const character = await storage.getCharacterByPlayer(req.params.playerId, room.id);
+      if (!character) {
+        return res.status(404).json({ error: "Character not found" });
+      }
+      res.json(character);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch character" });
+    }
+  });
+
+  app.post("/api/rooms/:code/characters", async (req, res) => {
+    try {
+      const room = await storage.getRoomByCode(req.params.code.toUpperCase());
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+      
+      const { playerId, name, stats, notes } = req.body;
+      if (!playerId || !name) {
+        return res.status(400).json({ error: "Player ID and character name are required" });
+      }
+
+      const existingChar = await storage.getCharacterByPlayer(playerId, room.id);
+      if (existingChar) {
+        const updated = await storage.updateCharacter(existingChar.id, { name, stats, notes });
+        return res.json(updated);
+      }
+
+      const character = await storage.createCharacter({
+        playerId,
+        roomId: room.id,
+        name,
+        gameSystem: room.gameSystem,
+        stats: stats || {},
+        notes: notes || null,
+      });
+      res.status(201).json(character);
+    } catch (error) {
+      console.error("Character creation error:", error);
+      res.status(500).json({ error: "Failed to create character" });
+    }
+  });
+
+  app.patch("/api/characters/:id", async (req, res) => {
+    try {
+      const { name, stats, notes } = req.body;
+      const character = await storage.updateCharacter(req.params.id, { name, stats, notes });
+      if (!character) {
+        return res.status(404).json({ error: "Character not found" });
+      }
+      res.json(character);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update character" });
+    }
+  });
+
+  // Inventory routes
+  app.get("/api/characters/:characterId/inventory", async (req, res) => {
+    try {
+      const items = await storage.getInventoryByCharacter(req.params.characterId);
+      res.json(items);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch inventory" });
+    }
+  });
+
+  app.post("/api/characters/:characterId/inventory", async (req, res) => {
+    try {
+      const { name, description, quantity, grantedBy } = req.body;
+      if (!name) {
+        return res.status(400).json({ error: "Item name is required" });
+      }
+      const item = await storage.createInventoryItem({
+        characterId: req.params.characterId,
+        name,
+        description: description || null,
+        quantity: quantity || 1,
+        grantedBy: grantedBy || null,
+      });
+      res.status(201).json(item);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to add item" });
+    }
+  });
+
+  app.delete("/api/inventory/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteInventoryItem(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Item not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete item" });
     }
   });
 

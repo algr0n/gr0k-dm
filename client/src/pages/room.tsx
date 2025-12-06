@@ -9,11 +9,11 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle } from "lucide-react";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { apiRequest } from "@/lib/queryClient";
-import { type Message, type Room, type Player, gameSystemLabels, type GameSystem } from "@shared/schema";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { type Message, type Room, type Player, type Character, gameSystemLabels, type GameSystem } from "@shared/schema";
 
 export default function RoomPage() {
   const { code } = useParams<{ code: string }>();
@@ -28,13 +28,60 @@ export default function RoomPage() {
   const [activeTab, setActiveTab] = useState("chat");
   const [gameEnded, setGameEnded] = useState(false);
   
+  // Character form state
+  const [characterName, setCharacterName] = useState("");
+  const [characterStats, setCharacterStats] = useState<Record<string, any>>({});
+  const [characterNotes, setCharacterNotes] = useState("");
+  
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const playerName = sessionStorage.getItem("playerName") || "Anonymous";
+  const playerId = sessionStorage.getItem("playerId") || "";
 
   const { data: roomData, isLoading, error } = useQuery<Room & { players: Player[] }>({
     queryKey: ["/api/rooms", code],
     enabled: !!code,
+  });
+
+  // Fetch existing character data
+  const { data: existingCharacter } = useQuery<Character>({
+    queryKey: ["/api/rooms", code, "characters", playerId],
+    enabled: !!code && !!playerId,
+  });
+
+  // Load character data when it exists
+  useEffect(() => {
+    if (existingCharacter) {
+      setCharacterName(existingCharacter.name);
+      setCharacterStats(existingCharacter.stats || {});
+      setCharacterNotes(existingCharacter.notes || "");
+    }
+  }, [existingCharacter]);
+
+  const saveCharacterMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", `/api/rooms/${code}/characters`, {
+        playerId,
+        name: characterName,
+        stats: characterStats,
+        notes: characterNotes,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "characters", playerId] });
+      toast({
+        title: "Character saved",
+        description: "Your character has been saved successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Failed to save character",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
   });
 
   const isHost = roomData?.hostName === playerName;
@@ -276,7 +323,7 @@ export default function RoomPage() {
 
       <main className="flex-1 flex flex-col">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
-          <div className="border-b px-4">
+          <div className="sticky top-0 z-50 border-b px-4 bg-background">
             <TabsList className="h-12">
               <TabsTrigger value="chat" className="gap-2" data-testid="tab-chat">
                 <MessageSquare className="h-4 w-4" />
@@ -357,18 +404,37 @@ export default function RoomPage() {
             </form>
           </TabsContent>
 
-          <TabsContent value="character" className="flex-1 p-4 mt-0 data-[state=inactive]:hidden">
-            <div className="max-w-2xl mx-auto space-y-4">
+          <TabsContent value="character" className="flex-1 mt-0 overflow-auto data-[state=inactive]:hidden">
+            <div className="max-w-2xl mx-auto space-y-4 p-4">
               <Card>
-                <CardHeader>
-                  <CardTitle className="font-serif">Character Sheet</CardTitle>
-                  <p className="text-sm text-muted-foreground">Note: Character data is stored locally in your browser for this session.</p>
+                <CardHeader className="flex flex-row items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="font-serif">Character Sheet</CardTitle>
+                    <p className="text-sm text-muted-foreground">Your character data is saved to the server.</p>
+                  </div>
+                  <Button 
+                    onClick={() => saveCharacterMutation.mutate()}
+                    disabled={saveCharacterMutation.isPending || !characterName.trim()}
+                    data-testid="button-save-character"
+                  >
+                    {saveCharacterMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Save className="h-4 w-4 mr-2" />
+                    )}
+                    Save
+                  </Button>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="text-sm text-muted-foreground">Character Name</label>
-                      <Input placeholder="Enter character name" data-testid="input-character-name" />
+                      <Input 
+                        placeholder="Enter character name" 
+                        value={characterName}
+                        onChange={(e) => setCharacterName(e.target.value)}
+                        data-testid="input-character-name" 
+                      />
                     </div>
                     <div>
                       <label className="text-sm text-muted-foreground">Player</label>
@@ -382,15 +448,32 @@ export default function RoomPage() {
                       <div className="grid grid-cols-3 gap-4">
                         <div>
                           <label className="text-sm text-muted-foreground">Class</label>
-                          <Input placeholder="e.g., Fighter" data-testid="input-dnd5e-class" />
+                          <Input 
+                            placeholder="e.g., Fighter" 
+                            value={characterStats.class || ""}
+                            onChange={(e) => setCharacterStats(prev => ({ ...prev, class: e.target.value }))}
+                            data-testid="input-dnd5e-class" 
+                          />
                         </div>
                         <div>
                           <label className="text-sm text-muted-foreground">Race</label>
-                          <Input placeholder="e.g., Human" data-testid="input-dnd5e-race" />
+                          <Input 
+                            placeholder="e.g., Human" 
+                            value={characterStats.race || ""}
+                            onChange={(e) => setCharacterStats(prev => ({ ...prev, race: e.target.value }))}
+                            data-testid="input-dnd5e-race" 
+                          />
                         </div>
                         <div>
                           <label className="text-sm text-muted-foreground">Level</label>
-                          <Input type="number" defaultValue={1} min={1} max={20} data-testid="input-dnd5e-level" />
+                          <Input 
+                            type="number" 
+                            value={characterStats.level || 1}
+                            onChange={(e) => setCharacterStats(prev => ({ ...prev, level: parseInt(e.target.value) || 1 }))}
+                            min={1} 
+                            max={20} 
+                            data-testid="input-dnd5e-level" 
+                          />
                         </div>
                       </div>
                       <Separator />
@@ -402,7 +485,8 @@ export default function RoomPage() {
                               <label className="text-xs text-muted-foreground">{stat}</label>
                               <Input 
                                 type="number" 
-                                defaultValue={10} 
+                                value={characterStats[stat.toLowerCase()] || 10}
+                                onChange={(e) => setCharacterStats(prev => ({ ...prev, [stat.toLowerCase()]: parseInt(e.target.value) || 10 }))}
                                 min={1} 
                                 max={30} 
                                 className="text-center"
@@ -421,11 +505,21 @@ export default function RoomPage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="text-sm text-muted-foreground">Role</label>
-                          <Input placeholder="e.g., Solo, Netrunner" data-testid="input-cyberpunk-role" />
+                          <Input 
+                            placeholder="e.g., Solo, Netrunner" 
+                            value={characterStats.role || ""}
+                            onChange={(e) => setCharacterStats(prev => ({ ...prev, role: e.target.value }))}
+                            data-testid="input-cyberpunk-role" 
+                          />
                         </div>
                         <div>
                           <label className="text-sm text-muted-foreground">Handle</label>
-                          <Input placeholder="Street name" data-testid="input-cyberpunk-handle" />
+                          <Input 
+                            placeholder="Street name" 
+                            value={characterStats.handle || ""}
+                            onChange={(e) => setCharacterStats(prev => ({ ...prev, handle: e.target.value }))}
+                            data-testid="input-cyberpunk-handle" 
+                          />
                         </div>
                       </div>
                       <Separator />
@@ -437,7 +531,8 @@ export default function RoomPage() {
                               <label className="text-xs text-muted-foreground">{stat}</label>
                               <Input 
                                 type="number" 
-                                defaultValue={5} 
+                                value={characterStats[stat.toLowerCase()] || 5}
+                                onChange={(e) => setCharacterStats(prev => ({ ...prev, [stat.toLowerCase()]: parseInt(e.target.value) || 5 }))}
                                 min={1} 
                                 max={10} 
                                 className="text-center"
@@ -456,11 +551,21 @@ export default function RoomPage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="text-sm text-muted-foreground">Occupation</label>
-                          <Input placeholder="e.g., Professor, Detective" data-testid="input-coc-occupation" />
+                          <Input 
+                            placeholder="e.g., Professor, Detective" 
+                            value={characterStats.occupation || ""}
+                            onChange={(e) => setCharacterStats(prev => ({ ...prev, occupation: e.target.value }))}
+                            data-testid="input-coc-occupation" 
+                          />
                         </div>
                         <div>
                           <label className="text-sm text-muted-foreground">Age</label>
-                          <Input type="number" defaultValue={30} data-testid="input-coc-age" />
+                          <Input 
+                            type="number" 
+                            value={characterStats.age || 30}
+                            onChange={(e) => setCharacterStats(prev => ({ ...prev, age: parseInt(e.target.value) || 30 }))}
+                            data-testid="input-coc-age" 
+                          />
                         </div>
                       </div>
                       <Separator />
@@ -472,7 +577,8 @@ export default function RoomPage() {
                               <label className="text-xs text-muted-foreground">{stat}</label>
                               <Input 
                                 type="number" 
-                                defaultValue={50} 
+                                value={characterStats[stat.toLowerCase()] || 50}
+                                onChange={(e) => setCharacterStats(prev => ({ ...prev, [stat.toLowerCase()]: parseInt(e.target.value) || 50 }))}
                                 min={1} 
                                 max={100} 
                                 className="text-center"
@@ -485,15 +591,30 @@ export default function RoomPage() {
                       <div className="grid grid-cols-3 gap-4">
                         <div>
                           <label className="text-sm text-muted-foreground">Sanity</label>
-                          <Input type="number" defaultValue={50} data-testid="input-coc-sanity" />
+                          <Input 
+                            type="number" 
+                            value={characterStats.sanity || 50}
+                            onChange={(e) => setCharacterStats(prev => ({ ...prev, sanity: parseInt(e.target.value) || 50 }))}
+                            data-testid="input-coc-sanity" 
+                          />
                         </div>
                         <div>
                           <label className="text-sm text-muted-foreground">Luck</label>
-                          <Input type="number" defaultValue={50} data-testid="input-coc-luck" />
+                          <Input 
+                            type="number" 
+                            value={characterStats.luck || 50}
+                            onChange={(e) => setCharacterStats(prev => ({ ...prev, luck: parseInt(e.target.value) || 50 }))}
+                            data-testid="input-coc-luck" 
+                          />
                         </div>
                         <div>
                           <label className="text-sm text-muted-foreground">HP</label>
-                          <Input type="number" defaultValue={10} data-testid="input-coc-hp" />
+                          <Input 
+                            type="number" 
+                            value={characterStats.hp || 10}
+                            onChange={(e) => setCharacterStats(prev => ({ ...prev, hp: parseInt(e.target.value) || 10 }))}
+                            data-testid="input-coc-hp" 
+                          />
                         </div>
                       </div>
                     </>
@@ -505,11 +626,21 @@ export default function RoomPage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="text-sm text-muted-foreground">Class</label>
-                          <Input placeholder="e.g., Guardian, Bard" data-testid="input-daggerheart-class" />
+                          <Input 
+                            placeholder="e.g., Guardian, Bard" 
+                            value={characterStats.class || ""}
+                            onChange={(e) => setCharacterStats(prev => ({ ...prev, class: e.target.value }))}
+                            data-testid="input-daggerheart-class" 
+                          />
                         </div>
                         <div>
                           <label className="text-sm text-muted-foreground">Ancestry</label>
-                          <Input placeholder="e.g., Human, Elf" data-testid="input-daggerheart-ancestry" />
+                          <Input 
+                            placeholder="e.g., Human, Elf" 
+                            value={characterStats.ancestry || ""}
+                            onChange={(e) => setCharacterStats(prev => ({ ...prev, ancestry: e.target.value }))}
+                            data-testid="input-daggerheart-ancestry" 
+                          />
                         </div>
                       </div>
                       <Separator />
@@ -521,7 +652,8 @@ export default function RoomPage() {
                               <label className="text-xs text-muted-foreground">{trait}</label>
                               <Input 
                                 type="number" 
-                                defaultValue={0} 
+                                value={characterStats[trait.toLowerCase()] || 0}
+                                onChange={(e) => setCharacterStats(prev => ({ ...prev, [trait.toLowerCase()]: parseInt(e.target.value) || 0 }))}
                                 min={-2} 
                                 max={4} 
                                 className="text-center"
@@ -534,11 +666,21 @@ export default function RoomPage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="text-sm text-muted-foreground">Hope</label>
-                          <Input type="number" defaultValue={2} data-testid="input-daggerheart-hope" />
+                          <Input 
+                            type="number" 
+                            value={characterStats.hope || 2}
+                            onChange={(e) => setCharacterStats(prev => ({ ...prev, hope: parseInt(e.target.value) || 2 }))}
+                            data-testid="input-daggerheart-hope" 
+                          />
                         </div>
                         <div>
                           <label className="text-sm text-muted-foreground">HP</label>
-                          <Input type="number" defaultValue={6} data-testid="input-daggerheart-hp" />
+                          <Input 
+                            type="number" 
+                            value={characterStats.hp || 6}
+                            onChange={(e) => setCharacterStats(prev => ({ ...prev, hp: parseInt(e.target.value) || 6 }))}
+                            data-testid="input-daggerheart-hp" 
+                          />
                         </div>
                       </div>
                     </>
@@ -550,6 +692,8 @@ export default function RoomPage() {
                     <textarea
                       className="w-full mt-1 p-2 border rounded-md bg-background min-h-[100px] text-sm"
                       placeholder="Character background, inventory, abilities..."
+                      value={characterNotes}
+                      onChange={(e) => setCharacterNotes(e.target.value)}
                       data-testid="textarea-notes"
                     />
                   </div>

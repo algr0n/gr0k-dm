@@ -75,6 +75,37 @@ export const insertPlayerSchema = createInsertSchema(players).omit({ id: true, j
 export type InsertPlayer = z.infer<typeof insertPlayerSchema>;
 export type Player = typeof players.$inferSelect;
 
+// Character sheet for each player in a room
+export const characters = pgTable("characters", {
+  id: varchar("id").primaryKey(),
+  playerId: varchar("player_id").notNull(),
+  roomId: varchar("room_id").notNull(),
+  name: text("name").notNull(),
+  gameSystem: text("game_system").notNull(),
+  stats: jsonb("stats").$type<Record<string, unknown>>().notNull().default({}),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertCharacterSchema = createInsertSchema(characters).omit({ id: true, createdAt: true });
+export type InsertCharacter = z.infer<typeof insertCharacterSchema>;
+export type Character = typeof characters.$inferSelect;
+
+// Inventory items for characters
+export const inventoryItems = pgTable("inventory_items", {
+  id: varchar("id").primaryKey(),
+  characterId: varchar("character_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  quantity: integer("quantity").notNull().default(1),
+  grantedBy: text("granted_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertInventoryItemSchema = createInsertSchema(inventoryItems).omit({ id: true, createdAt: true });
+export type InsertInventoryItem = z.infer<typeof insertInventoryItemSchema>;
+export type InventoryItem = typeof inventoryItems.$inferSelect;
+
 // Dice roll result type
 export const diceRollSchema = z.object({
   id: z.string(),

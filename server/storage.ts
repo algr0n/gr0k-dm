@@ -3,7 +3,9 @@ import {
   type Player, type InsertPlayer,
   type DiceRollRecord, type InsertDiceRoll,
   type User, type UpsertUser,
-  rooms, players, diceRolls, users
+  type Character, type InsertCharacter,
+  type InventoryItem, type InsertInventoryItem,
+  rooms, players, diceRolls, users, characters, inventoryItems
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
@@ -44,6 +46,21 @@ export interface IStorage {
   getRecentDiceRolls(limit?: number): Promise<DiceRollRecord[]>;
   getDiceRollsByRoom(roomId: string, limit?: number): Promise<DiceRollRecord[]>;
   createDiceRoll(roll: InsertDiceRoll): Promise<DiceRollRecord>;
+  
+  // Characters
+  getCharacter(id: string): Promise<Character | undefined>;
+  getCharacterByPlayer(playerId: string, roomId: string): Promise<Character | undefined>;
+  getCharactersByRoom(roomId: string): Promise<Character[]>;
+  createCharacter(character: InsertCharacter): Promise<Character>;
+  updateCharacter(id: string, updates: Partial<Character>): Promise<Character | undefined>;
+  deleteCharacter(id: string): Promise<boolean>;
+  
+  // Inventory
+  getInventoryItem(id: string): Promise<InventoryItem | undefined>;
+  getInventoryByCharacter(characterId: string): Promise<InventoryItem[]>;
+  createInventoryItem(item: InsertInventoryItem): Promise<InventoryItem>;
+  updateInventoryItem(id: string, updates: Partial<InventoryItem>): Promise<InventoryItem | undefined>;
+  deleteInventoryItem(id: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -185,6 +202,89 @@ export class DatabaseStorage implements IStorage {
     };
     const result = await db.insert(diceRolls).values(values as any).returning();
     return result[0];
+  }
+
+  // Characters
+  async getCharacter(id: string): Promise<Character | undefined> {
+    const result = await db.select().from(characters).where(eq(characters.id, id));
+    return result[0];
+  }
+
+  async getCharacterByPlayer(playerId: string, roomId: string): Promise<Character | undefined> {
+    const result = await db.select().from(characters)
+      .where(and(eq(characters.playerId, playerId), eq(characters.roomId, roomId)));
+    return result[0];
+  }
+
+  async getCharactersByRoom(roomId: string): Promise<Character[]> {
+    return await db.select().from(characters).where(eq(characters.roomId, roomId));
+  }
+
+  async createCharacter(insertChar: InsertCharacter): Promise<Character> {
+    const id = randomUUID();
+    const values = {
+      id,
+      playerId: insertChar.playerId,
+      roomId: insertChar.roomId,
+      name: insertChar.name,
+      gameSystem: insertChar.gameSystem,
+      stats: insertChar.stats ?? {},
+      notes: insertChar.notes ?? null,
+    };
+    const result = await db.insert(characters).values(values as any).returning();
+    return result[0];
+  }
+
+  async updateCharacter(id: string, updates: Partial<Character>): Promise<Character | undefined> {
+    const result = await db.update(characters)
+      .set(updates)
+      .where(eq(characters.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteCharacter(id: string): Promise<boolean> {
+    const result = await db.delete(characters).where(eq(characters.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Inventory
+  async getInventoryItem(id: string): Promise<InventoryItem | undefined> {
+    const result = await db.select().from(inventoryItems).where(eq(inventoryItems.id, id));
+    return result[0];
+  }
+
+  async getInventoryByCharacter(characterId: string): Promise<InventoryItem[]> {
+    return await db.select().from(inventoryItems)
+      .where(eq(inventoryItems.characterId, characterId))
+      .orderBy(desc(inventoryItems.createdAt));
+  }
+
+  async createInventoryItem(insertItem: InsertInventoryItem): Promise<InventoryItem> {
+    const id = randomUUID();
+    const values = {
+      id,
+      characterId: insertItem.characterId,
+      name: insertItem.name,
+      description: insertItem.description ?? null,
+      quantity: insertItem.quantity ?? 1,
+      grantedBy: insertItem.grantedBy ?? null,
+    };
+    const result = await db.insert(inventoryItems).values(values as any).returning();
+    return result[0];
+  }
+
+  async updateInventoryItem(id: string, updates: Partial<InventoryItem>): Promise<InventoryItem | undefined> {
+    const result = await db.update(inventoryItems)
+      .set(updates)
+      .where(eq(inventoryItems.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteInventoryItem(id: string): Promise<boolean> {
+    const result = await db.delete(inventoryItems).where(eq(inventoryItems.id, id)).returning();
+    return result.length > 0;
   }
 }
 

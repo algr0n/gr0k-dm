@@ -42,12 +42,13 @@ export default function Landing() {
         gameSystem,
         hostName,
       });
-      return response.json() as Promise<Room>;
+      return response.json() as Promise<Room & { hostPlayer: { id: string } }>;
     },
-    onSuccess: (room) => {
+    onSuccess: (data) => {
       setHostDialogOpen(false);
       sessionStorage.setItem("playerName", hostName);
-      setLocation(`/room/${room.code}`);
+      sessionStorage.setItem("playerId", data.hostPlayer.id);
+      setLocation(`/room/${data.code}`);
     },
     onError: () => {
       toast({
@@ -65,9 +66,10 @@ export default function Landing() {
       });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       setJoinDialogOpen(false);
       sessionStorage.setItem("playerName", playerName);
+      sessionStorage.setItem("playerId", data.player.id);
       setLocation(`/room/${roomCode.toUpperCase()}`);
     },
     onError: () => {
