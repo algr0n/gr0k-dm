@@ -66,6 +66,11 @@ export async function registerRoutes(
       return;
     }
 
+    if (!room.isActive) {
+      ws.send(JSON.stringify({ type: "error", content: "This game has ended" }));
+      return;
+    }
+
     if (message.type === "chat" || message.type === "action") {
       const chatMessage: Message = {
         id: randomUUID(),
@@ -258,6 +263,43 @@ export async function registerRoutes(
       res.json(room.messageHistory || []);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch messages" });
+    }
+  });
+
+  app.post("/api/rooms/:code/end", async (req, res) => {
+    try {
+      const { hostName } = req.body;
+      const room = await storage.getRoomByCode(req.params.code.toUpperCase());
+      
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+
+      if (room.hostName !== hostName) {
+        return res.status(403).json({ error: "Only the host can end the game" });
+      }
+
+      await storage.updateRoom(room.id, { isActive: false });
+
+      const endMessage: Message = {
+        id: randomUUID(),
+        roomId: room.id,
+        playerName: "System",
+        content: "The game has ended. Thank you for playing!",
+        type: "system",
+        timestamp: new Date().toISOString(),
+      };
+
+      const updatedHistory = [...(room.messageHistory || []), endMessage].slice(-100);
+      await storage.updateRoom(room.id, { messageHistory: updatedHistory });
+
+      broadcastToRoom(req.params.code.toUpperCase(), { type: "message", message: endMessage });
+      broadcastToRoom(req.params.code.toUpperCase(), { type: "game_ended" });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("End game error:", error);
+      res.status(500).json({ error: "Failed to end game" });
     }
   });
 

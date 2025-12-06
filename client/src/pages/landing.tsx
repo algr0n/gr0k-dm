@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Swords, Users, Dice6, Bot, Plus, LogIn, Loader2 } from "lucide-react";
+import { Swords, Users, Dice6, Bot, Plus, LogIn, Loader2, RotateCcw } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { gameSystems, gameSystemLabels, type GameSystem, type Room } from "@shared/schema";
@@ -23,6 +23,17 @@ export default function Landing() {
   const [hostName, setHostName] = useState("");
   const [roomCode, setRoomCode] = useState("");
   const [playerName, setPlayerName] = useState("");
+  
+  // Check for last game session with state to enable reactivity
+  const [lastRoomCode, setLastRoomCode] = useState<string | null>(null);
+  const [lastPlayerName, setLastPlayerName] = useState<string | null>(null);
+  
+  useEffect(() => {
+    setLastRoomCode(sessionStorage.getItem("lastRoomCode"));
+    setLastPlayerName(sessionStorage.getItem("playerName"));
+  }, []);
+  
+  const canRejoin = lastRoomCode && lastPlayerName;
 
   const createRoomMutation = useMutation({
     mutationFn: async () => {
@@ -104,6 +115,18 @@ export default function Landing() {
           </p>
           
           <div className="flex flex-wrap justify-center gap-4 pt-4">
+            {canRejoin && (
+              <Button
+                size="lg"
+                variant="secondary"
+                onClick={() => setLocation(`/room/${lastRoomCode}`)}
+                data-testid="button-rejoin-game"
+              >
+                <RotateCcw className="mr-2 h-5 w-5" />
+                Rejoin Last Game
+              </Button>
+            )}
+            
             <Dialog open={hostDialogOpen} onOpenChange={setHostDialogOpen}>
               <DialogTrigger asChild>
                 <Button size="lg" data-testid="button-host-game">
@@ -251,7 +274,7 @@ export default function Landing() {
             </CardHeader>
             <CardContent>
               <CardDescription>
-                Support for D&D 5e, Pathfinder, Cyberpunk RED, Call of Cthulhu, Daggerheart, and more.
+                Support for D&D 5e, Daggerheart, Call of Cthulhu, and Cyberpunk RED.
               </CardDescription>
             </CardContent>
           </Card>

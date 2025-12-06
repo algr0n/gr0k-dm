@@ -15,17 +15,15 @@ export const sessions = pgTable(
 );
 
 // Game systems supported
-export const gameSystems = ["dnd5e", "cyberpunk", "daggerheart", "pathfinder", "coc", "custom"] as const;
+export const gameSystems = ["dnd5e", "daggerheart", "coc", "cyberpunk"] as const;
 export const gameSystemSchema = z.enum(gameSystems);
 export type GameSystem = z.infer<typeof gameSystemSchema>;
 
 export const gameSystemLabels: Record<GameSystem, string> = {
   dnd5e: "D&D 5th Edition",
-  cyberpunk: "Cyberpunk RED",
   daggerheart: "Daggerheart",
-  pathfinder: "Pathfinder 2e",
   coc: "Call of Cthulhu",
-  custom: "Custom System",
+  cyberpunk: "Cyberpunk RED",
 };
 
 // Message type for chat

@@ -1,15 +1,17 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Send, Dice6, Users, Copy, Check, Loader2 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { apiRequest } from "@/lib/queryClient";
 import { type Message, type Room, type Player, gameSystemLabels, type GameSystem } from "@shared/schema";
 
 export default function RoomPage() {
@@ -22,6 +24,8 @@ export default function RoomPage() {
   const [inputValue, setInputValue] = useState("");
   const [isConnected, setIsConnected] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState("chat");
+  const [gameEnded, setGameEnded] = useState(false);
   
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -32,12 +36,39 @@ export default function RoomPage() {
     enabled: !!code,
   });
 
+  const isHost = roomData?.hostName === playerName;
+
+  const endGameMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", `/api/rooms/${code}/end`, { hostName: playerName });
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Game ended",
+        description: "The game has been closed.",
+      });
+      sessionStorage.removeItem("lastRoomCode");
+      sessionStorage.removeItem("playerName");
+      setLocation("/");
+    },
+    onError: () => {
+      toast({
+        title: "Failed to end game",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   useEffect(() => {
     if (roomData) {
       setMessages(roomData.messageHistory || []);
       setPlayers(roomData.players || []);
+      setGameEnded(!roomData.isActive);
+      sessionStorage.setItem("lastRoomCode", code || "");
     }
-  }, [roomData]);
+  }, [roomData, code]);
 
   useEffect(() => {
     if (!code || !playerName) return;
@@ -59,6 +90,12 @@ export default function RoomPage() {
         setMessages((prev) => [...prev, data.message]);
       } else if (data.type === "player_joined") {
         setPlayers((prev) => [...prev, data.player]);
+      } else if (data.type === "game_ended") {
+        setGameEnded(true);
+        toast({
+          title: "Game ended",
+          description: "The host has ended this game session.",
+        });
       } else if (data.type === "error") {
         toast({
           title: "Error",
@@ -92,7 +129,7 @@ export default function RoomPage() {
 
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputValue.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    if (!inputValue.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || gameEnded) return;
 
     const isAction = inputValue.startsWith("*") && inputValue.endsWith("*");
     
@@ -159,6 +196,11 @@ export default function RoomPage() {
           <Badge variant="secondary" className="mt-1">
             {gameSystemLabels[roomData.gameSystem as GameSystem]}
           </Badge>
+          {gameEnded && (
+            <Badge variant="destructive" className="mt-1 ml-2">
+              Ended
+            </Badge>
+          )}
         </div>
         
         <div className="p-4 border-b">
@@ -200,7 +242,7 @@ export default function RoomPage() {
           </ScrollArea>
         </div>
 
-        <div className="p-4 border-t">
+        <div className="p-4 border-t space-y-3">
           <div className="flex items-center gap-2 text-sm">
             <div className={cn(
               "h-2 w-2 rounded-full",
@@ -210,75 +252,311 @@ export default function RoomPage() {
               {isConnected ? "Connected" : "Disconnected"}
             </span>
           </div>
+          
+          {isHost && !gameEnded && (
+            <Button
+              variant="destructive"
+              size="sm"
+              className="w-full"
+              onClick={() => endGameMutation.mutate()}
+              disabled={endGameMutation.isPending}
+              data-testid="button-end-game"
+            >
+              {endGameMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <XCircle className="h-4 w-4 mr-2" />
+              )}
+              End Game
+            </Button>
+          )}
         </div>
       </aside>
 
       <main className="flex-1 flex flex-col">
-        <ScrollArea className="flex-1 p-4">
-          <div className="space-y-4 max-w-3xl mx-auto">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={cn(
-                  "p-3 rounded-md",
-                  getMessageStyle(message.type)
-                )}
-                data-testid={`message-${message.id}`}
-              >
-                {message.type !== "system" && (
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className={cn(
-                      "font-medium text-sm",
-                      message.type === "dm" && "text-primary font-serif"
-                    )}>
-                      {message.playerName}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      {new Date(message.timestamp).toLocaleTimeString()}
-                    </span>
-                  </div>
-                )}
-                <p className="whitespace-pre-wrap">{message.content}</p>
-                {message.diceResult && (
-                  <div className="mt-2 flex items-center gap-2 text-sm">
-                    <Dice6 className="h-4 w-4" />
-                    <span className="font-mono">
-                      {message.diceResult.expression}: [{message.diceResult.rolls.join(", ")}]
-                      {message.diceResult.modifier !== 0 && (
-                        <span>
-                          {message.diceResult.modifier > 0 ? " + " : " - "}
-                          {Math.abs(message.diceResult.modifier)}
-                        </span>
-                      )}
-                      {" = "}
-                      <strong>{message.diceResult.total}</strong>
-                    </span>
-                  </div>
-                )}
-              </div>
-            ))}
-            <div ref={messagesEndRef} />
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
+          <div className="border-b px-4">
+            <TabsList className="h-12">
+              <TabsTrigger value="chat" className="gap-2" data-testid="tab-chat">
+                <MessageSquare className="h-4 w-4" />
+                Chat
+              </TabsTrigger>
+              <TabsTrigger value="character" className="gap-2" data-testid="tab-character">
+                <User className="h-4 w-4" />
+                Character
+              </TabsTrigger>
+            </TabsList>
           </div>
-        </ScrollArea>
 
-        <Separator />
+          <TabsContent value="chat" className="flex-1 flex flex-col mt-0 data-[state=inactive]:hidden">
+            <ScrollArea className="flex-1 p-4">
+              <div className="space-y-4 max-w-3xl mx-auto">
+                {messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={cn(
+                      "p-3 rounded-md",
+                      getMessageStyle(message.type)
+                    )}
+                    data-testid={`message-${message.id}`}
+                  >
+                    {message.type !== "system" && (
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={cn(
+                          "font-medium text-sm",
+                          message.type === "dm" && "text-primary font-serif"
+                        )}>
+                          {message.playerName}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(message.timestamp).toLocaleTimeString()}
+                        </span>
+                      </div>
+                    )}
+                    <p className="whitespace-pre-wrap">{message.content}</p>
+                    {message.diceResult && (
+                      <div className="mt-2 flex items-center gap-2 text-sm">
+                        <Dice6 className="h-4 w-4" />
+                        <span className="font-mono">
+                          {message.diceResult.expression}: [{message.diceResult.rolls.join(", ")}]
+                          {message.diceResult.modifier !== 0 && (
+                            <span>
+                              {message.diceResult.modifier > 0 ? " + " : " - "}
+                              {Math.abs(message.diceResult.modifier)}
+                            </span>
+                          )}
+                          {" = "}
+                          <strong>{message.diceResult.total}</strong>
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <div ref={messagesEndRef} />
+              </div>
+            </ScrollArea>
 
-        <form onSubmit={sendMessage} className="p-4 flex gap-2">
-          <Input
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            placeholder="Type a message... (use /roll 2d6+3 for dice, *asterisks* for actions)"
-            disabled={!isConnected}
-            data-testid="input-chat-message"
-          />
-          <Button 
-            type="submit" 
-            disabled={!isConnected || !inputValue.trim()}
-            data-testid="button-send-message"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
-        </form>
+            <Separator />
+
+            <form onSubmit={sendMessage} className="p-4 flex gap-2">
+              <Input
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                placeholder={gameEnded ? "Game has ended" : "Type a message... (use /roll 2d6+3 for dice, *asterisks* for actions)"}
+                disabled={!isConnected || gameEnded}
+                data-testid="input-chat-message"
+              />
+              <Button 
+                type="submit" 
+                disabled={!isConnected || !inputValue.trim() || gameEnded}
+                data-testid="button-send-message"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </form>
+          </TabsContent>
+
+          <TabsContent value="character" className="flex-1 p-4 mt-0 data-[state=inactive]:hidden">
+            <div className="max-w-2xl mx-auto space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="font-serif">Character Sheet</CardTitle>
+                  <p className="text-sm text-muted-foreground">Note: Character data is stored locally in your browser for this session.</p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-sm text-muted-foreground">Character Name</label>
+                      <Input placeholder="Enter character name" data-testid="input-character-name" />
+                    </div>
+                    <div>
+                      <label className="text-sm text-muted-foreground">Player</label>
+                      <Input value={playerName} disabled data-testid="input-player-name-display" />
+                    </div>
+                  </div>
+                  
+                  {roomData.gameSystem === "dnd5e" && (
+                    <>
+                      <Separator />
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <label className="text-sm text-muted-foreground">Class</label>
+                          <Input placeholder="e.g., Fighter" data-testid="input-dnd5e-class" />
+                        </div>
+                        <div>
+                          <label className="text-sm text-muted-foreground">Race</label>
+                          <Input placeholder="e.g., Human" data-testid="input-dnd5e-race" />
+                        </div>
+                        <div>
+                          <label className="text-sm text-muted-foreground">Level</label>
+                          <Input type="number" defaultValue={1} min={1} max={20} data-testid="input-dnd5e-level" />
+                        </div>
+                      </div>
+                      <Separator />
+                      <div>
+                        <label className="text-sm text-muted-foreground mb-2 block">Ability Scores</label>
+                        <div className="grid grid-cols-6 gap-2">
+                          {["STR", "DEX", "CON", "INT", "WIS", "CHA"].map((stat) => (
+                            <div key={stat} className="text-center">
+                              <label className="text-xs text-muted-foreground">{stat}</label>
+                              <Input 
+                                type="number" 
+                                defaultValue={10} 
+                                min={1} 
+                                max={30} 
+                                className="text-center"
+                                data-testid={`input-dnd5e-${stat.toLowerCase()}`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {roomData.gameSystem === "cyberpunk" && (
+                    <>
+                      <Separator />
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-sm text-muted-foreground">Role</label>
+                          <Input placeholder="e.g., Solo, Netrunner" data-testid="input-cyberpunk-role" />
+                        </div>
+                        <div>
+                          <label className="text-sm text-muted-foreground">Handle</label>
+                          <Input placeholder="Street name" data-testid="input-cyberpunk-handle" />
+                        </div>
+                      </div>
+                      <Separator />
+                      <div>
+                        <label className="text-sm text-muted-foreground mb-2 block">Stats</label>
+                        <div className="grid grid-cols-5 gap-2">
+                          {["INT", "REF", "DEX", "TECH", "COOL", "WILL", "LUCK", "MOVE", "BODY", "EMP"].map((stat) => (
+                            <div key={stat} className="text-center">
+                              <label className="text-xs text-muted-foreground">{stat}</label>
+                              <Input 
+                                type="number" 
+                                defaultValue={5} 
+                                min={1} 
+                                max={10} 
+                                className="text-center"
+                                data-testid={`input-cyberpunk-${stat.toLowerCase()}`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {roomData.gameSystem === "coc" && (
+                    <>
+                      <Separator />
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-sm text-muted-foreground">Occupation</label>
+                          <Input placeholder="e.g., Professor, Detective" data-testid="input-coc-occupation" />
+                        </div>
+                        <div>
+                          <label className="text-sm text-muted-foreground">Age</label>
+                          <Input type="number" defaultValue={30} data-testid="input-coc-age" />
+                        </div>
+                      </div>
+                      <Separator />
+                      <div>
+                        <label className="text-sm text-muted-foreground mb-2 block">Characteristics</label>
+                        <div className="grid grid-cols-4 gap-2">
+                          {["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU"].map((stat) => (
+                            <div key={stat} className="text-center">
+                              <label className="text-xs text-muted-foreground">{stat}</label>
+                              <Input 
+                                type="number" 
+                                defaultValue={50} 
+                                min={1} 
+                                max={100} 
+                                className="text-center"
+                                data-testid={`input-coc-${stat.toLowerCase()}`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div>
+                          <label className="text-sm text-muted-foreground">Sanity</label>
+                          <Input type="number" defaultValue={50} data-testid="input-coc-sanity" />
+                        </div>
+                        <div>
+                          <label className="text-sm text-muted-foreground">Luck</label>
+                          <Input type="number" defaultValue={50} data-testid="input-coc-luck" />
+                        </div>
+                        <div>
+                          <label className="text-sm text-muted-foreground">HP</label>
+                          <Input type="number" defaultValue={10} data-testid="input-coc-hp" />
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {roomData.gameSystem === "daggerheart" && (
+                    <>
+                      <Separator />
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-sm text-muted-foreground">Class</label>
+                          <Input placeholder="e.g., Guardian, Bard" data-testid="input-daggerheart-class" />
+                        </div>
+                        <div>
+                          <label className="text-sm text-muted-foreground">Ancestry</label>
+                          <Input placeholder="e.g., Human, Elf" data-testid="input-daggerheart-ancestry" />
+                        </div>
+                      </div>
+                      <Separator />
+                      <div>
+                        <label className="text-sm text-muted-foreground mb-2 block">Traits</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {["Agility", "Strength", "Finesse", "Instinct", "Presence", "Knowledge"].map((trait) => (
+                            <div key={trait} className="text-center">
+                              <label className="text-xs text-muted-foreground">{trait}</label>
+                              <Input 
+                                type="number" 
+                                defaultValue={0} 
+                                min={-2} 
+                                max={4} 
+                                className="text-center"
+                                data-testid={`input-daggerheart-${trait.toLowerCase()}`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-sm text-muted-foreground">Hope</label>
+                          <Input type="number" defaultValue={2} data-testid="input-daggerheart-hope" />
+                        </div>
+                        <div>
+                          <label className="text-sm text-muted-foreground">HP</label>
+                          <Input type="number" defaultValue={6} data-testid="input-daggerheart-hp" />
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  <Separator />
+                  <div>
+                    <label className="text-sm text-muted-foreground">Notes</label>
+                    <textarea
+                      className="w-full mt-1 p-2 border rounded-md bg-background min-h-[100px] text-sm"
+                      placeholder="Character background, inventory, abilities..."
+                      data-testid="textarea-notes"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   );
