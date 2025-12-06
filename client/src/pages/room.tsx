@@ -11,7 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus } from "lucide-react";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -479,6 +480,12 @@ export default function RoomPage() {
                 <Package className="h-4 w-4" />
                 Inventory
               </TabsTrigger>
+              {roomData?.gameSystem === "dnd" && (
+                <TabsTrigger value="skills" className="gap-2" data-testid="tab-skills">
+                  <Swords className="h-4 w-4" />
+                  Skills & Spells
+                </TabsTrigger>
+              )}
             </TabsList>
           </div>
 
@@ -596,7 +603,26 @@ export default function RoomPage() {
                           <label className="text-sm text-muted-foreground">Class {existingCharacter && "(Locked)"}</label>
                           <Select 
                             value={characterStats.class || ""} 
-                            onValueChange={(value) => setCharacterStats(prev => ({ ...prev, class: value }))}
+                            onValueChange={(value) => {
+                              const hitDiceByClass: Record<string, number> = {
+                                Barbarian: 12, Bard: 8, Cleric: 8, Druid: 8,
+                                Fighter: 10, Monk: 8, Paladin: 10, Ranger: 10,
+                                Rogue: 8, Sorcerer: 6, Warlock: 8, Wizard: 6,
+                              };
+                              const hitDie = hitDiceByClass[value] || 8;
+                              const conMod = Math.floor(((characterStats.con || 10) - 10) / 2);
+                              const startingHp = hitDie + conMod;
+                              setCharacterStats(prev => ({ 
+                                ...prev, 
+                                class: value,
+                                maxHp: startingHp,
+                                currentHp: startingHp,
+                              }));
+                              toast({
+                                title: `Class: ${value}`,
+                                description: `Starting HP set to ${startingHp} (d${hitDie} max + CON mod ${conMod >= 0 ? '+' : ''}${conMod})`,
+                              });
+                            }}
                             disabled={!!existingCharacter}
                           >
                             <SelectTrigger data-testid="select-dnd-class">
@@ -622,7 +648,51 @@ export default function RoomPage() {
                           <label className="text-sm text-muted-foreground">Race {existingCharacter && "(Locked)"}</label>
                           <Select 
                             value={characterStats.race || ""} 
-                            onValueChange={(value) => setCharacterStats(prev => ({ ...prev, race: value }))}
+                            onValueChange={(value) => {
+                              const racialBonuses: Record<string, { stats: Record<string, number>; desc: string }> = {
+                                Dragonborn: { stats: { str: 2, cha: 1 }, desc: "+2 STR, +1 CHA" },
+                                Dwarf: { stats: { con: 2 }, desc: "+2 CON" },
+                                Elf: { stats: { dex: 2 }, desc: "+2 DEX" },
+                                Gnome: { stats: { int: 2 }, desc: "+2 INT" },
+                                "Half-Elf": { stats: { cha: 2 }, desc: "+2 CHA" },
+                                "Half-Orc": { stats: { str: 2, con: 1 }, desc: "+2 STR, +1 CON" },
+                                Halfling: { stats: { dex: 2 }, desc: "+2 DEX" },
+                                Human: { stats: { str: 1, dex: 1, con: 1, int: 1, wis: 1, cha: 1 }, desc: "+1 to all" },
+                                Tiefling: { stats: { cha: 2, int: 1 }, desc: "+2 CHA, +1 INT" },
+                              };
+                              const bonus = racialBonuses[value];
+                              const abilityStats = ["str", "dex", "con", "int", "wis", "cha"];
+                              const newStats: Record<string, any> = { ...characterStats, race: value };
+                              
+                              // Store base stats if not already stored (first time setting abilities)
+                              if (!characterStats.baseStats) {
+                                const baseStats: Record<string, number> = {};
+                                abilityStats.forEach(stat => {
+                                  baseStats[stat] = characterStats[stat] || 10;
+                                });
+                                newStats.baseStats = baseStats;
+                              }
+                              
+                              // Reset to base stats before applying new bonuses
+                              const baseStats = newStats.baseStats || {};
+                              abilityStats.forEach(stat => {
+                                newStats[stat] = baseStats[stat] || 10;
+                              });
+                              
+                              // Apply new racial bonuses
+                              if (bonus) {
+                                Object.entries(bonus.stats).forEach(([stat, mod]) => {
+                                  newStats[stat] = (newStats[stat] || 10) + mod;
+                                });
+                                setCharacterStats(newStats);
+                                toast({
+                                  title: `Race: ${value}`,
+                                  description: `Applied racial bonuses: ${bonus.desc}`,
+                                });
+                              } else {
+                                setCharacterStats(newStats);
+                              }
+                            }}
                             disabled={!!existingCharacter}
                           >
                             <SelectTrigger data-testid="select-dnd-race">
@@ -788,14 +858,21 @@ export default function RoomPage() {
                                   rolls.sort((a, b) => b - a);
                                   return rolls[0] + rolls[1] + rolls[2];
                                 };
+                                const newStr = rollStat();
+                                const newDex = rollStat();
+                                const newCon = rollStat();
+                                const newInt = rollStat();
+                                const newWis = rollStat();
+                                const newCha = rollStat();
                                 setCharacterStats(prev => ({
                                   ...prev,
-                                  str: rollStat(),
-                                  dex: rollStat(),
-                                  con: rollStat(),
-                                  int: rollStat(),
-                                  wis: rollStat(),
-                                  cha: rollStat(),
+                                  str: newStr,
+                                  dex: newDex,
+                                  con: newCon,
+                                  int: newInt,
+                                  wis: newWis,
+                                  cha: newCha,
+                                  baseStats: { str: newStr, dex: newDex, con: newCon, int: newInt, wis: newWis, cha: newCha },
                                 }));
                               }}
                               data-testid="button-roll-stats"
@@ -812,7 +889,17 @@ export default function RoomPage() {
                               <Input 
                                 type="number" 
                                 value={characterStats[stat.toLowerCase()] || 10}
-                                onChange={(e) => setCharacterStats(prev => ({ ...prev, [stat.toLowerCase()]: parseInt(e.target.value) || 10 }))}
+                                onChange={(e) => {
+                                  const newValue = parseInt(e.target.value) || 10;
+                                  setCharacterStats(prev => ({
+                                    ...prev,
+                                    [stat.toLowerCase()]: newValue,
+                                    baseStats: {
+                                      ...(prev.baseStats || {}),
+                                      [stat.toLowerCase()]: newValue,
+                                    },
+                                  }));
+                                }}
                                 min={1} 
                                 max={30} 
                                 className="text-center"
@@ -1269,6 +1356,211 @@ export default function RoomPage() {
               </Card>
             </div>
           </TabsContent>
+
+          {roomData?.gameSystem === "dnd" && (
+            <TabsContent value="skills" className="flex-1 mt-0 overflow-auto data-[state=inactive]:hidden">
+              <div className="max-w-2xl mx-auto space-y-4 p-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="font-serif flex items-center gap-2">
+                      <Swords className="h-5 w-5" />
+                      Skills
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Click "Use" to tell the AI DM you're attempting that skill check.
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {[
+                        { name: "Acrobatics", stat: "dex" },
+                        { name: "Animal Handling", stat: "wis" },
+                        { name: "Arcana", stat: "int" },
+                        { name: "Athletics", stat: "str" },
+                        { name: "Deception", stat: "cha" },
+                        { name: "History", stat: "int" },
+                        { name: "Insight", stat: "wis" },
+                        { name: "Intimidation", stat: "cha" },
+                        { name: "Investigation", stat: "int" },
+                        { name: "Medicine", stat: "wis" },
+                        { name: "Nature", stat: "int" },
+                        { name: "Perception", stat: "wis" },
+                        { name: "Performance", stat: "cha" },
+                        { name: "Persuasion", stat: "cha" },
+                        { name: "Religion", stat: "int" },
+                        { name: "Sleight of Hand", stat: "dex" },
+                        { name: "Stealth", stat: "dex" },
+                        { name: "Survival", stat: "wis" },
+                      ].map((skill) => {
+                        const statValue = characterStats[skill.stat] || 10;
+                        const modifier = Math.floor((statValue - 10) / 2);
+                        const proficiencyBonus = Math.ceil(1 + (characterStats.level || 1) / 4);
+                        const isProficient = characterStats[`skill_${skill.name.replace(/\s/g, "_").toLowerCase()}`] || false;
+                        const totalMod = modifier + (isProficient ? proficiencyBonus : 0);
+                        return (
+                          <div 
+                            key={skill.name} 
+                            className="flex items-center justify-between p-2 border rounded-md gap-2"
+                            data-testid={`skill-${skill.name.replace(/\s/g, "-").toLowerCase()}`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <Checkbox 
+                                checked={isProficient}
+                                onCheckedChange={(checked) => {
+                                  setCharacterStats(prev => ({
+                                    ...prev,
+                                    [`skill_${skill.name.replace(/\s/g, "_").toLowerCase()}`]: checked,
+                                  }));
+                                }}
+                                data-testid={`checkbox-skill-${skill.name.replace(/\s/g, "-").toLowerCase()}`}
+                              />
+                              <span className="text-sm">{skill.name}</span>
+                              <Badge variant="outline" className="text-xs">
+                                {skill.stat.toUpperCase()}
+                              </Badge>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-sm">
+                                {totalMod >= 0 ? "+" : ""}{totalMod}
+                              </span>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !gameEnded) {
+                                    const roll = Math.floor(Math.random() * 20) + 1;
+                                    const total = roll + totalMod;
+                                    wsRef.current.send(JSON.stringify({
+                                      type: "action",
+                                      content: `*${characterName || playerName} attempts a ${skill.name} check* (Rolled d20: ${roll} + ${totalMod} = ${total})`,
+                                    }));
+                                    toast({
+                                      title: `${skill.name} Check`,
+                                      description: `Rolled d20 (${roll}) + ${totalMod} = ${total}`,
+                                    });
+                                    setActiveTab("chat");
+                                  }
+                                }}
+                                disabled={!isConnected || gameEnded}
+                                data-testid={`button-use-skill-${skill.name.replace(/\s/g, "-").toLowerCase()}`}
+                              >
+                                Use
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="font-serif flex items-center gap-2">
+                      <Sparkles className="h-5 w-5" />
+                      Spells
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Add your known spells and cast them to notify the AI DM.
+                    </p>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Add a spell..."
+                        value={characterStats.newSpellInput || ""}
+                        onChange={(e) => setCharacterStats(prev => ({ ...prev, newSpellInput: e.target.value }))}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && characterStats.newSpellInput?.trim()) {
+                            const spells = characterStats.spellList || [];
+                            setCharacterStats(prev => ({
+                              ...prev,
+                              spellList: [...spells, prev.newSpellInput.trim()],
+                              newSpellInput: "",
+                            }));
+                          }
+                        }}
+                        data-testid="input-add-spell"
+                      />
+                      <Button
+                        onClick={() => {
+                          if (characterStats.newSpellInput?.trim()) {
+                            const spells = characterStats.spellList || [];
+                            setCharacterStats(prev => ({
+                              ...prev,
+                              spellList: [...spells, prev.newSpellInput.trim()],
+                              newSpellInput: "",
+                            }));
+                          }
+                        }}
+                        disabled={!characterStats.newSpellInput?.trim()}
+                        data-testid="button-add-spell"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    {(characterStats.spellList && characterStats.spellList.length > 0) ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {characterStats.spellList.map((spell: string, index: number) => (
+                          <div 
+                            key={`${spell}-${index}`}
+                            className="flex items-center justify-between p-2 border rounded-md gap-2"
+                            data-testid={`spell-${index}`}
+                          >
+                            <span className="text-sm">{spell}</span>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => {
+                                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !gameEnded) {
+                                    wsRef.current.send(JSON.stringify({
+                                      type: "action",
+                                      content: `*${characterName || playerName} casts ${spell}!*`,
+                                    }));
+                                    toast({
+                                      title: "Spell Cast",
+                                      description: `You cast ${spell}`,
+                                    });
+                                    setActiveTab("chat");
+                                  }
+                                }}
+                                disabled={!isConnected || gameEnded}
+                                data-testid={`button-cast-spell-${index}`}
+                              >
+                                Cast
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => {
+                                  const spells = [...(characterStats.spellList || [])];
+                                  spells.splice(index, 1);
+                                  setCharacterStats(prev => ({ ...prev, spellList: spells }));
+                                }}
+                                data-testid={`button-remove-spell-${index}`}
+                              >
+                                <Trash2 className="h-4 w-4 text-muted-foreground" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8">
+                        <Sparkles className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
+                        <p className="text-muted-foreground">No spells added yet.</p>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Add spells using the input above.
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+          )}
         </Tabs>
       </main>
 
