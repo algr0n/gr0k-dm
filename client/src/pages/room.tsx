@@ -593,10 +593,11 @@ export default function RoomPage() {
                       <Separator />
                       <div className="grid grid-cols-3 gap-4">
                         <div>
-                          <label className="text-sm text-muted-foreground">Class</label>
+                          <label className="text-sm text-muted-foreground">Class {existingCharacter && "(Locked)"}</label>
                           <Select 
                             value={characterStats.class || ""} 
                             onValueChange={(value) => setCharacterStats(prev => ({ ...prev, class: value }))}
+                            disabled={!!existingCharacter}
                           >
                             <SelectTrigger data-testid="select-dnd-class">
                               <SelectValue placeholder="Select class" />
@@ -618,10 +619,11 @@ export default function RoomPage() {
                           </Select>
                         </div>
                         <div>
-                          <label className="text-sm text-muted-foreground">Race</label>
+                          <label className="text-sm text-muted-foreground">Race {existingCharacter && "(Locked)"}</label>
                           <Select 
                             value={characterStats.race || ""} 
                             onValueChange={(value) => setCharacterStats(prev => ({ ...prev, race: value }))}
+                            disabled={!!existingCharacter}
                           >
                             <SelectTrigger data-testid="select-dnd-race">
                               <SelectValue placeholder="Select race" />
@@ -641,14 +643,50 @@ export default function RoomPage() {
                         </div>
                         <div>
                           <label className="text-sm text-muted-foreground">Level</label>
-                          <Input 
-                            type="number" 
-                            value={characterStats.level || 1}
-                            onChange={(e) => setCharacterStats(prev => ({ ...prev, level: parseInt(e.target.value) || 1 }))}
-                            min={1} 
-                            max={20} 
-                            data-testid="input-dnd-level" 
-                          />
+                          <div className="flex gap-2 items-center">
+                            <Input 
+                              type="number" 
+                              value={characterStats.level || 1}
+                              onChange={(e) => setCharacterStats(prev => ({ ...prev, level: parseInt(e.target.value) || 1 }))}
+                              min={1} 
+                              max={20} 
+                              data-testid="input-dnd-level" 
+                            />
+                            {existingCharacter && (characterStats.level || 1) < 20 && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  const hitDiceByClass: Record<string, number> = {
+                                    Barbarian: 12, Bard: 8, Cleric: 8, Druid: 8,
+                                    Fighter: 10, Monk: 8, Paladin: 10, Ranger: 10,
+                                    Rogue: 8, Sorcerer: 6, Warlock: 8, Wizard: 6,
+                                  };
+                                  const hitDie = hitDiceByClass[characterStats.class] || 8;
+                                  const roll = Math.floor(Math.random() * hitDie) + 1;
+                                  const conMod = Math.floor(((characterStats.con || 10) - 10) / 2);
+                                  const hpIncrease = Math.max(1, roll + conMod);
+                                  const newLevel = (characterStats.level || 1) + 1;
+                                  const newMaxHp = (characterStats.maxHp || 0) + hpIncrease;
+                                  const newCurrentHp = (characterStats.currentHp || 0) + hpIncrease;
+                                  setCharacterStats(prev => ({
+                                    ...prev,
+                                    level: newLevel,
+                                    maxHp: newMaxHp,
+                                    currentHp: newCurrentHp,
+                                  }));
+                                  toast({
+                                    title: `Level Up! Now Level ${newLevel}`,
+                                    description: `Rolled 1d${hitDie} (${roll}) + CON mod (${conMod >= 0 ? '+' : ''}${conMod}) = +${hpIncrease} HP`,
+                                  });
+                                }}
+                                data-testid="button-level-up"
+                              >
+                                Level Up
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </div>
                       <Separator />
@@ -732,7 +770,41 @@ export default function RoomPage() {
                       </div>
                       <Separator />
                       <div>
-                        <label className="text-sm text-muted-foreground mb-2 block">Ability Scores</label>
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <label className="text-sm text-muted-foreground">Ability Scores</label>
+                          {!existingCharacter && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const rollStat = () => {
+                                  const rolls = [
+                                    Math.floor(Math.random() * 6) + 1,
+                                    Math.floor(Math.random() * 6) + 1,
+                                    Math.floor(Math.random() * 6) + 1,
+                                    Math.floor(Math.random() * 6) + 1,
+                                  ];
+                                  rolls.sort((a, b) => b - a);
+                                  return rolls[0] + rolls[1] + rolls[2];
+                                };
+                                setCharacterStats(prev => ({
+                                  ...prev,
+                                  str: rollStat(),
+                                  dex: rollStat(),
+                                  con: rollStat(),
+                                  int: rollStat(),
+                                  wis: rollStat(),
+                                  cha: rollStat(),
+                                }));
+                              }}
+                              data-testid="button-roll-stats"
+                            >
+                              <Dice6 className="h-4 w-4 mr-1" />
+                              Roll Stats (4d6 drop lowest)
+                            </Button>
+                          )}
+                        </div>
                         <div className="grid grid-cols-6 gap-2">
                           {["STR", "DEX", "CON", "INT", "WIS", "CHA"].map((stat) => (
                             <div key={stat} className="text-center">
@@ -744,6 +816,7 @@ export default function RoomPage() {
                                 min={1} 
                                 max={30} 
                                 className="text-center"
+                                disabled={!!existingCharacter}
                                 data-testid={`input-dnd-${stat.toLowerCase()}`}
                               />
                             </div>
@@ -783,10 +856,11 @@ export default function RoomPage() {
                       <Separator />
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="text-sm text-muted-foreground">Role</label>
+                          <label className="text-sm text-muted-foreground">Role {existingCharacter && "(Locked)"}</label>
                           <Select 
                             value={characterStats.role || ""} 
                             onValueChange={(value) => setCharacterStats(prev => ({ ...prev, role: value }))}
+                            disabled={!!existingCharacter}
                           >
                             <SelectTrigger data-testid="select-cyberpunk-role">
                               <SelectValue placeholder="Select role" />
@@ -817,13 +891,14 @@ export default function RoomPage() {
                       </div>
                       <Separator />
                       <div>
-                        <label className="text-sm text-muted-foreground mb-2 block">Lifepath</label>
+                        <label className="text-sm text-muted-foreground mb-2 block">Lifepath {existingCharacter && "(Locked)"}</label>
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="text-xs text-muted-foreground">Cultural Origin</label>
                             <Select 
                               value={characterStats.culturalOrigin || ""} 
                               onValueChange={(value) => setCharacterStats(prev => ({ ...prev, culturalOrigin: value }))}
+                              disabled={!!existingCharacter}
                             >
                               <SelectTrigger data-testid="select-cyberpunk-origin">
                                 <SelectValue placeholder="Select origin" />
@@ -847,6 +922,7 @@ export default function RoomPage() {
                             <Select 
                               value={characterStats.familyBackground || ""} 
                               onValueChange={(value) => setCharacterStats(prev => ({ ...prev, familyBackground: value }))}
+                              disabled={!!existingCharacter}
                             >
                               <SelectTrigger data-testid="select-cyberpunk-family">
                                 <SelectValue placeholder="Select background" />
@@ -889,16 +965,28 @@ export default function RoomPage() {
                       </div>
                       <Separator />
                       <div>
-                        <label className="text-sm text-muted-foreground mb-2 block">Currency</label>
-                        <div className="max-w-xs">
-                          <label className="text-xs text-muted-foreground">Eurobucks (eb)</label>
-                          <Input 
-                            type="number" 
-                            value={characterStats.eurobucks || 0}
-                            onChange={(e) => setCharacterStats(prev => ({ ...prev, eurobucks: parseInt(e.target.value) || 0 }))}
-                            min={0} 
-                            data-testid="input-cyberpunk-eurobucks"
-                          />
+                        <label className="text-sm text-muted-foreground mb-2 block">Currency & Advancement</label>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-xs text-muted-foreground">Eurobucks (eb)</label>
+                            <Input 
+                              type="number" 
+                              value={characterStats.eurobucks || 0}
+                              onChange={(e) => setCharacterStats(prev => ({ ...prev, eurobucks: parseInt(e.target.value) || 0 }))}
+                              min={0} 
+                              data-testid="input-cyberpunk-eurobucks"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-muted-foreground">Improvement Points (IP)</label>
+                            <Input 
+                              type="number" 
+                              value={characterStats.improvementPoints || 0}
+                              onChange={(e) => setCharacterStats(prev => ({ ...prev, improvementPoints: parseInt(e.target.value) || 0 }))}
+                              min={0} 
+                              data-testid="input-cyberpunk-ip"
+                            />
+                          </div>
                         </div>
                       </div>
                     </>
