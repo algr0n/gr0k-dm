@@ -1,8 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { parseDiceExpression } from "./dice";
-import { getBotStatus, updateBotStatus } from "./discord";
+import { getBotStatus, updateBotStatus, sendMessageToChannel } from "./discord";
 import { insertCharacterSchema } from "@shared/schema";
 
 export async function registerRoutes(
@@ -98,6 +99,53 @@ export async function registerRoutes(
       res.json(session);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch session" });
+    }
+  });
+
+  // Get session messages
+  app.get("/api/sessions/:id/messages", async (req, res) => {
+    try {
+      const session = await storage.getSession(req.params.id);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      res.json(session.messageHistory || []);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch messages" });
+    }
+  });
+
+  // Send message to Discord channel
+  app.post("/api/sessions/:id/messages", async (req, res) => {
+    try {
+      const session = await storage.getSession(req.params.id);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+
+      const { content, username } = req.body;
+      if (!content || typeof content !== "string") {
+        return res.status(400).json({ error: "Message content is required" });
+      }
+
+      await sendMessageToChannel(session.discordChannelId, content, username);
+
+      const newMessage = {
+        id: randomUUID(),
+        role: "user" as const,
+        content,
+        timestamp: new Date().toISOString(),
+        discordUsername: username ? `[Web] ${username}` : "[Web]",
+      };
+
+      const currentHistory = session.messageHistory || [];
+      const updatedHistory = [...currentHistory, newMessage];
+      await storage.updateSession(session.id, { messageHistory: updatedHistory.slice(-50) });
+
+      res.json(newMessage);
+    } catch (error) {
+      console.error("Failed to send message:", error);
+      res.status(500).json({ error: "Failed to send message to Discord" });
     }
   });
 

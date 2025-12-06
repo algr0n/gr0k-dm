@@ -537,3 +537,24 @@ export async function initDiscordBot() {
 export function getDiscordClient() {
   return discordClient;
 }
+
+export async function sendMessageToChannel(channelId: string, content: string, username?: string) {
+  if (!discordClient || !discordClient.isReady()) {
+    throw new Error("Discord client not ready");
+  }
+
+  const channel = await discordClient.channels.fetch(channelId);
+  if (!channel || !channel.isTextBased()) {
+    throw new Error("Channel not found or not a text channel");
+  }
+
+  const formattedContent = username ? `**[Web] ${username}:** ${content}` : `**[Web]:** ${content}`;
+  
+  if ('send' in channel && typeof channel.send === 'function') {
+    await channel.send(formattedContent);
+  } else {
+    throw new Error("Channel does not support sending messages");
+  }
+  
+  return true;
+}

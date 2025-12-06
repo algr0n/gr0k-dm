@@ -5,6 +5,7 @@ import { GameSessions } from "@/components/game-sessions";
 import { QuestLog } from "@/components/quest-log";
 import { ActivityFeed } from "@/components/activity-feed";
 import { CommandsHelp } from "@/components/commands-help";
+import { SessionChat } from "@/components/session-chat";
 
 export default function Dashboard() {
   return (
@@ -30,6 +31,7 @@ export default function Dashboard() {
             </div>
           </div>
 
+          <SessionChat />
           <ActivityFeed />
         </div>
 
