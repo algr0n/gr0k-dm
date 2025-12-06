@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -41,18 +40,18 @@ export function QuestLog() {
   };
 
   return (
-    <Card className="flex flex-col h-full">
-      <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
-        <CardTitle className="flex items-center gap-2">
+    <div className="flex flex-col">
+      <div className="flex items-center justify-between gap-4 mb-4">
+        <h3 className="flex items-center gap-2 font-semibold">
           <Scroll className="h-5 w-5" />
           <span className="font-serif">Quest Log</span>
-        </CardTitle>
+        </h3>
         <div className="flex gap-2">
           <Badge variant="outline">{activeQuests.length} active</Badge>
         </div>
-      </CardHeader>
-      <CardContent className="flex-1 min-h-0">
-        <ScrollArea className="h-[300px]">
+      </div>
+      <div className="flex-1 min-h-0">
+        <ScrollArea className="h-[350px]">
           {isLoading ? (
             <div className="space-y-3">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -95,8 +94,8 @@ export function QuestLog() {
             </div>
           )}
         </ScrollArea>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 

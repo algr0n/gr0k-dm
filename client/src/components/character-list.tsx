@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Users, Plus } from "lucide-react";
@@ -48,12 +47,12 @@ export function CharacterList() {
 
   return (
     <>
-      <Card className="flex flex-col h-full">
-        <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
-          <CardTitle className="flex items-center gap-2">
+      <div className="flex flex-col">
+        <div className="flex items-center justify-between gap-4 mb-4">
+          <h3 className="flex items-center gap-2 font-semibold">
             <Users className="h-5 w-5" />
             <span className="font-serif">Characters</span>
-          </CardTitle>
+          </h3>
           <Button 
             size="sm" 
             onClick={() => setCreatorOpen(true)}
@@ -62,9 +61,9 @@ export function CharacterList() {
             <Plus className="h-4 w-4 mr-1" />
             Create
           </Button>
-        </CardHeader>
-        <CardContent className="flex-1 min-h-0">
-          <ScrollArea className="h-[400px]">
+        </div>
+        <div className="flex-1 min-h-0">
+          <ScrollArea className="h-[350px]">
             {isLoading ? (
               <div className="space-y-4">
                 <CharacterCardSkeleton />
@@ -91,8 +90,8 @@ export function CharacterList() {
               </div>
             )}
           </ScrollArea>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       <CharacterSheet
         character={selectedCharacter}

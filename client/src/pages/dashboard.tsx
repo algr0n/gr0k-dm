@@ -6,6 +6,9 @@ import { QuestLog } from "@/components/quest-log";
 import { ActivityFeed } from "@/components/activity-feed";
 import { CommandsHelp } from "@/components/commands-help";
 import { SessionChat } from "@/components/session-chat";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent } from "@/components/ui/card";
+import { Users, Swords, ScrollText } from "lucide-react";
 
 export default function Dashboard() {
   return (
@@ -23,13 +26,38 @@ export default function Dashboard() {
         <div className="lg:col-span-2 space-y-6">
           <BotStatusCard />
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <CharacterList />
-            <div className="space-y-6">
-              <GameSessions />
-              <QuestLog />
-            </div>
-          </div>
+          <Card>
+            <CardContent className="pt-6">
+              <Tabs defaultValue="games" className="w-full">
+                <TabsList className="grid w-full grid-cols-3 mb-4">
+                  <TabsTrigger value="games" className="gap-2" data-testid="tab-games">
+                    <Swords className="h-4 w-4" />
+                    <span className="hidden sm:inline">Active Games</span>
+                    <span className="sm:hidden">Games</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="characters" className="gap-2" data-testid="tab-characters">
+                    <Users className="h-4 w-4" />
+                    <span className="hidden sm:inline">Characters</span>
+                    <span className="sm:hidden">Chars</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="quests" className="gap-2" data-testid="tab-quests">
+                    <ScrollText className="h-4 w-4" />
+                    <span className="hidden sm:inline">Quest Log</span>
+                    <span className="sm:hidden">Quests</span>
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="games" className="mt-0">
+                  <GameSessions />
+                </TabsContent>
+                <TabsContent value="characters" className="mt-0">
+                  <CharacterList />
+                </TabsContent>
+                <TabsContent value="quests" className="mt-0">
+                  <QuestLog />
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
 
           <SessionChat />
           <ActivityFeed />
