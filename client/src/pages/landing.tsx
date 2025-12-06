@@ -19,7 +19,7 @@ export default function Landing() {
   const [hostDialogOpen, setHostDialogOpen] = useState(false);
   const [joinDialogOpen, setJoinDialogOpen] = useState(false);
   const [gameName, setGameName] = useState("");
-  const [gameSystem, setGameSystem] = useState<GameSystem>("dnd5e");
+  const [gameSystem, setGameSystem] = useState<GameSystem>("dnd");
   const [hostName, setHostName] = useState("");
   const [roomCode, setRoomCode] = useState("");
   const [playerName, setPlayerName] = useState("");
@@ -276,7 +276,7 @@ export default function Landing() {
             </CardHeader>
             <CardContent>
               <CardDescription>
-                Support for D&D 5e, Daggerheart, Call of Cthulhu, and Cyberpunk RED.
+                Support for D&D 5th Edition and Cyberpunk RED.
               </CardDescription>
             </CardContent>
           </Card>

@@ -15,14 +15,12 @@ export const sessions = pgTable(
 );
 
 // Game systems supported
-export const gameSystems = ["dnd5e", "daggerheart", "coc", "cyberpunk"] as const;
+export const gameSystems = ["dnd", "cyberpunk"] as const;
 export const gameSystemSchema = z.enum(gameSystems);
 export type GameSystem = z.infer<typeof gameSystemSchema>;
 
 export const gameSystemLabels: Record<GameSystem, string> = {
-  dnd5e: "D&D 5th Edition",
-  daggerheart: "Daggerheart",
-  coc: "Call of Cthulhu",
+  dnd: "D&D 5th Edition",
   cyberpunk: "Cyberpunk RED",
 };
 
@@ -49,7 +47,7 @@ export const rooms = pgTable("rooms", {
   id: varchar("id").primaryKey(),
   code: varchar("code", { length: 8 }).notNull().unique(),
   name: text("name").notNull(),
-  gameSystem: text("game_system").notNull().default("dnd5e"),
+  gameSystem: text("game_system").notNull().default("dnd"),
   hostName: text("host_name").notNull(),
   description: text("description"),
   currentScene: text("current_scene"),

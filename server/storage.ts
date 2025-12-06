@@ -112,7 +112,7 @@ export class DatabaseStorage implements IStorage {
       id,
       code,
       name: insertRoom.name,
-      gameSystem: insertRoom.gameSystem || "dnd5e",
+      gameSystem: insertRoom.gameSystem || "dnd",
       hostName: insertRoom.hostName,
       description: insertRoom.description ?? null,
       currentScene: insertRoom.currentScene ?? null,

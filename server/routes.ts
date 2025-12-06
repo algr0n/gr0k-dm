@@ -225,7 +225,7 @@ export async function registerRoutes(
 
       const room = await storage.createRoom({
         name,
-        gameSystem: gameSystem || "dnd5e",
+        gameSystem: gameSystem || "dnd",
         hostName,
         code: "",
       });
@@ -364,6 +364,39 @@ export async function registerRoutes(
     } catch (error) {
       console.error("End game error:", error);
       res.status(500).json({ error: "Failed to end game" });
+    }
+  });
+
+  app.post("/api/rooms/:code/leave", async (req, res) => {
+    try {
+      const { playerId, playerName } = req.body;
+      const room = await storage.getRoomByCode(req.params.code.toUpperCase());
+      
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+
+      await storage.deletePlayer(playerId);
+
+      const leaveMessage: Message = {
+        id: randomUUID(),
+        roomId: room.id,
+        playerName: "System",
+        content: `${playerName} has left the game.`,
+        type: "system",
+        timestamp: new Date().toISOString(),
+      };
+
+      const updatedHistory = [...(room.messageHistory || []), leaveMessage].slice(-100);
+      await storage.updateRoom(room.id, { messageHistory: updatedHistory });
+
+      broadcastToRoom(req.params.code.toUpperCase(), { type: "message", message: leaveMessage });
+      broadcastToRoom(req.params.code.toUpperCase(), { type: "player_left", playerId, playerName });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Leave game error:", error);
+      res.status(500).json({ error: "Failed to leave game" });
     }
   });
 

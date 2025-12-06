@@ -10,7 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2 } from "lucide-react";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -161,6 +161,30 @@ export default function RoomPage() {
     },
   });
 
+  const leaveGameMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", `/api/rooms/${code}/leave`, { playerId, playerName });
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Left game",
+        description: "You have left the game.",
+      });
+      sessionStorage.removeItem("lastRoomCode");
+      sessionStorage.removeItem("playerName");
+      sessionStorage.removeItem("playerId");
+      setLocation("/");
+    },
+    onError: () => {
+      toast({
+        title: "Failed to leave game",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   useEffect(() => {
     if (roomData) {
       setMessages(roomData.messageHistory || []);
@@ -202,6 +226,8 @@ export default function RoomPage() {
         if (data.playerId === playerId && existingCharacter?.id) {
           queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter.id, "inventory"] });
         }
+      } else if (data.type === "player_left") {
+        setPlayers((prev) => prev.filter((p) => p.id !== data.playerId));
       } else if (data.type === "error") {
         toast({
           title: "Error",
@@ -383,6 +409,24 @@ export default function RoomPage() {
               End Game
             </Button>
           )}
+          
+          {!isHost && !gameEnded && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => leaveGameMutation.mutate()}
+              disabled={leaveGameMutation.isPending}
+              data-testid="button-leave-game"
+            >
+              {leaveGameMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <LogOut className="h-4 w-4 mr-2" />
+              )}
+              Leave Game
+            </Button>
+          )}
         </div>
       </aside>
 
@@ -511,7 +555,7 @@ export default function RoomPage() {
                     </div>
                   </div>
                   
-                  {roomData.gameSystem === "dnd5e" && (
+                  {roomData.gameSystem === "dnd" && (
                     <>
                       <Separator />
                       <div className="grid grid-cols-3 gap-4">
@@ -521,7 +565,7 @@ export default function RoomPage() {
                             placeholder="e.g., Fighter" 
                             value={characterStats.class || ""}
                             onChange={(e) => setCharacterStats(prev => ({ ...prev, class: e.target.value }))}
-                            data-testid="input-dnd5e-class" 
+                            data-testid="input-dnd-class" 
                           />
                         </div>
                         <div>
@@ -530,7 +574,7 @@ export default function RoomPage() {
                             placeholder="e.g., Human" 
                             value={characterStats.race || ""}
                             onChange={(e) => setCharacterStats(prev => ({ ...prev, race: e.target.value }))}
-                            data-testid="input-dnd5e-race" 
+                            data-testid="input-dnd-race" 
                           />
                         </div>
                         <div>
@@ -541,7 +585,7 @@ export default function RoomPage() {
                             onChange={(e) => setCharacterStats(prev => ({ ...prev, level: parseInt(e.target.value) || 1 }))}
                             min={1} 
                             max={20} 
-                            data-testid="input-dnd5e-level" 
+                            data-testid="input-dnd-level" 
                           />
                         </div>
                       </div>
@@ -559,7 +603,7 @@ export default function RoomPage() {
                                 min={1} 
                                 max={30} 
                                 className="text-center"
-                                data-testid={`input-dnd5e-${stat.toLowerCase()}`}
+                                data-testid={`input-dnd-${stat.toLowerCase()}`}
                               />
                             </div>
                           ))}
@@ -887,14 +931,30 @@ export default function RoomPage() {
                 <>
                   <Separator />
                   <div>
-                    <span className="text-sm text-muted-foreground mb-2 block">Stats</span>
+                    <span className="text-sm text-muted-foreground mb-2 block">
+                      {viewedCharacter.gameSystem === "dnd" ? "Ability Scores" : "Stats"}
+                    </span>
                     <div className="grid grid-cols-3 gap-2">
-                      {Object.entries(viewedCharacter.stats).map(([key, value]) => (
-                        <div key={key} className="text-center p-2 bg-muted rounded-md">
-                          <span className="text-xs text-muted-foreground uppercase">{key}</span>
-                          <p className="font-medium">{String(value)}</p>
-                        </div>
-                      ))}
+                      {Object.entries(viewedCharacter.stats).map(([key, value]) => {
+                        const dndLabels: Record<string, string> = {
+                          strength: "STR", dexterity: "DEX", constitution: "CON",
+                          intelligence: "INT", wisdom: "WIS", charisma: "CHA"
+                        };
+                        const cyberpunkLabels: Record<string, string> = {
+                          int: "INT", ref: "REF", dex: "DEX", tech: "TECH",
+                          cool: "COOL", will: "WILL", luck: "LUCK", move: "MOVE",
+                          body: "BODY", emp: "EMP"
+                        };
+                        const label = viewedCharacter.gameSystem === "dnd" 
+                          ? dndLabels[key] || key.toUpperCase()
+                          : cyberpunkLabels[key] || key.toUpperCase();
+                        return (
+                          <div key={key} className="text-center p-2 bg-muted rounded-md" data-testid={`stat-${key}`}>
+                            <span className="text-xs text-muted-foreground">{label}</span>
+                            <p className="font-mono font-bold text-lg">{String(value)}</p>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </>
