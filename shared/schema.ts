@@ -3,7 +3,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { sql } from "drizzle-orm";
 
-// Session storage table for Replit Auth
+// Session storage table for express sessions
 export const sessions = pgTable(
   "sessions",
   {
@@ -14,66 +14,68 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
-// Game system type
-export const gameSystemSchema = z.enum(["dnd", "cyberpunk"]);
+// Game systems supported
+export const gameSystems = ["dnd5e", "cyberpunk", "daggerheart", "pathfinder", "coc", "custom"] as const;
+export const gameSystemSchema = z.enum(gameSystems);
 export type GameSystem = z.infer<typeof gameSystemSchema>;
 
-// D&D Character stats
-export const dndStatsSchema = z.object({
-  strength: z.number().min(1).max(30).default(10),
-  dexterity: z.number().min(1).max(30).default(10),
-  constitution: z.number().min(1).max(30).default(10),
-  intelligence: z.number().min(1).max(30).default(10),
-  wisdom: z.number().min(1).max(30).default(10),
-  charisma: z.number().min(1).max(30).default(10),
-});
+export const gameSystemLabels: Record<GameSystem, string> = {
+  dnd5e: "D&D 5th Edition",
+  cyberpunk: "Cyberpunk RED",
+  daggerheart: "Daggerheart",
+  pathfinder: "Pathfinder 2e",
+  coc: "Call of Cthulhu",
+  custom: "Custom System",
+};
 
-export type DndStats = z.infer<typeof dndStatsSchema>;
-
-// Cyberpunk Character stats (based on Cyberpunk RED)
-export const cyberpunkStatsSchema = z.object({
-  int: z.number().min(1).max(10).default(5),       // Intelligence
-  ref: z.number().min(1).max(10).default(5),       // Reflexes
-  dex: z.number().min(1).max(10).default(5),       // Dexterity
-  tech: z.number().min(1).max(10).default(5),      // Technical Ability
-  cool: z.number().min(1).max(10).default(5),      // Cool
-  will: z.number().min(1).max(10).default(5),      // Willpower
-  luck: z.number().min(1).max(10).default(5),      // Luck
-  move: z.number().min(1).max(10).default(5),      // Movement
-  body: z.number().min(1).max(10).default(5),      // Body
-  emp: z.number().min(1).max(10).default(5),       // Empathy
-});
-
-export type CyberpunkStats = z.infer<typeof cyberpunkStatsSchema>;
-
-// Combined character stats type (supports both systems)
-export const characterStatsSchema = z.union([dndStatsSchema, cyberpunkStatsSchema]);
-export type CharacterStats = z.infer<typeof characterStatsSchema>;
-
-// Inventory item type
-export const inventoryItemSchema = z.object({
+// Message type for chat
+export const messageSchema = z.object({
   id: z.string(),
-  name: z.string(),
-  description: z.string().optional(),
-  quantity: z.number().default(1),
-  type: z.enum(["weapon", "armor", "potion", "misc", "gold"]),
+  roomId: z.string(),
+  playerName: z.string(),
+  content: z.string(),
+  type: z.enum(["chat", "action", "roll", "system", "dm"]),
+  timestamp: z.string(),
+  diceResult: z.object({
+    expression: z.string(),
+    rolls: z.array(z.number()),
+    modifier: z.number(),
+    total: z.number(),
+  }).optional(),
 });
 
-export type InventoryItem = z.infer<typeof inventoryItemSchema>;
+export type Message = z.infer<typeof messageSchema>;
 
-// Quest log entry type
-export const questEntrySchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  description: z.string(),
-  status: z.enum(["active", "completed", "failed"]),
-  objectives: z.array(z.object({
-    text: z.string(),
-    completed: z.boolean(),
-  })).optional(),
+// Room/game session table
+export const rooms = pgTable("rooms", {
+  id: varchar("id").primaryKey(),
+  code: varchar("code", { length: 8 }).notNull().unique(),
+  name: text("name").notNull(),
+  gameSystem: text("game_system").notNull().default("dnd5e"),
+  hostName: text("host_name").notNull(),
+  description: text("description"),
+  currentScene: text("current_scene"),
+  messageHistory: jsonb("message_history").$type<Message[]>().notNull().default([]),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export type QuestEntry = z.infer<typeof questEntrySchema>;
+export const insertRoomSchema = createInsertSchema(rooms).omit({ id: true, createdAt: true });
+export type InsertRoom = z.infer<typeof insertRoomSchema>;
+export type Room = typeof rooms.$inferSelect;
+
+// Players in a room
+export const players = pgTable("players", {
+  id: varchar("id").primaryKey(),
+  roomId: varchar("room_id").notNull(),
+  name: text("name").notNull(),
+  isHost: boolean("is_host").notNull().default(false),
+  joinedAt: timestamp("joined_at").notNull().defaultNow(),
+});
+
+export const insertPlayerSchema = createInsertSchema(players).omit({ id: true, joinedAt: true });
+export type InsertPlayer = z.infer<typeof insertPlayerSchema>;
+export type Player = typeof players.$inferSelect;
 
 // Dice roll result type
 export const diceRollSchema = z.object({
@@ -83,70 +85,17 @@ export const diceRollSchema = z.object({
   modifier: z.number().default(0),
   total: z.number(),
   timestamp: z.string(),
-  characterName: z.string().optional(),
+  playerName: z.string().optional(),
   purpose: z.string().optional(),
 });
 
 export type DiceRoll = z.infer<typeof diceRollSchema>;
 
-// Message history for context
-export const messageSchema = z.object({
-  id: z.string(),
-  role: z.enum(["user", "assistant", "system"]),
-  content: z.string(),
-  timestamp: z.string(),
-  discordUserId: z.string().optional(),
-  discordUsername: z.string().optional(),
-});
-
-export type Message = z.infer<typeof messageSchema>;
-
-// Characters table (in-memory for MVP)
-export const characters = pgTable("characters", {
-  id: varchar("id").primaryKey(),
-  discordUserId: text("discord_user_id").notNull(),
-  discordUsername: text("discord_username").notNull(),
-  name: text("name").notNull(),
-  race: text("race").notNull(),
-  characterClass: text("character_class").notNull(),
-  level: integer("level").notNull().default(1),
-  currentHp: integer("current_hp").notNull().default(10),
-  maxHp: integer("max_hp").notNull().default(10),
-  armorClass: integer("armor_class").notNull().default(10),
-  stats: jsonb("stats").$type<CharacterStats>().notNull(),
-  inventory: jsonb("inventory").$type<InventoryItem[]>().notNull().default([]),
-  backstory: text("backstory"),
-  isActive: boolean("is_active").notNull().default(true),
-  gameSystem: text("game_system").notNull().default("dnd"),
-});
-
-export const insertCharacterSchema = createInsertSchema(characters).omit({ id: true });
-export type InsertCharacter = z.infer<typeof insertCharacterSchema>;
-export type Character = typeof characters.$inferSelect;
-
-// Game sessions table (in-memory for MVP)
-export const gameSessions = pgTable("game_sessions", {
-  id: varchar("id").primaryKey(),
-  discordChannelId: text("discord_channel_id").notNull(),
-  discordGuildId: text("discord_guild_id"),
-  name: text("name").notNull(),
-  description: text("description"),
-  currentScene: text("current_scene"),
-  messageHistory: jsonb("message_history").$type<Message[]>().notNull().default([]),
-  quests: jsonb("quests").$type<QuestEntry[]>().notNull().default([]),
-  isActive: boolean("is_active").notNull().default(true),
-  gameSystem: text("game_system").notNull().default("dnd"),
-});
-
-export const insertGameSessionSchema = createInsertSchema(gameSessions).omit({ id: true });
-export type InsertGameSession = z.infer<typeof insertGameSessionSchema>;
-export type GameSession = typeof gameSessions.$inferSelect;
-
-// Dice roll history (in-memory for MVP)
+// Dice roll history table
 export const diceRolls = pgTable("dice_rolls", {
   id: varchar("id").primaryKey(),
-  sessionId: text("session_id"),
-  characterId: text("character_id"),
+  roomId: text("room_id"),
+  playerId: text("player_id"),
   expression: text("expression").notNull(),
   rolls: jsonb("rolls").$type<number[]>().notNull(),
   modifier: integer("modifier").notNull().default(0),
@@ -159,18 +108,7 @@ export const insertDiceRollSchema = createInsertSchema(diceRolls).omit({ id: tru
 export type InsertDiceRoll = z.infer<typeof insertDiceRollSchema>;
 export type DiceRollRecord = typeof diceRolls.$inferSelect;
 
-// Bot status type for dashboard
-export const botStatusSchema = z.object({
-  isOnline: z.boolean(),
-  connectedGuilds: z.number(),
-  activeGames: z.number(),
-  totalCharacters: z.number(),
-  lastActivity: z.string().optional(),
-});
-
-export type BotStatus = z.infer<typeof botStatusSchema>;
-
-// Users table for Replit Auth
+// Users table (for optional login later)
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: varchar("email").unique(),

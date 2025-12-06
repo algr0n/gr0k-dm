@@ -1,214 +1,263 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { parseDiceExpression } from "./dice";
-import { getBotStatus, updateBotStatus, sendMessageToChannel } from "./discord";
-import { insertCharacterSchema } from "@shared/schema";
-import { setupAuth, isAuthenticated } from "./replitAuth";
+import { generateDMResponse, generateStartingScene } from "./grok";
+import { insertRoomSchema, type Message } from "@shared/schema";
+
+const roomConnections = new Map<string, Set<WebSocket>>();
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   
-  // Setup Replit Auth
-  await setupAuth(app);
+  const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
 
-  // Auth routes
-  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
-    try {
-      const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
-      res.json(user);
-    } catch (error) {
-      console.error("Error fetching user:", error);
-      res.status(500).json({ message: "Failed to fetch user" });
+  wss.on("connection", (ws, req) => {
+    const url = new URL(req.url || "", `http://${req.headers.host}`);
+    const roomCode = url.searchParams.get("room");
+    const playerName = url.searchParams.get("player") || "Anonymous";
+
+    if (!roomCode) {
+      ws.close(1008, "Room code required");
+      return;
     }
-  });
 
-  // Bot status endpoint
-  app.get("/api/bot/status", async (_req, res) => {
-    try {
-      const status = await updateBotStatus();
-      res.json(status);
-    } catch (error) {
-      res.json(getBotStatus());
+    if (!roomConnections.has(roomCode)) {
+      roomConnections.set(roomCode, new Set());
     }
-  });
+    roomConnections.get(roomCode)!.add(ws);
 
-  // Characters endpoints
-  app.get("/api/characters", async (_req, res) => {
-    try {
-      const characters = await storage.getAllCharacters();
-      res.json(characters);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch characters" });
-    }
-  });
+    console.log(`Player ${playerName} joined room ${roomCode}`);
 
-  app.get("/api/characters/:id", async (req, res) => {
-    try {
-      const character = await storage.getCharacter(req.params.id);
-      if (!character) {
-        return res.status(404).json({ error: "Character not found" });
+    ws.on("message", async (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        await handleWebSocketMessage(ws, roomCode, playerName, message);
+      } catch (error) {
+        console.error("WebSocket message error:", error);
       }
-      res.json(character);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch character" });
-    }
+    });
+
+    ws.on("close", () => {
+      const connections = roomConnections.get(roomCode);
+      if (connections) {
+        connections.delete(ws);
+        if (connections.size === 0) {
+          roomConnections.delete(roomCode);
+        }
+      }
+      console.log(`Player ${playerName} left room ${roomCode}`);
+    });
   });
 
-  app.post("/api/characters", async (req, res) => {
-    try {
-      const validatedData = insertCharacterSchema.parse(req.body);
-      const character = await storage.createCharacter(validatedData);
-      res.status(201).json(character);
-    } catch (error) {
-      console.error("Character creation error:", error);
-      if (error instanceof Error && error.name === "ZodError") {
-        return res.status(400).json({ error: "Invalid character data", details: error });
-      }
-      res.status(500).json({ error: "Failed to create character" });
+  async function handleWebSocketMessage(
+    ws: WebSocket,
+    roomCode: string,
+    playerName: string,
+    message: any
+  ) {
+    const room = await storage.getRoomByCode(roomCode);
+    if (!room) {
+      ws.send(JSON.stringify({ type: "error", content: "Room not found" }));
+      return;
     }
-  });
 
-  app.patch("/api/characters/:id", async (req, res) => {
-    try {
-      const character = await storage.updateCharacter(req.params.id, req.body);
-      if (!character) {
-        return res.status(404).json({ error: "Character not found" });
-      }
-      res.json(character);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to update character" });
-    }
-  });
-
-  app.delete("/api/characters/:id", async (req, res) => {
-    try {
-      const deleted = await storage.deleteCharacter(req.params.id);
-      if (!deleted) {
-        return res.status(404).json({ error: "Character not found" });
-      }
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ error: "Failed to delete character" });
-    }
-  });
-
-  // Sessions endpoints
-  app.get("/api/sessions", async (_req, res) => {
-    try {
-      const sessions = await storage.getAllSessions();
-      res.json(sessions);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch sessions" });
-    }
-  });
-
-  app.post("/api/sessions", async (req, res) => {
-    try {
-      const { name, description, gameSystem } = req.body;
-      
-      if (!name || typeof name !== "string") {
-        return res.status(400).json({ error: "Adventure name is required" });
-      }
-
-      const session = await storage.createSession({
-        name,
-        description: description || `A new ${gameSystem === "cyberpunk" ? "Cyberpunk RED" : "D&D 5e"} adventure`,
-        discordChannelId: `web-${randomUUID().slice(0, 8)}`,
-        gameSystem: gameSystem || "dnd",
-        currentScene: "The adventure begins...",
-      });
-      
-      res.status(201).json(session);
-    } catch (error) {
-      console.error("Session creation error:", error);
-      res.status(500).json({ error: "Failed to create session" });
-    }
-  });
-
-  app.get("/api/sessions/:id", async (req, res) => {
-    try {
-      const session = await storage.getSession(req.params.id);
-      if (!session) {
-        return res.status(404).json({ error: "Session not found" });
-      }
-      res.json(session);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch session" });
-    }
-  });
-
-  // Get session messages
-  app.get("/api/sessions/:id/messages", async (req, res) => {
-    try {
-      const session = await storage.getSession(req.params.id);
-      if (!session) {
-        return res.status(404).json({ error: "Session not found" });
-      }
-      res.json(session.messageHistory || []);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch messages" });
-    }
-  });
-
-  // Send message to Discord channel
-  app.post("/api/sessions/:id/messages", async (req, res) => {
-    try {
-      const session = await storage.getSession(req.params.id);
-      if (!session) {
-        return res.status(404).json({ error: "Session not found" });
-      }
-
-      const { content, username } = req.body;
-      if (!content || typeof content !== "string") {
-        return res.status(400).json({ error: "Message content is required" });
-      }
-
-      await sendMessageToChannel(session.discordChannelId, content, username);
-
-      const newMessage = {
+    if (message.type === "chat" || message.type === "action") {
+      const chatMessage: Message = {
         id: randomUUID(),
-        role: "user" as const,
-        content,
+        roomId: room.id,
+        playerName,
+        content: message.content,
+        type: message.type,
         timestamp: new Date().toISOString(),
-        discordUsername: username ? `[Web] ${username}` : "[Web]",
       };
 
-      const currentHistory = session.messageHistory || [];
-      const updatedHistory = [...currentHistory, newMessage];
-      await storage.updateSession(session.id, { messageHistory: updatedHistory.slice(-50) });
-
-      res.json(newMessage);
-    } catch (error) {
-      console.error("Failed to send message:", error);
-      res.status(500).json({ error: "Failed to send message to Discord" });
-    }
-  });
-
-  // Delete session
-  app.delete("/api/sessions/:id", async (req, res) => {
-    try {
-      const deleted = await storage.deleteSession(req.params.id);
-      if (!deleted) {
-        return res.status(404).json({ error: "Session not found" });
+      let diceResult = undefined;
+      const diceMatch = message.content.match(/\/roll?\s+(.+)/i);
+      if (diceMatch) {
+        const result = parseDiceExpression(diceMatch[1]);
+        if (result) {
+          diceResult = result;
+          chatMessage.type = "roll";
+          chatMessage.diceResult = {
+            expression: result.expression,
+            rolls: result.rolls,
+            modifier: result.modifier,
+            total: result.total,
+          };
+          
+          await storage.createDiceRoll({
+            roomId: room.id,
+            expression: result.expression,
+            rolls: result.rolls,
+            modifier: result.modifier,
+            total: result.total,
+          });
+        }
       }
-      res.status(204).send();
+
+      const updatedHistory = [...(room.messageHistory || []), chatMessage].slice(-100);
+      await storage.updateRoom(room.id, { messageHistory: updatedHistory });
+
+      broadcastToRoom(roomCode, { type: "message", message: chatMessage });
+
+      if (!message.content.startsWith("/") || diceMatch) {
+        try {
+          const dmResponse = await generateDMResponse(
+            message.content,
+            { ...room, messageHistory: updatedHistory },
+            playerName,
+            diceResult
+          );
+
+          const dmMessage: Message = {
+            id: randomUUID(),
+            roomId: room.id,
+            playerName: "Grok DM",
+            content: dmResponse,
+            type: "dm",
+            timestamp: new Date().toISOString(),
+          };
+
+          const finalHistory = [...updatedHistory, dmMessage].slice(-100);
+          await storage.updateRoom(room.id, { messageHistory: finalHistory });
+
+          broadcastToRoom(roomCode, { type: "message", message: dmMessage });
+        } catch (error) {
+          console.error("DM response error:", error);
+        }
+      }
+    }
+  }
+
+  function broadcastToRoom(roomCode: string, data: any) {
+    const connections = roomConnections.get(roomCode);
+    if (connections) {
+      const message = JSON.stringify(data);
+      connections.forEach((ws) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(message);
+        }
+      });
+    }
+  }
+
+  app.post("/api/rooms", async (req, res) => {
+    try {
+      const { name, gameSystem, hostName } = req.body;
+      
+      if (!name || !hostName) {
+        return res.status(400).json({ error: "Name and host name are required" });
+      }
+
+      const room = await storage.createRoom({
+        name,
+        gameSystem: gameSystem || "dnd5e",
+        hostName,
+        code: "",
+      });
+
+      await storage.createPlayer({
+        roomId: room.id,
+        name: hostName,
+        isHost: true,
+      });
+
+      const startingScene = await generateStartingScene(room.gameSystem, room.name);
+      
+      const dmMessage: Message = {
+        id: randomUUID(),
+        roomId: room.id,
+        playerName: "Grok DM",
+        content: startingScene,
+        type: "dm",
+        timestamp: new Date().toISOString(),
+      };
+
+      await storage.updateRoom(room.id, { 
+        messageHistory: [dmMessage],
+        currentScene: startingScene.slice(0, 200),
+      });
+
+      res.status(201).json(room);
     } catch (error) {
-      res.status(500).json({ error: "Failed to delete session" });
+      console.error("Room creation error:", error);
+      res.status(500).json({ error: "Failed to create room" });
     }
   });
 
-  // Dice rolling endpoints
-  app.get("/api/dice/history", async (_req, res) => {
+  app.get("/api/rooms/:code", async (req, res) => {
     try {
-      const rolls = await storage.getRecentDiceRolls(20);
-      res.json(rolls);
+      const room = await storage.getRoomByCode(req.params.code.toUpperCase());
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+      
+      const players = await storage.getPlayersByRoom(room.id);
+      res.json({ ...room, players });
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch dice history" });
+      res.status(500).json({ error: "Failed to fetch room" });
+    }
+  });
+
+  app.post("/api/rooms/:code/join", async (req, res) => {
+    try {
+      const { playerName } = req.body;
+      
+      if (!playerName) {
+        return res.status(400).json({ error: "Player name is required" });
+      }
+
+      const room = await storage.getRoomByCode(req.params.code.toUpperCase());
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+
+      if (!room.isActive) {
+        return res.status(400).json({ error: "Room is no longer active" });
+      }
+
+      const player = await storage.createPlayer({
+        roomId: room.id,
+        name: playerName,
+        isHost: false,
+      });
+
+      const joinMessage: Message = {
+        id: randomUUID(),
+        roomId: room.id,
+        playerName: "System",
+        content: `${playerName} has joined the game!`,
+        type: "system",
+        timestamp: new Date().toISOString(),
+      };
+
+      const updatedHistory = [...(room.messageHistory || []), joinMessage].slice(-100);
+      await storage.updateRoom(room.id, { messageHistory: updatedHistory });
+
+      broadcastToRoom(req.params.code.toUpperCase(), { type: "message", message: joinMessage });
+      broadcastToRoom(req.params.code.toUpperCase(), { type: "player_joined", player });
+
+      res.json({ room, player });
+    } catch (error) {
+      console.error("Join error:", error);
+      res.status(500).json({ error: "Failed to join room" });
+    }
+  });
+
+  app.get("/api/rooms/:code/messages", async (req, res) => {
+    try {
+      const room = await storage.getRoomByCode(req.params.code.toUpperCase());
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+      res.json(room.messageHistory || []);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch messages" });
     }
   });
 

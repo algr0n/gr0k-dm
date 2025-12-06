@@ -1,41 +1,48 @@
 import { 
-  type Character, type InsertCharacter,
-  type GameSession, type InsertGameSession,
+  type Room, type InsertRoom,
+  type Player, type InsertPlayer,
   type DiceRollRecord, type InsertDiceRoll,
   type User, type UpsertUser,
-  characters, gameSessions, diceRolls, users
+  rooms, players, diceRolls, users
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
+
+function generateRoomCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
 
 export interface IStorage {
   // Users
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
   
-  // Characters
-  getCharacter(id: string): Promise<Character | undefined>;
-  getCharactersByDiscordUser(discordUserId: string): Promise<Character[]>;
-  getCharactersByDiscordUsername(discordUsername: string): Promise<Character[]>;
-  getActiveCharacterByDiscordUser(discordUserId: string): Promise<Character | undefined>;
-  getAllCharacters(): Promise<Character[]>;
-  createCharacter(character: InsertCharacter): Promise<Character>;
-  updateCharacter(id: string, updates: Partial<Character>): Promise<Character | undefined>;
-  deleteCharacter(id: string): Promise<boolean>;
+  // Rooms
+  getRoom(id: string): Promise<Room | undefined>;
+  getRoomByCode(code: string): Promise<Room | undefined>;
+  getAllRooms(): Promise<Room[]>;
+  getActiveRooms(): Promise<Room[]>;
+  createRoom(room: InsertRoom): Promise<Room>;
+  updateRoom(id: string, updates: Partial<Room>): Promise<Room | undefined>;
+  deleteRoom(id: string): Promise<boolean>;
   
-  // Game Sessions
-  getSession(id: string): Promise<GameSession | undefined>;
-  getSessionByChannel(channelId: string): Promise<GameSession | undefined>;
-  getAllSessions(): Promise<GameSession[]>;
-  getActiveSessions(): Promise<GameSession[]>;
-  createSession(session: InsertGameSession): Promise<GameSession>;
-  updateSession(id: string, updates: Partial<GameSession>): Promise<GameSession | undefined>;
-  deleteSession(id: string): Promise<boolean>;
+  // Players
+  getPlayer(id: string): Promise<Player | undefined>;
+  getPlayersByRoom(roomId: string): Promise<Player[]>;
+  createPlayer(player: InsertPlayer): Promise<Player>;
+  deletePlayer(id: string): Promise<boolean>;
+  deletePlayersByRoom(roomId: string): Promise<boolean>;
   
   // Dice Rolls
   getDiceRoll(id: string): Promise<DiceRollRecord | undefined>;
   getRecentDiceRolls(limit?: number): Promise<DiceRollRecord[]>;
+  getDiceRollsByRoom(roomId: string, limit?: number): Promise<DiceRollRecord[]>;
   createDiceRoll(roll: InsertDiceRoll): Promise<DiceRollRecord>;
 }
 
@@ -61,116 +68,87 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  // Characters
-  async getCharacter(id: string): Promise<Character | undefined> {
-    const result = await db.select().from(characters).where(eq(characters.id, id));
+  // Rooms
+  async getRoom(id: string): Promise<Room | undefined> {
+    const result = await db.select().from(rooms).where(eq(rooms.id, id));
     return result[0];
   }
 
-  async getCharactersByDiscordUser(discordUserId: string): Promise<Character[]> {
-    return await db.select().from(characters).where(eq(characters.discordUserId, discordUserId));
+  async getRoomByCode(code: string): Promise<Room | undefined> {
+    const result = await db.select().from(rooms).where(eq(rooms.code, code.toUpperCase()));
+    return result[0];
   }
 
-  async getCharactersByDiscordUsername(discordUsername: string): Promise<Character[]> {
-    return await db.select().from(characters).where(eq(characters.discordUsername, discordUsername));
+  async getAllRooms(): Promise<Room[]> {
+    return await db.select().from(rooms).orderBy(desc(rooms.createdAt));
   }
 
-  async getActiveCharacterByDiscordUser(discordUserId: string): Promise<Character | undefined> {
-    const result = await db.select().from(characters)
-      .where(eq(characters.discordUserId, discordUserId));
-    return result.find(c => c.isActive);
+  async getActiveRooms(): Promise<Room[]> {
+    const result = await db.select().from(rooms).where(eq(rooms.isActive, true)).orderBy(desc(rooms.createdAt));
+    return result;
   }
 
-  async getAllCharacters(): Promise<Character[]> {
-    return await db.select().from(characters);
-  }
-
-  async createCharacter(insertCharacter: InsertCharacter): Promise<Character> {
+  async createRoom(insertRoom: InsertRoom): Promise<Room> {
     const id = randomUUID();
+    const code = insertRoom.code || generateRoomCode();
     const values = {
       id,
-      discordUserId: insertCharacter.discordUserId,
-      discordUsername: insertCharacter.discordUsername,
-      name: insertCharacter.name,
-      race: insertCharacter.race,
-      characterClass: insertCharacter.characterClass,
-      stats: insertCharacter.stats,
-      level: insertCharacter.level ?? 1,
-      currentHp: insertCharacter.currentHp ?? 10,
-      maxHp: insertCharacter.maxHp ?? 10,
-      armorClass: insertCharacter.armorClass ?? 10,
-      inventory: insertCharacter.inventory ?? [],
-      isActive: insertCharacter.isActive ?? true,
-      backstory: insertCharacter.backstory ?? null,
-      gameSystem: insertCharacter.gameSystem ?? "dnd",
+      code,
+      name: insertRoom.name,
+      gameSystem: insertRoom.gameSystem || "dnd5e",
+      hostName: insertRoom.hostName,
+      description: insertRoom.description ?? null,
+      currentScene: insertRoom.currentScene ?? null,
+      messageHistory: insertRoom.messageHistory ?? [],
+      isActive: insertRoom.isActive ?? true,
     };
-    const result = await db.insert(characters).values(values as any).returning();
+    const result = await db.insert(rooms).values(values as any).returning();
     return result[0];
   }
 
-  async updateCharacter(id: string, updates: Partial<Character>): Promise<Character | undefined> {
-    const result = await db.update(characters)
+  async updateRoom(id: string, updates: Partial<Room>): Promise<Room | undefined> {
+    const result = await db.update(rooms)
       .set(updates)
-      .where(eq(characters.id, id))
+      .where(eq(rooms.id, id))
       .returning();
     return result[0];
   }
 
-  async deleteCharacter(id: string): Promise<boolean> {
-    const result = await db.delete(characters).where(eq(characters.id, id)).returning();
+  async deleteRoom(id: string): Promise<boolean> {
+    const result = await db.delete(rooms).where(eq(rooms.id, id)).returning();
     return result.length > 0;
   }
 
-  // Game Sessions
-  async getSession(id: string): Promise<GameSession | undefined> {
-    const result = await db.select().from(gameSessions).where(eq(gameSessions.id, id));
+  // Players
+  async getPlayer(id: string): Promise<Player | undefined> {
+    const result = await db.select().from(players).where(eq(players.id, id));
     return result[0];
   }
 
-  async getSessionByChannel(channelId: string): Promise<GameSession | undefined> {
-    const result = await db.select().from(gameSessions)
-      .where(eq(gameSessions.discordChannelId, channelId));
-    return result.find(s => s.isActive);
+  async getPlayersByRoom(roomId: string): Promise<Player[]> {
+    return await db.select().from(players).where(eq(players.roomId, roomId));
   }
 
-  async getAllSessions(): Promise<GameSession[]> {
-    return await db.select().from(gameSessions);
-  }
-
-  async getActiveSessions(): Promise<GameSession[]> {
-    const result = await db.select().from(gameSessions);
-    return result.filter(s => s.isActive);
-  }
-
-  async createSession(insertSession: InsertGameSession): Promise<GameSession> {
+  async createPlayer(insertPlayer: InsertPlayer): Promise<Player> {
     const id = randomUUID();
     const values = {
       id,
-      discordChannelId: insertSession.discordChannelId,
-      name: insertSession.name,
-      description: insertSession.description ?? null,
-      currentScene: insertSession.currentScene ?? null,
-      discordGuildId: insertSession.discordGuildId ?? null,
-      messageHistory: insertSession.messageHistory ?? [],
-      quests: insertSession.quests ?? [],
-      isActive: insertSession.isActive ?? true,
-      gameSystem: insertSession.gameSystem ?? "dnd",
+      roomId: insertPlayer.roomId,
+      name: insertPlayer.name,
+      isHost: insertPlayer.isHost ?? false,
     };
-    const result = await db.insert(gameSessions).values(values as any).returning();
+    const result = await db.insert(players).values(values as any).returning();
     return result[0];
   }
 
-  async updateSession(id: string, updates: Partial<GameSession>): Promise<GameSession | undefined> {
-    const result = await db.update(gameSessions)
-      .set(updates)
-      .where(eq(gameSessions.id, id))
-      .returning();
-    return result[0];
-  }
-
-  async deleteSession(id: string): Promise<boolean> {
-    const result = await db.delete(gameSessions).where(eq(gameSessions.id, id)).returning();
+  async deletePlayer(id: string): Promise<boolean> {
+    const result = await db.delete(players).where(eq(players.id, id)).returning();
     return result.length > 0;
+  }
+
+  async deletePlayersByRoom(roomId: string): Promise<boolean> {
+    await db.delete(players).where(eq(players.roomId, roomId));
+    return true;
   }
 
   // Dice Rolls
@@ -185,6 +163,13 @@ export class DatabaseStorage implements IStorage {
       .limit(limit);
   }
 
+  async getDiceRollsByRoom(roomId: string, limit: number = 20): Promise<DiceRollRecord[]> {
+    return await db.select().from(diceRolls)
+      .where(eq(diceRolls.roomId, roomId))
+      .orderBy(desc(diceRolls.timestamp))
+      .limit(limit);
+  }
+
   async createDiceRoll(insertRoll: InsertDiceRoll): Promise<DiceRollRecord> {
     const id = randomUUID();
     const values = {
@@ -192,8 +177,8 @@ export class DatabaseStorage implements IStorage {
       expression: insertRoll.expression,
       rolls: insertRoll.rolls,
       total: insertRoll.total,
-      sessionId: insertRoll.sessionId ?? null,
-      characterId: insertRoll.characterId ?? null,
+      roomId: insertRoll.roomId ?? null,
+      playerId: insertRoll.playerId ?? null,
       modifier: insertRoll.modifier ?? 0,
       purpose: insertRoll.purpose ?? null,
       timestamp: insertRoll.timestamp ?? new Date(),
