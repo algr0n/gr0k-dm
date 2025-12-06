@@ -69,6 +69,7 @@ async function handleCommand(message: DiscordMessage, command: string, args: str
 \`!character\` - View your character
 \`!stats\` - View your stats
 \`!inventory\` - Check your inventory
+\`!delete\` - Delete your character
 
 **Dice Commands:**
 \`!roll [dice]\` - Roll dice (e.g., !roll 2d6+3)
@@ -249,6 +250,19 @@ ${statBlock}`);
       ).join("\n");
 
       await message.reply(`**${character.name}'s Inventory**\n\n${items}`);
+      break;
+    }
+
+    case "delete":
+    case "remove": {
+      const character = await storage.getActiveCharacterByDiscordUser(userId);
+      if (!character) {
+        await message.reply("You don't have a character to delete!");
+        return;
+      }
+
+      await storage.deleteCharacter(character.id);
+      await message.reply(`**${character.name}** has been deleted. Use \`!create\` to make a new character.`);
       break;
     }
 
