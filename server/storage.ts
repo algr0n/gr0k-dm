@@ -2,8 +2,11 @@ import {
   type Character, type InsertCharacter,
   type GameSession, type InsertGameSession,
   type DiceRollRecord, type InsertDiceRoll,
-  type User, type InsertUser
+  type User, type InsertUser,
+  characters, gameSessions, diceRolls, users
 } from "@shared/schema";
+import { db } from "./db";
+import { eq, desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -36,63 +39,54 @@ export interface IStorage {
   createDiceRoll(roll: InsertDiceRoll): Promise<DiceRollRecord>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-  private characters: Map<string, Character>;
-  private sessions: Map<string, GameSession>;
-  private diceRolls: Map<string, DiceRollRecord>;
-
-  constructor() {
-    this.users = new Map();
-    this.characters = new Map();
-    this.sessions = new Map();
-    this.diceRolls = new Map();
-  }
-
+export class DatabaseStorage implements IStorage {
   // Users
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+    const result = await db.select().from(users).where(eq(users.id, id));
+    return result[0];
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    const result = await db.select().from(users).where(eq(users.username, username));
+    return result[0];
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
-    return user;
+    const result = await db.insert(users).values({ ...insertUser, id }).returning();
+    return result[0];
   }
 
   // Characters
   async getCharacter(id: string): Promise<Character | undefined> {
-    return this.characters.get(id);
+    const result = await db.select().from(characters).where(eq(characters.id, id));
+    return result[0];
   }
 
   async getCharactersByDiscordUser(discordUserId: string): Promise<Character[]> {
-    return Array.from(this.characters.values()).filter(
-      (char) => char.discordUserId === discordUserId
-    );
+    return await db.select().from(characters).where(eq(characters.discordUserId, discordUserId));
   }
 
   async getActiveCharacterByDiscordUser(discordUserId: string): Promise<Character | undefined> {
-    return Array.from(this.characters.values()).find(
-      (char) => char.discordUserId === discordUserId && char.isActive
-    );
+    const result = await db.select().from(characters)
+      .where(eq(characters.discordUserId, discordUserId));
+    return result.find(c => c.isActive);
   }
 
   async getAllCharacters(): Promise<Character[]> {
-    return Array.from(this.characters.values());
+    return await db.select().from(characters);
   }
 
   async createCharacter(insertCharacter: InsertCharacter): Promise<Character> {
     const id = randomUUID();
-    const character: Character = {
-      ...insertCharacter,
+    const values = {
       id,
+      discordUserId: insertCharacter.discordUserId,
+      discordUsername: insertCharacter.discordUsername,
+      name: insertCharacter.name,
+      race: insertCharacter.race,
+      characterClass: insertCharacter.characterClass,
+      stats: insertCharacter.stats,
       level: insertCharacter.level ?? 1,
       currentHp: insertCharacter.currentHp ?? 10,
       maxHp: insertCharacter.maxHp ?? 10,
@@ -101,46 +95,50 @@ export class MemStorage implements IStorage {
       isActive: insertCharacter.isActive ?? true,
       backstory: insertCharacter.backstory ?? null,
     };
-    this.characters.set(id, character);
-    return character;
+    const result = await db.insert(characters).values(values as any).returning();
+    return result[0];
   }
 
   async updateCharacter(id: string, updates: Partial<Character>): Promise<Character | undefined> {
-    const character = this.characters.get(id);
-    if (!character) return undefined;
-    const updated = { ...character, ...updates };
-    this.characters.set(id, updated);
-    return updated;
+    const result = await db.update(characters)
+      .set(updates)
+      .where(eq(characters.id, id))
+      .returning();
+    return result[0];
   }
 
   async deleteCharacter(id: string): Promise<boolean> {
-    return this.characters.delete(id);
+    const result = await db.delete(characters).where(eq(characters.id, id)).returning();
+    return result.length > 0;
   }
 
   // Game Sessions
   async getSession(id: string): Promise<GameSession | undefined> {
-    return this.sessions.get(id);
+    const result = await db.select().from(gameSessions).where(eq(gameSessions.id, id));
+    return result[0];
   }
 
   async getSessionByChannel(channelId: string): Promise<GameSession | undefined> {
-    return Array.from(this.sessions.values()).find(
-      (session) => session.discordChannelId === channelId && session.isActive
-    );
+    const result = await db.select().from(gameSessions)
+      .where(eq(gameSessions.discordChannelId, channelId));
+    return result.find(s => s.isActive);
   }
 
   async getAllSessions(): Promise<GameSession[]> {
-    return Array.from(this.sessions.values());
+    return await db.select().from(gameSessions);
   }
 
   async getActiveSessions(): Promise<GameSession[]> {
-    return Array.from(this.sessions.values()).filter((s) => s.isActive);
+    const result = await db.select().from(gameSessions);
+    return result.filter(s => s.isActive);
   }
 
   async createSession(insertSession: InsertGameSession): Promise<GameSession> {
     const id = randomUUID();
-    const session: GameSession = {
-      ...insertSession,
+    const values = {
       id,
+      discordChannelId: insertSession.discordChannelId,
+      name: insertSession.name,
       description: insertSession.description ?? null,
       currentScene: insertSession.currentScene ?? null,
       discordGuildId: insertSession.discordGuildId ?? null,
@@ -148,48 +146,51 @@ export class MemStorage implements IStorage {
       quests: insertSession.quests ?? [],
       isActive: insertSession.isActive ?? true,
     };
-    this.sessions.set(id, session);
-    return session;
+    const result = await db.insert(gameSessions).values(values as any).returning();
+    return result[0];
   }
 
   async updateSession(id: string, updates: Partial<GameSession>): Promise<GameSession | undefined> {
-    const session = this.sessions.get(id);
-    if (!session) return undefined;
-    const updated = { ...session, ...updates };
-    this.sessions.set(id, updated);
-    return updated;
+    const result = await db.update(gameSessions)
+      .set(updates)
+      .where(eq(gameSessions.id, id))
+      .returning();
+    return result[0];
   }
 
   async deleteSession(id: string): Promise<boolean> {
-    return this.sessions.delete(id);
+    const result = await db.delete(gameSessions).where(eq(gameSessions.id, id)).returning();
+    return result.length > 0;
   }
 
   // Dice Rolls
   async getDiceRoll(id: string): Promise<DiceRollRecord | undefined> {
-    return this.diceRolls.get(id);
+    const result = await db.select().from(diceRolls).where(eq(diceRolls.id, id));
+    return result[0];
   }
 
   async getRecentDiceRolls(limit: number = 20): Promise<DiceRollRecord[]> {
-    const rolls = Array.from(this.diceRolls.values());
-    return rolls
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-      .slice(0, limit);
+    return await db.select().from(diceRolls)
+      .orderBy(desc(diceRolls.timestamp))
+      .limit(limit);
   }
 
   async createDiceRoll(insertRoll: InsertDiceRoll): Promise<DiceRollRecord> {
     const id = randomUUID();
-    const roll: DiceRollRecord = {
-      ...insertRoll,
+    const values = {
       id,
+      expression: insertRoll.expression,
+      rolls: insertRoll.rolls,
+      total: insertRoll.total,
       sessionId: insertRoll.sessionId ?? null,
       characterId: insertRoll.characterId ?? null,
       modifier: insertRoll.modifier ?? 0,
       purpose: insertRoll.purpose ?? null,
       timestamp: insertRoll.timestamp ?? new Date(),
     };
-    this.diceRolls.set(id, roll);
-    return roll;
+    const result = await db.insert(diceRolls).values(values as any).returning();
+    return result[0];
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
