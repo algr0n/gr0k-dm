@@ -532,6 +532,36 @@ export async function registerRoutes(
         stats: stats || {},
         notes: notes || null,
       });
+
+      // Add default starter inventory for new characters
+      const defaultItems = room.gameSystem === "dnd" 
+        ? [
+            { name: "Backpack", description: "A sturdy leather backpack", quantity: 1 },
+            { name: "Rations", description: "Trail rations for a day", quantity: 5 },
+            { name: "Waterskin", description: "Holds water for the journey", quantity: 1 },
+            { name: "Torch", description: "Provides light for 1 hour", quantity: 2 },
+            { name: "Rope (50 ft)", description: "Hempen rope", quantity: 1 },
+          ]
+        : room.gameSystem === "cyberpunk"
+        ? [
+            { name: "Agent", description: "Personal phone/computer device", quantity: 1 },
+            { name: "Credchip", description: "Electronic payment chip", quantity: 1 },
+            { name: "Flashlight", description: "Portable light source", quantity: 1 },
+          ]
+        : [
+            { name: "Basic Supplies", description: "Starting gear", quantity: 1 },
+          ];
+
+      for (const item of defaultItems) {
+        await storage.createInventoryItem({
+          characterId: character.id,
+          name: item.name,
+          description: item.description,
+          quantity: item.quantity,
+          grantedBy: "Starting Equipment",
+        });
+      }
+
       res.status(201).json(character);
     } catch (error) {
       console.error("Character creation error:", error);

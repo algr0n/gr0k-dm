@@ -653,6 +653,85 @@ export default function RoomPage() {
                       </div>
                       <Separator />
                       <div>
+                        <label className="text-sm text-muted-foreground mb-2 block">Hit Points & Armor</label>
+                        <div className="grid grid-cols-4 gap-2">
+                          <div className="text-center">
+                            <label className="text-xs text-muted-foreground">Current HP</label>
+                            <Input 
+                              type="number" 
+                              value={characterStats.currentHp || 0}
+                              onChange={(e) => setCharacterStats(prev => ({ ...prev, currentHp: parseInt(e.target.value) || 0 }))}
+                              min={0}
+                              className="text-center"
+                              data-testid="input-dnd-current-hp"
+                            />
+                          </div>
+                          <div className="text-center">
+                            <label className="text-xs text-muted-foreground">Max HP</label>
+                            <Input 
+                              type="number" 
+                              value={characterStats.maxHp || 0}
+                              onChange={(e) => setCharacterStats(prev => ({ ...prev, maxHp: parseInt(e.target.value) || 0 }))}
+                              min={0}
+                              className="text-center"
+                              data-testid="input-dnd-max-hp"
+                            />
+                          </div>
+                          <div className="text-center">
+                            <label className="text-xs text-muted-foreground">Temp HP</label>
+                            <Input 
+                              type="number" 
+                              value={characterStats.tempHp || 0}
+                              onChange={(e) => setCharacterStats(prev => ({ ...prev, tempHp: parseInt(e.target.value) || 0 }))}
+                              min={0}
+                              className="text-center"
+                              data-testid="input-dnd-temp-hp"
+                            />
+                          </div>
+                          <div className="text-center">
+                            <label className="text-xs text-muted-foreground">AC</label>
+                            <Input 
+                              type="number" 
+                              value={characterStats.armorClass || 10}
+                              onChange={(e) => setCharacterStats(prev => ({ ...prev, armorClass: parseInt(e.target.value) || 10 }))}
+                              min={0}
+                              className="text-center"
+                              data-testid="input-dnd-ac"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <Separator />
+                      <div>
+                        <label className="text-sm text-muted-foreground mb-2 block">Spell Slots (Used / Total)</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((level) => (
+                            <div key={level} className="flex items-center gap-1">
+                              <span className="text-xs text-muted-foreground w-8">Lvl {level}</span>
+                              <Input 
+                                type="number" 
+                                value={characterStats[`spellSlots${level}Used`] || 0}
+                                onChange={(e) => setCharacterStats(prev => ({ ...prev, [`spellSlots${level}Used`]: parseInt(e.target.value) || 0 }))}
+                                min={0}
+                                max={characterStats[`spellSlots${level}Total`] || 0}
+                                className="text-center w-12"
+                                data-testid={`input-dnd-spell-used-${level}`}
+                              />
+                              <span className="text-xs text-muted-foreground">/</span>
+                              <Input 
+                                type="number" 
+                                value={characterStats[`spellSlots${level}Total`] || 0}
+                                onChange={(e) => setCharacterStats(prev => ({ ...prev, [`spellSlots${level}Total`]: parseInt(e.target.value) || 0 }))}
+                                min={0}
+                                className="text-center w-12"
+                                data-testid={`input-dnd-spell-total-${level}`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <Separator />
+                      <div>
                         <label className="text-sm text-muted-foreground mb-2 block">Ability Scores</label>
                         <div className="grid grid-cols-6 gap-2">
                           {["STR", "DEX", "CON", "INT", "WIS", "CHA"].map((stat) => (
