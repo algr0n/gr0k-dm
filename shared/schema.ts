@@ -2,8 +2,12 @@ import { pgTable, text, varchar, integer, jsonb, boolean, timestamp } from "driz
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Character stats type
-export const characterStatsSchema = z.object({
+// Game system type
+export const gameSystemSchema = z.enum(["dnd", "cyberpunk"]);
+export type GameSystem = z.infer<typeof gameSystemSchema>;
+
+// D&D Character stats
+export const dndStatsSchema = z.object({
   strength: z.number().min(1).max(30).default(10),
   dexterity: z.number().min(1).max(30).default(10),
   constitution: z.number().min(1).max(30).default(10),
@@ -12,6 +16,26 @@ export const characterStatsSchema = z.object({
   charisma: z.number().min(1).max(30).default(10),
 });
 
+export type DndStats = z.infer<typeof dndStatsSchema>;
+
+// Cyberpunk Character stats (based on Cyberpunk RED)
+export const cyberpunkStatsSchema = z.object({
+  int: z.number().min(1).max(10).default(5),       // Intelligence
+  ref: z.number().min(1).max(10).default(5),       // Reflexes
+  dex: z.number().min(1).max(10).default(5),       // Dexterity
+  tech: z.number().min(1).max(10).default(5),      // Technical Ability
+  cool: z.number().min(1).max(10).default(5),      // Cool
+  will: z.number().min(1).max(10).default(5),      // Willpower
+  luck: z.number().min(1).max(10).default(5),      // Luck
+  move: z.number().min(1).max(10).default(5),      // Movement
+  body: z.number().min(1).max(10).default(5),      // Body
+  emp: z.number().min(1).max(10).default(5),       // Empathy
+});
+
+export type CyberpunkStats = z.infer<typeof cyberpunkStatsSchema>;
+
+// Combined character stats type (supports both systems)
+export const characterStatsSchema = z.union([dndStatsSchema, cyberpunkStatsSchema]);
 export type CharacterStats = z.infer<typeof characterStatsSchema>;
 
 // Inventory item type
@@ -81,6 +105,7 @@ export const characters = pgTable("characters", {
   inventory: jsonb("inventory").$type<InventoryItem[]>().notNull().default([]),
   backstory: text("backstory"),
   isActive: boolean("is_active").notNull().default(true),
+  gameSystem: text("game_system").notNull().default("dnd"),
 });
 
 export const insertCharacterSchema = createInsertSchema(characters).omit({ id: true });
@@ -98,6 +123,7 @@ export const gameSessions = pgTable("game_sessions", {
   messageHistory: jsonb("message_history").$type<Message[]>().notNull().default([]),
   quests: jsonb("quests").$type<QuestEntry[]>().notNull().default([]),
   isActive: boolean("is_active").notNull().default(true),
+  gameSystem: text("game_system").notNull().default("dnd"),
 });
 
 export const insertGameSessionSchema = createInsertSchema(gameSessions).omit({ id: true });

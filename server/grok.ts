@@ -1,13 +1,13 @@
-// Grok AI integration for TTRPG Dungeon Master - using xAI blueprint
+// Grok AI integration for TTRPG - using xAI blueprint
 import OpenAI from "openai";
-import type { Character, GameSession, Message } from "@shared/schema";
+import type { Character, GameSession, Message, DndStats, CyberpunkStats } from "@shared/schema";
 
 const openai = new OpenAI({ 
   baseURL: "https://api.x.ai/v1", 
   apiKey: process.env.XAI_API_KEY 
 });
 
-const DM_SYSTEM_PROMPT = `You are an experienced and creative Dungeon Master for a tabletop role-playing game. Your role is to:
+const DND_SYSTEM_PROMPT = `You are an experienced and creative Dungeon Master for a Dungeons & Dragons tabletop role-playing game. Your role is to:
 
 1. **Narrate the Story**: Describe scenes vividly and immersively, creating a rich fantasy world.
 2. **Control NPCs**: Voice and roleplay all non-player characters with distinct personalities.
@@ -33,32 +33,78 @@ When players roll dice, interpret the results:
 - 2-4: Failure with consequences
 - Natural 1: Critical failure with dramatic consequences`;
 
+const CYBERPUNK_SYSTEM_PROMPT = `You are an experienced Game Master for Cyberpunk RED tabletop role-playing game set in Night City, 2045. Your role is to:
+
+1. **Narrate the Story**: Describe scenes with gritty, neon-soaked atmosphere. Focus on the contrast between high technology and low life.
+2. **Control NPCs**: Voice fixers, corpos, gangers, netrunners, and street samurai with distinct cyberpunk attitudes.
+3. **Manage Combat**: When combat occurs, describe the brutality of chrome and lead. Ask players for their actions.
+4. **Track Progress**: Remember player choices, contacts, enemies, and reputation.
+5. **Embrace the Genre**: Corporate conspiracies, street-level survival, cybernetic enhancement, and the cost of humanity.
+6. **Be Gritty but Fair**: Night City is dangerous, but clever players can survive and thrive.
+
+Setting Details:
+- Night City: A sprawling megacity divided into corporate towers, combat zones, and everything in between
+- Technology: Cyberware, netrunning, braindance, smart weapons, vehicles
+- Factions: Corporations (Arasaka, Militech), gangs (Maelstrom, Valentinos, Tyger Claws), fixers, nomads
+- Themes: Transhumanism, corporate control, street survival, the price of technology
+
+Guidelines:
+- Keep responses punchy and atmospheric (2-4 paragraphs)
+- Use cyberpunk slang naturally (choom, preem, nova, delta, flatline, eddies, chrome)
+- Describe neon lights, holographic ads, the smell of synth-food and gun oil
+- End responses with clear options or tension
+- React meaningfully to player choices and dice rolls
+- Create memorable characters with cyberpunk edge
+
+When players roll dice, interpret the results (1d10 system):
+- 10: Critical success - things go very right
+- 7-9: Success with style
+- 5-6: Partial success or complication
+- 2-4: Failure with consequences
+- 1: Critical failure - things go very wrong`;
+
+function isDndStats(stats: DndStats | CyberpunkStats): stats is DndStats {
+  return 'strength' in stats;
+}
+
+function formatCharacterStats(character: Character): string {
+  if (isDndStats(character.stats)) {
+    const s = character.stats;
+    return `Stats: STR ${s.strength}, DEX ${s.dexterity}, CON ${s.constitution}, INT ${s.intelligence}, WIS ${s.wisdom}, CHA ${s.charisma}`;
+  } else {
+    const s = character.stats;
+    return `Stats: INT ${s.int}, REF ${s.ref}, DEX ${s.dex}, TECH ${s.tech}, COOL ${s.cool}, WILL ${s.will}, LUCK ${s.luck}, MOVE ${s.move}, BODY ${s.body}, EMP ${s.emp}`;
+  }
+}
+
 export async function generateDMResponse(
   userMessage: string,
   character: Character | null,
   session: GameSession,
   diceResult?: { expression: string; total: number; rolls: number[] }
 ): Promise<string> {
+  const gameSystem = session.gameSystem || "dnd";
+  const systemPrompt = gameSystem === "cyberpunk" ? CYBERPUNK_SYSTEM_PROMPT : DND_SYSTEM_PROMPT;
+  
   const messages: OpenAI.ChatCompletionMessageParam[] = [
-    { role: "system", content: DM_SYSTEM_PROMPT },
+    { role: "system", content: systemPrompt },
   ];
 
-  // Add character context if available
   if (character) {
+    const roleLabel = gameSystem === "cyberpunk" ? "Role" : "Class";
     const characterContext = `Current Player Character:
 Name: ${character.name}
-Race: ${character.race}
-Class: ${character.characterClass}
+${gameSystem === "cyberpunk" ? "Background" : "Race"}: ${character.race}
+${roleLabel}: ${character.characterClass}
 Level: ${character.level}
 HP: ${character.currentHp}/${character.maxHp}
-AC: ${character.armorClass}
-Stats: STR ${character.stats.strength}, DEX ${character.stats.dexterity}, CON ${character.stats.constitution}, INT ${character.stats.intelligence}, WIS ${character.stats.wisdom}, CHA ${character.stats.charisma}
+${gameSystem === "cyberpunk" ? "SP (Armor)" : "AC"}: ${character.armorClass}
+${formatCharacterStats(character)}
 ${character.backstory ? `Backstory: ${character.backstory}` : ""}`;
     
     messages.push({ role: "system", content: characterContext });
   }
 
-  // Add current scene context
   if (session.currentScene) {
     messages.push({ 
       role: "system", 
@@ -66,14 +112,13 @@ ${character.backstory ? `Backstory: ${character.backstory}` : ""}`;
     });
   }
 
-  // Add quest context
   const activeQuests = session.quests.filter(q => q.status === "active");
   if (activeQuests.length > 0) {
-    const questContext = `Active Quests:\n${activeQuests.map(q => `- ${q.title}: ${q.description}`).join("\n")}`;
+    const questLabel = gameSystem === "cyberpunk" ? "Active Gigs" : "Active Quests";
+    const questContext = `${questLabel}:\n${activeQuests.map(q => `- ${q.title}: ${q.description}`).join("\n")}`;
     messages.push({ role: "system", content: questContext });
   }
 
-  // Add recent message history (limited to last 10 for context)
   const recentHistory = session.messageHistory.slice(-10);
   for (const msg of recentHistory) {
     messages.push({
@@ -82,7 +127,6 @@ ${character.backstory ? `Backstory: ${character.backstory}` : ""}`;
     });
   }
 
-  // Add the current message with dice result if applicable
   let currentMessage = userMessage;
   if (diceResult) {
     currentMessage = `${userMessage}\n\n[Dice Roll: ${diceResult.expression} = ${diceResult.rolls.join(" + ")} = ${diceResult.total}]`;
@@ -97,30 +141,38 @@ ${character.backstory ? `Backstory: ${character.backstory}` : ""}`;
       temperature: 0.8,
     });
 
-    return response.choices[0]?.message?.content || "The Dungeon Master ponders silently...";
+    const fallback = gameSystem === "cyberpunk" 
+      ? "The fixer stares at you silently, chrome eyes glinting..."
+      : "The Dungeon Master ponders silently...";
+    return response.choices[0]?.message?.content || fallback;
   } catch (error) {
     console.error("Grok API error:", error);
-    throw new Error("Failed to get response from the Dungeon Master");
+    throw new Error(gameSystem === "cyberpunk" 
+      ? "Failed to get response from the Game Master" 
+      : "Failed to get response from the Dungeon Master");
   }
 }
 
 export async function generateCharacterBackstory(
   name: string,
   race: string,
-  characterClass: string
+  characterClass: string,
+  gameSystem: string = "dnd"
 ): Promise<string> {
   try {
+    const prompt = gameSystem === "cyberpunk"
+      ? `Create a brief but compelling backstory for a ${race} ${characterClass} named ${name} in Night City, 2045. Include their motivation for running the edge and a hint at a personal goal, enemy, or secret. Use cyberpunk themes and slang.`
+      : `Create a brief but compelling backstory for a ${race} ${characterClass} named ${name}. Include their motivation for adventuring and a hint at a personal goal or secret.`;
+    
+    const systemContent = gameSystem === "cyberpunk"
+      ? "You are a creative writer specializing in cyberpunk character backstories. Create compelling, brief backstories (2-3 paragraphs) for Cyberpunk RED characters in Night City."
+      : "You are a creative writer specializing in fantasy character backstories. Create compelling, brief backstories (2-3 paragraphs) for tabletop RPG characters.";
+
     const response = await openai.chat.completions.create({
       model: "grok-2-1212",
       messages: [
-        {
-          role: "system",
-          content: "You are a creative writer specializing in fantasy character backstories. Create compelling, brief backstories (2-3 paragraphs) for tabletop RPG characters.",
-        },
-        {
-          role: "user",
-          content: `Create a brief but compelling backstory for a ${race} ${characterClass} named ${name}. Include their motivation for adventuring and a hint at a personal goal or secret.`,
-        },
+        { role: "system", content: systemContent },
+        { role: "user", content: prompt },
       ],
       max_tokens: 400,
       temperature: 0.9,
@@ -138,12 +190,18 @@ export async function generateQuestFromContext(
   context: string
 ): Promise<{ title: string; description: string; objectives: { text: string; completed: boolean }[] } | null> {
   try {
-    const response = await openai.chat.completions.create({
-      model: "grok-2-1212",
-      messages: [
-        {
-          role: "system",
-          content: `You are a Dungeon Master creating quests for a TTRPG. Based on the story context, create a new quest. Respond with JSON in this exact format:
+    const gameSystem = session.gameSystem || "dnd";
+    const systemContent = gameSystem === "cyberpunk"
+      ? `You are a Cyberpunk RED Game Master creating gigs for edgerunners. Based on the story context, create a new gig (job/mission). Respond with JSON in this exact format:
+{
+  "title": "Gig Title",
+  "description": "Brief gig description - what the job is and who's paying",
+  "objectives": [
+    {"text": "Objective 1", "completed": false},
+    {"text": "Objective 2", "completed": false}
+  ]
+}`
+      : `You are a Dungeon Master creating quests for a TTRPG. Based on the story context, create a new quest. Respond with JSON in this exact format:
 {
   "title": "Quest Title",
   "description": "Brief quest description",
@@ -151,11 +209,15 @@ export async function generateQuestFromContext(
     {"text": "Objective 1", "completed": false},
     {"text": "Objective 2", "completed": false}
   ]
-}`,
-        },
+}`;
+
+    const response = await openai.chat.completions.create({
+      model: "grok-2-1212",
+      messages: [
+        { role: "system", content: systemContent },
         {
           role: "user",
-          content: `Current scene: ${session.currentScene || "Unknown"}\nContext: ${context}\n\nCreate an appropriate quest based on this context.`,
+          content: `Current scene: ${session.currentScene || "Unknown"}\nContext: ${context}\n\nCreate an appropriate ${gameSystem === "cyberpunk" ? "gig" : "quest"} based on this context.`,
         },
       ],
       max_tokens: 300,
@@ -174,27 +236,30 @@ export async function generateQuestFromContext(
   }
 }
 
-export async function generateSceneDescription(prompt: string): Promise<string> {
+export async function generateSceneDescription(prompt: string, gameSystem: string = "dnd"): Promise<string> {
   try {
+    const systemContent = gameSystem === "cyberpunk"
+      ? "You are a Cyberpunk RED Game Master. Describe scenes with neon-lit, gritty cyberpunk atmosphere. Include sensory details - the hum of neon, the smell of synth-food, the chrome of cyberware. Keep descriptions to 2-3 paragraphs."
+      : "You are a Dungeon Master. Describe scenes vividly with sensory details. Keep descriptions to 2-3 paragraphs.";
+
     const response = await openai.chat.completions.create({
       model: "grok-2-1212",
       messages: [
-        {
-          role: "system",
-          content: "You are a Dungeon Master. Describe scenes vividly with sensory details. Keep descriptions to 2-3 paragraphs.",
-        },
-        {
-          role: "user",
-          content: `Describe this scene: ${prompt}`,
-        },
+        { role: "system", content: systemContent },
+        { role: "user", content: `Describe this scene: ${prompt}` },
       ],
       max_tokens: 400,
       temperature: 0.8,
     });
 
-    return response.choices[0]?.message?.content || "The scene unfolds before you...";
+    const fallback = gameSystem === "cyberpunk"
+      ? "The neon lights flicker as the scene unfolds..."
+      : "The scene unfolds before you...";
+    return response.choices[0]?.message?.content || fallback;
   } catch (error) {
     console.error("Scene generation error:", error);
-    return "The scene unfolds before you...";
+    return gameSystem === "cyberpunk"
+      ? "The neon lights flicker as the scene unfolds..."
+      : "The scene unfolds before you...";
   }
 }

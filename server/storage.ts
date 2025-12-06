@@ -99,6 +99,7 @@ export class DatabaseStorage implements IStorage {
       inventory: insertCharacter.inventory ?? [],
       isActive: insertCharacter.isActive ?? true,
       backstory: insertCharacter.backstory ?? null,
+      gameSystem: insertCharacter.gameSystem ?? "dnd",
     };
     const result = await db.insert(characters).values(values as any).returning();
     return result[0];
@@ -150,6 +151,7 @@ export class DatabaseStorage implements IStorage {
       messageHistory: insertSession.messageHistory ?? [],
       quests: insertSession.quests ?? [],
       isActive: insertSession.isActive ?? true,
+      gameSystem: insertSession.gameSystem ?? "dnd",
     };
     const result = await db.insert(gameSessions).values(values as any).returning();
     return result[0];
