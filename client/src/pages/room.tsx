@@ -648,12 +648,26 @@ export default function RoomPage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <label className="text-sm text-muted-foreground">Role</label>
-                          <Input 
-                            placeholder="e.g., Solo, Netrunner" 
-                            value={characterStats.role || ""}
-                            onChange={(e) => setCharacterStats(prev => ({ ...prev, role: e.target.value }))}
-                            data-testid="input-cyberpunk-role" 
-                          />
+                          <Select 
+                            value={characterStats.role || ""} 
+                            onValueChange={(value) => setCharacterStats(prev => ({ ...prev, role: value }))}
+                          >
+                            <SelectTrigger data-testid="select-cyberpunk-role">
+                              <SelectValue placeholder="Select role" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Exec">Exec</SelectItem>
+                              <SelectItem value="Fixer">Fixer</SelectItem>
+                              <SelectItem value="Lawman">Lawman</SelectItem>
+                              <SelectItem value="Media">Media</SelectItem>
+                              <SelectItem value="Medtech">Medtech</SelectItem>
+                              <SelectItem value="Netrunner">Netrunner</SelectItem>
+                              <SelectItem value="Nomad">Nomad</SelectItem>
+                              <SelectItem value="Rockerboy">Rockerboy</SelectItem>
+                              <SelectItem value="Solo">Solo</SelectItem>
+                              <SelectItem value="Tech">Tech</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
                         <div>
                           <label className="text-sm text-muted-foreground">Handle</label>
