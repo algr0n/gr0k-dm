@@ -7,9 +7,7 @@ export default function Landing() {
     <div className="min-h-[calc(100vh-3.5rem)] flex flex-col">
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-12">
         <div className="max-w-3xl text-center space-y-6">
-          <h1 className="text-4xl md:text-5xl font-bold font-serif tracking-tight">
-            Welcome to Grok DM
-          </h1>
+          <h1 className="text-4xl md:text-5xl font-bold font-serif tracking-tight">Welcome to Gr0k DM</h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
             Your AI-powered Dungeon Master for tabletop adventures. Run games on Discord with an intelligent DM that narrates stories, manages combat, and brings your world to life.
           </p>
@@ -75,7 +73,6 @@ export default function Landing() {
           </Card>
         </div>
       </div>
-      
       <footer className="py-6 border-t text-center text-sm text-muted-foreground">
         Powered by Grok AI
       </footer>
