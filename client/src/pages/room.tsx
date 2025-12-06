@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -561,21 +562,50 @@ export default function RoomPage() {
                       <div className="grid grid-cols-3 gap-4">
                         <div>
                           <label className="text-sm text-muted-foreground">Class</label>
-                          <Input 
-                            placeholder="e.g., Fighter" 
-                            value={characterStats.class || ""}
-                            onChange={(e) => setCharacterStats(prev => ({ ...prev, class: e.target.value }))}
-                            data-testid="input-dnd-class" 
-                          />
+                          <Select 
+                            value={characterStats.class || ""} 
+                            onValueChange={(value) => setCharacterStats(prev => ({ ...prev, class: value }))}
+                          >
+                            <SelectTrigger data-testid="select-dnd-class">
+                              <SelectValue placeholder="Select class" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Barbarian">Barbarian</SelectItem>
+                              <SelectItem value="Bard">Bard</SelectItem>
+                              <SelectItem value="Cleric">Cleric</SelectItem>
+                              <SelectItem value="Druid">Druid</SelectItem>
+                              <SelectItem value="Fighter">Fighter</SelectItem>
+                              <SelectItem value="Monk">Monk</SelectItem>
+                              <SelectItem value="Paladin">Paladin</SelectItem>
+                              <SelectItem value="Ranger">Ranger</SelectItem>
+                              <SelectItem value="Rogue">Rogue</SelectItem>
+                              <SelectItem value="Sorcerer">Sorcerer</SelectItem>
+                              <SelectItem value="Warlock">Warlock</SelectItem>
+                              <SelectItem value="Wizard">Wizard</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
                         <div>
                           <label className="text-sm text-muted-foreground">Race</label>
-                          <Input 
-                            placeholder="e.g., Human" 
-                            value={characterStats.race || ""}
-                            onChange={(e) => setCharacterStats(prev => ({ ...prev, race: e.target.value }))}
-                            data-testid="input-dnd-race" 
-                          />
+                          <Select 
+                            value={characterStats.race || ""} 
+                            onValueChange={(value) => setCharacterStats(prev => ({ ...prev, race: value }))}
+                          >
+                            <SelectTrigger data-testid="select-dnd-race">
+                              <SelectValue placeholder="Select race" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Dragonborn">Dragonborn</SelectItem>
+                              <SelectItem value="Dwarf">Dwarf</SelectItem>
+                              <SelectItem value="Elf">Elf</SelectItem>
+                              <SelectItem value="Gnome">Gnome</SelectItem>
+                              <SelectItem value="Half-Elf">Half-Elf</SelectItem>
+                              <SelectItem value="Half-Orc">Half-Orc</SelectItem>
+                              <SelectItem value="Halfling">Halfling</SelectItem>
+                              <SelectItem value="Human">Human</SelectItem>
+                              <SelectItem value="Tiefling">Tiefling</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
                         <div>
                           <label className="text-sm text-muted-foreground">Level</label>
