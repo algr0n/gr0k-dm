@@ -2,12 +2,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Shield, Heart, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Shield, Heart, Sparkles, Trash2 } from "lucide-react";
 import type { Character } from "@shared/schema";
 
 interface CharacterCardProps {
   character: Character;
   onClick?: () => void;
+  onDelete?: () => void;
 }
 
 function getStatModifier(stat: number): string {
@@ -42,9 +44,14 @@ const CLASS_COLORS: Record<string, string> = {
   barbarian: "bg-orange-500/20 text-orange-700 dark:text-orange-300",
 };
 
-export function CharacterCard({ character, onClick }: CharacterCardProps) {
+export function CharacterCard({ character, onClick, onDelete }: CharacterCardProps) {
   const hpPercentage = (character.currentHp / character.maxHp) * 100;
   const classColor = CLASS_COLORS[character.characterClass.toLowerCase()] || "bg-muted text-muted-foreground";
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onDelete?.();
+  };
 
   return (
     <Card 
@@ -75,6 +82,16 @@ export function CharacterCard({ character, onClick }: CharacterCardProps) {
             </Badge>
           </div>
         </div>
+        {onDelete && (
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={handleDelete}
+            data-testid={`button-delete-character-${character.id}`}
+          >
+            <Trash2 className="h-4 w-4 text-muted-foreground" />
+          </Button>
+        )}
       </CardHeader>
       <CardContent>
         <div className="space-y-3">

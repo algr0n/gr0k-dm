@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -7,15 +7,38 @@ import { Users, Plus } from "lucide-react";
 import { CharacterCard, CharacterCardSkeleton } from "./character-card";
 import { CharacterSheet } from "./character-sheet";
 import { CharacterCreator } from "./character-creator";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import type { Character } from "@shared/schema";
 
 export function CharacterList() {
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [creatorOpen, setCreatorOpen] = useState(false);
+  const { toast } = useToast();
 
   const { data: characters = [], isLoading } = useQuery<Character[]>({
     queryKey: ["/api/characters"],
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      await apiRequest("DELETE", `/api/characters/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/characters"] });
+      toast({
+        title: "Character deleted",
+        description: "The character has been removed.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to delete character.",
+        variant: "destructive",
+      });
+    },
   });
 
   const handleCharacterClick = (character: Character) => {
@@ -62,6 +85,7 @@ export function CharacterList() {
                     key={character.id}
                     character={character}
                     onClick={() => handleCharacterClick(character)}
+                    onDelete={() => deleteMutation.mutate(character.id)}
                   />
                 ))}
               </div>
