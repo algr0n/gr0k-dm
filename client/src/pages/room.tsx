@@ -1,3 +1,4 @@
+
 import { useEffect, useState, useRef } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -288,8 +289,8 @@ export default function RoomPage() {
             </TabsList>
           </div>
 
-          <TabsContent value="chat" className="flex-1 flex flex-col mt-0 data-[state=inactive]:hidden">
-            <ScrollArea className="flex-1 p-4">
+          <TabsContent value="chat" className="flex-1 flex flex-col mt-0 overflow-hidden data-[state=inactive]:hidden">
+            <ScrollArea className="flex-1 min-h-0 p-4">
               <div className="space-y-4 max-w-3xl mx-auto">
                 {messages.map((message) => (
                   <div
