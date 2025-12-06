@@ -43,9 +43,9 @@
   --chart-3: 190 70% 42%;
   --chart-4: 330 65% 48%;
   --chart-5: 30 75% 50%;
-  --font-sans: Open Sans, sans-serif;
-  --font-serif: Georgia, serif;
-  --font-mono: Menlo, monospace;
+  --font-sans: Inter, sans-serif;
+  --font-serif: Cinzel, Georgia, serif;
+  --font-mono: JetBrains Mono, monospace;
   --radius: .5rem;
   --shadow-2xs: 0px 2px 0px 0px hsl(240 5% 10% / 0.02);
   --shadow-xs: 0px 2px 0px 0px hsl(240 5% 10% / 0.03);
