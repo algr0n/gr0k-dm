@@ -14,14 +14,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Gamepad2, MessageSquare, MapPin, Trash2 } from "lucide-react";
+import { Gamepad2, MessageSquare, MapPin, Trash2, Plus } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { AdventureCreator } from "./adventure-creator";
 import type { GameSession } from "@shared/schema";
 
 export function GameSessions() {
   const { toast } = useToast();
   const [deleteSession, setDeleteSession] = useState<GameSession | null>(null);
+  const [showCreator, setShowCreator] = useState(false);
   
   const { data: sessions = [], isLoading } = useQuery<GameSession[]>({
     queryKey: ["/api/sessions"],
@@ -71,7 +73,17 @@ export function GameSessions() {
             <Gamepad2 className="h-5 w-5" />
             <span className="font-serif">Active Games</span>
           </h3>
-          <Badge variant="secondary">{activeSessions.length} active</Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary">{activeSessions.length} active</Badge>
+            <Button 
+              size="sm" 
+              onClick={() => setShowCreator(true)}
+              data-testid="button-new-adventure"
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              New
+            </Button>
+          </div>
         </div>
         <div className="flex-1 min-h-0">
           <ScrollArea className="h-[350px]">
@@ -182,6 +194,8 @@ export function GameSessions() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AdventureCreator open={showCreator} onOpenChange={setShowCreator} />
     </>
   );
 }

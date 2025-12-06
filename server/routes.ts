@@ -91,6 +91,29 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/sessions", async (req, res) => {
+    try {
+      const { name, description, gameSystem } = req.body;
+      
+      if (!name || typeof name !== "string") {
+        return res.status(400).json({ error: "Adventure name is required" });
+      }
+
+      const session = await storage.createSession({
+        name,
+        description: description || `A new ${gameSystem === "cyberpunk" ? "Cyberpunk RED" : "D&D 5e"} adventure`,
+        discordChannelId: `web-${randomUUID().slice(0, 8)}`,
+        gameSystem: gameSystem || "dnd",
+        currentScene: "The adventure begins...",
+      });
+      
+      res.status(201).json(session);
+    } catch (error) {
+      console.error("Session creation error:", error);
+      res.status(500).json({ error: "Failed to create session" });
+    }
+  });
+
   app.get("/api/sessions/:id", async (req, res) => {
     try {
       const session = await storage.getSession(req.params.id);
