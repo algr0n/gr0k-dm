@@ -3,8 +3,28 @@ import { Client, GatewayIntentBits, Events, Message as DiscordMessage } from "di
 import { storage } from "./storage";
 import { parseDiceExpression, extractDiceFromText } from "./dice";
 import { generateDMResponse, generateCharacterBackstory } from "./grok";
-import type { Message, CharacterStats } from "@shared/schema";
+import type { Message, CharacterStats, DndStats, CyberpunkStats, GameSystem } from "@shared/schema";
 import { randomUUID } from "crypto";
+
+// Track user's selected game system per channel (default to D&D)
+const channelGameSystems: Map<string, GameSystem> = new Map();
+
+// Helper to check if stats are D&D style
+function isDndStats(stats: CharacterStats): stats is DndStats {
+  return 'strength' in stats;
+}
+
+// Helper to format character stats based on game system
+function formatStats(stats: CharacterStats, gameSystem: string): string {
+  if (isDndStats(stats)) {
+    return Object.entries(stats)
+      .map(([stat, val]) => `${stat.slice(0, 3).toUpperCase()}: ${val}`)
+      .join(" | ");
+  } else {
+    const s = stats as CyberpunkStats;
+    return `INT ${s.int} | REF ${s.ref} | DEX ${s.dex} | TECH ${s.tech} | COOL ${s.cool} | WILL ${s.will} | LUCK ${s.luck} | MOVE ${s.move} | BODY ${s.body} | EMP ${s.emp}`;
+  }
+}
 
 let connectionSettings: any;
 let discordClient: Client | null = null;
@@ -59,9 +79,18 @@ async function handleCommand(message: DiscordMessage, command: string, args: str
 
   botStatus.lastActivity = new Date().toISOString();
 
+  // Get current game system for channel
+  const currentSystem = channelGameSystems.get(channelId) || "dnd";
+
   switch (command) {
     case "help": {
-      const helpText = `**Grok DM - AI Dungeon Master**
+      const systemName = currentSystem === "cyberpunk" ? "Cyberpunk RED" : "D&D 5e";
+      const helpText = `**Grok DM - AI Game Master** (${systemName})
+
+**System Commands:**
+\`!menu\` - Show main menu with game system options
+\`!dnd\` - Switch to D&D 5e
+\`!cyberpunk\` - Switch to Cyberpunk RED
 
 **Game Commands:**
 \`!start [name]\` - Start a new adventure
@@ -81,17 +110,88 @@ async function handleCommand(message: DiscordMessage, command: string, args: str
 **Dice Commands:**
 \`!roll [dice]\` - Roll dice (e.g., !roll 2d6+3)
 
-**Quest Commands:**
-\`!quest\` - View your quests
+**${currentSystem === "cyberpunk" ? "Gig" : "Quest"} Commands:**
+\`!quest\` - View your ${currentSystem === "cyberpunk" ? "gigs" : "quests"}
 
-Or just chat naturally - I'll respond as your DM!`;
+Or just chat naturally - I'll respond as your ${currentSystem === "cyberpunk" ? "GM" : "DM"}!`;
       
       await message.reply(helpText);
       break;
     }
 
+    case "menu": {
+      const activeSystem = channelGameSystems.get(channelId) || "dnd";
+      const menuText = `**Grok DM - Main Menu**
+
+**Current Game System:** ${activeSystem === "cyberpunk" ? "Cyberpunk RED" : "D&D 5e"}
+
+**Switch Game System:**
+\`!dnd\` - Play Dungeons & Dragons 5e
+\`!cyberpunk\` - Play Cyberpunk RED
+
+**Quick Start:**
+\`!create\` - Create a new character
+\`!start\` - Begin a new adventure
+\`!help\` - View all commands
+
+*Choose your world, choom!*`;
+      
+      await message.reply(menuText);
+      break;
+    }
+
+    case "dnd": {
+      channelGameSystems.set(channelId, "dnd");
+      // Reset session if one exists to prevent mixed narratives
+      const existingSession = await storage.getSessionByChannel(channelId);
+      if (existingSession && existingSession.gameSystem !== "dnd") {
+        await storage.updateSession(existingSession.id, { 
+          gameSystem: "dnd",
+          messageHistory: [],
+          currentScene: null,
+          quests: [],
+        });
+      }
+      // Deactivate any active character that doesn't match the new system
+      const activeChar = await storage.getActiveCharacterByDiscordUser(userId);
+      if (activeChar && activeChar.gameSystem !== "dnd") {
+        await storage.updateCharacter(activeChar.id, { isActive: false });
+      }
+      await message.reply(`**Game System Changed: D&D 5e**
+
+Welcome to the realm of fantasy! Swords, sorcery, and dragons await.
+
+Use \`!create\` to make a new character, or \`!start\` to begin an adventure.`);
+      break;
+    }
+
+    case "cyberpunk": {
+      channelGameSystems.set(channelId, "cyberpunk");
+      // Reset session if one exists to prevent mixed narratives
+      const existingSession = await storage.getSessionByChannel(channelId);
+      if (existingSession && existingSession.gameSystem !== "cyberpunk") {
+        await storage.updateSession(existingSession.id, { 
+          gameSystem: "cyberpunk",
+          messageHistory: [],
+          currentScene: null,
+          quests: [],
+        });
+      }
+      // Deactivate any active character that doesn't match the new system
+      const activeChar = await storage.getActiveCharacterByDiscordUser(userId);
+      if (activeChar && activeChar.gameSystem !== "cyberpunk") {
+        await storage.updateCharacter(activeChar.id, { isActive: false });
+      }
+      await message.reply(`**Game System Changed: Cyberpunk RED**
+
+Welcome to Night City, 2045. Chrome, neon, and corporate warfare await.
+
+Use \`!create\` to make a new edgerunner, or \`!start\` to begin a gig.`);
+      break;
+    }
+
     case "start": {
-      const sessionName = args.join(" ") || "New Adventure";
+      const sessionName = args.join(" ") || (currentSystem === "cyberpunk" ? "New Gig" : "New Adventure");
       
       let session = await storage.getSessionByChannel(channelId);
       if (!session) {
@@ -99,11 +199,16 @@ Or just chat naturally - I'll respond as your DM!`;
           discordChannelId: channelId,
           discordGuildId: guildId ?? null,
           name: sessionName,
-          description: `Adventure started by ${username}`,
+          description: `${currentSystem === "cyberpunk" ? "Gig" : "Adventure"} started by ${username}`,
           messageHistory: [],
           quests: [],
           isActive: true,
+          gameSystem: currentSystem,
         });
+      } else if (session.gameSystem !== currentSystem) {
+        // Update session game system if it changed
+        await storage.updateSession(session.id, { gameSystem: currentSystem });
+        session = { ...session, gameSystem: currentSystem };
       }
 
       const intro = await generateDMResponse(
@@ -125,7 +230,29 @@ Or just chat naturally - I'll respond as your DM!`;
     }
 
     case "create": {
-      await message.reply(`**Character Creation**
+      if (currentSystem === "cyberpunk") {
+        await message.reply(`**Edgerunner Creation** (Cyberpunk RED)
+
+Let's build your street legend! Reply with your choices:
+
+**Step 1:** What is your character's name?
+**Step 2:** Choose a background: Streetkid, Corporate, Nomad
+**Step 3:** Choose a role:
+- **Solo** - Combat specialist, hired muscle
+- **Netrunner** - Hacker, data thief
+- **Tech** - Mechanic, inventor
+- **Rockerboy** - Musician, influencer, rebel
+- **Media** - Journalist, truth-seeker
+- **Nomad** - Road warrior, family clan
+- **Fixer** - Broker, deal-maker
+- **Cop** - Lawman (or ex-lawman)
+- **Exec** - Corporate climber
+- **Medtech** - Street doc, healer
+
+Format: \`!newchar [name] [background] [role]\`
+Example: \`!newchar V Streetkid Solo\``);
+      } else {
+        await message.reply(`**Character Creation** (D&D 5e)
 
 Let's create your character! Reply with your choices:
 
@@ -135,40 +262,94 @@ Let's create your character! Reply with your choices:
 
 Format: \`!newchar [name] [race] [class]\`
 Example: \`!newchar Thorin Dwarf Fighter\``);
+      }
       break;
     }
 
     case "newchar": {
       if (args.length < 3) {
-        await message.reply("Usage: `!newchar [name] [race] [class]`\nExample: `!newchar Thorin Dwarf Fighter`");
+        if (currentSystem === "cyberpunk") {
+          await message.reply("Usage: `!newchar [name] [background] [role]`\nExample: `!newchar V Streetkid Solo`");
+        } else {
+          await message.reply("Usage: `!newchar [name] [race] [class]`\nExample: `!newchar Thorin Dwarf Fighter`");
+        }
         return;
       }
 
       const name = args[0];
-      const race = args[1];
-      const characterClass = args[2];
+      const race = args[1]; // Background for Cyberpunk, Race for D&D
+      const characterClass = args[2]; // Role for Cyberpunk, Class for D&D
 
-      // Generate random stats using 4d6 drop lowest
-      const rollStat = () => {
-        const rolls = [1, 2, 3, 4].map(() => Math.floor(Math.random() * 6) + 1);
-        rolls.sort((a, b) => b - a);
-        return rolls.slice(0, 3).reduce((a, b) => a + b, 0);
-      };
+      let stats: CharacterStats;
+      let maxHp: number;
+      let armorClass: number;
+      let inventory: { id: string; name: string; type: "weapon" | "armor" | "potion" | "misc" | "gold"; quantity: number }[];
 
-      const stats: CharacterStats = {
-        strength: rollStat(),
-        dexterity: rollStat(),
-        constitution: rollStat(),
-        intelligence: rollStat(),
-        wisdom: rollStat(),
-        charisma: rollStat(),
-      };
+      if (currentSystem === "cyberpunk") {
+        // Cyberpunk RED stats: Roll 1d10 for each, minimum 2
+        const rollCyberpunkStat = () => Math.max(2, Math.floor(Math.random() * 10) + 1);
+        
+        const cyberpunkStats: CyberpunkStats = {
+          int: rollCyberpunkStat(),
+          ref: rollCyberpunkStat(),
+          dex: rollCyberpunkStat(),
+          tech: rollCyberpunkStat(),
+          cool: rollCyberpunkStat(),
+          will: rollCyberpunkStat(),
+          luck: rollCyberpunkStat(),
+          move: rollCyberpunkStat(),
+          body: rollCyberpunkStat(),
+          emp: rollCyberpunkStat(),
+        };
+        stats = cyberpunkStats;
+        
+        // HP in Cyberpunk RED = 10 + (BODY + WILL) / 2
+        maxHp = 10 + Math.floor((cyberpunkStats.body + cyberpunkStats.will) / 2);
+        armorClass = 11; // Base SP (Stopping Power)
+        
+        inventory = [
+          { id: randomUUID(), name: "Agent (Phone)", type: "misc", quantity: 1 },
+          { id: randomUUID(), name: "Eddies", type: "gold", quantity: 500 },
+          { id: randomUUID(), name: "Light Armorjack", type: "armor", quantity: 1 },
+        ];
+      } else {
+        // D&D stats: 4d6 drop lowest
+        const rollStat = () => {
+          const rolls = [1, 2, 3, 4].map(() => Math.floor(Math.random() * 6) + 1);
+          rolls.sort((a, b) => b - a);
+          return rolls.slice(0, 3).reduce((a, b) => a + b, 0);
+        };
 
-      const conModifier = Math.floor((stats.constitution - 10) / 2);
-      const maxHp = 10 + conModifier;
+        const dndStats: DndStats = {
+          strength: rollStat(),
+          dexterity: rollStat(),
+          constitution: rollStat(),
+          intelligence: rollStat(),
+          wisdom: rollStat(),
+          charisma: rollStat(),
+        };
+        stats = dndStats;
 
-      // Generate backstory
-      const backstory = await generateCharacterBackstory(name, race, characterClass);
+        const conModifier = Math.floor((dndStats.constitution - 10) / 2);
+        maxHp = 10 + conModifier;
+        armorClass = 10 + Math.floor((dndStats.dexterity - 10) / 2);
+        
+        inventory = [
+          { id: randomUUID(), name: "Traveler's Pack", type: "misc", quantity: 1 },
+          { id: randomUUID(), name: "Gold Coins", type: "gold", quantity: 15 },
+        ];
+      }
+
+      // Generate backstory with game system context
+      const backstory = await generateCharacterBackstory(name, race, characterClass, currentSystem);
+
+      // Deactivate all existing characters for this user before creating new one
+      const existingChars = await storage.getCharactersByDiscordUser(userId);
+      for (const char of existingChars) {
+        if (char.isActive) {
+          await storage.updateCharacter(char.id, { isActive: false });
+        }
+      }
 
       const character = await storage.createCharacter({
         discordUserId: userId,
@@ -179,21 +360,37 @@ Example: \`!newchar Thorin Dwarf Fighter\``);
         level: 1,
         currentHp: maxHp,
         maxHp,
-        armorClass: 10 + Math.floor((stats.dexterity - 10) / 2),
+        armorClass,
         stats,
-        inventory: [
-          { id: randomUUID(), name: "Traveler's Pack", type: "misc", quantity: 1 },
-          { id: randomUUID(), name: "Gold Coins", type: "gold", quantity: 15 },
-        ],
+        inventory,
         backstory: backstory || undefined,
         isActive: true,
+        gameSystem: currentSystem,
       });
 
-      const statBlock = Object.entries(stats)
-        .map(([stat, val]) => `${stat.slice(0, 3).toUpperCase()}: ${val} (${val >= 10 ? "+" : ""}${Math.floor((val - 10) / 2)})`)
-        .join(" | ");
+      let statBlock: string;
+      let replyText: string;
 
-      await message.reply(`**Character Created!**
+      if (currentSystem === "cyberpunk") {
+        const s = stats as CyberpunkStats;
+        statBlock = `INT ${s.int} | REF ${s.ref} | DEX ${s.dex} | TECH ${s.tech} | COOL ${s.cool}\nWILL ${s.will} | LUCK ${s.luck} | MOVE ${s.move} | BODY ${s.body} | EMP ${s.emp}`;
+        
+        replyText = `**Edgerunner Created!**
+
+**${character.name}** - ${character.race} ${character.characterClass}
+HP: ${character.currentHp}/${character.maxHp} | SP: ${character.armorClass}
+${statBlock}
+
+${backstory ? `*${backstory.substring(0, 300)}${backstory.length > 300 ? "..." : ""}*` : ""}
+
+Time to hit the streets, choom! Use \`!start\` to begin a gig.`;
+      } else {
+        const s = stats as DndStats;
+        statBlock = Object.entries(s)
+          .map(([stat, val]) => `${stat.slice(0, 3).toUpperCase()}: ${val} (${val >= 10 ? "+" : ""}${Math.floor((val - 10) / 2)})`)
+          .join(" | ");
+
+        replyText = `**Character Created!**
 
 **${character.name}** - Level ${character.level} ${character.race} ${character.characterClass}
 HP: ${character.currentHp}/${character.maxHp} | AC: ${character.armorClass}
@@ -201,7 +398,10 @@ ${statBlock}
 
 ${backstory ? `*${backstory.substring(0, 300)}${backstory.length > 300 ? "..." : ""}*` : ""}
 
-Your adventure awaits! Use \`!start\` to begin.`);
+Your adventure awaits! Use \`!start\` to begin.`;
+      }
+
+      await message.reply(replyText);
       break;
     }
 
@@ -309,12 +509,12 @@ Your adventure continues!`);
         return;
       }
 
-      const statBlock = Object.entries(character.stats)
-        .map(([stat, val]) => `${stat.slice(0, 3).toUpperCase()}: ${val}`)
-        .join(" | ");
+      const isCyberpunk = character.gameSystem === "cyberpunk" || !isDndStats(character.stats);
+      const statBlock = formatStats(character.stats, character.gameSystem || "dnd");
+      const defenseLabel = isCyberpunk ? "SP" : "AC";
 
-      await message.reply(`**${character.name}** - Level ${character.level} ${character.race} ${character.characterClass}
-HP: ${character.currentHp}/${character.maxHp} | AC: ${character.armorClass}
+      await message.reply(`**${character.name}** - ${isCyberpunk ? "" : `Level ${character.level} `}${character.race} ${character.characterClass}
+HP: ${character.currentHp}/${character.maxHp} | ${defenseLabel}: ${character.armorClass}
 ${statBlock}`);
       break;
     }
@@ -326,12 +526,30 @@ ${statBlock}`);
         return;
       }
 
-      const lines = Object.entries(character.stats).map(([stat, val]) => {
-        const mod = Math.floor((val - 10) / 2);
-        return `**${stat.charAt(0).toUpperCase() + stat.slice(1)}:** ${val} (${mod >= 0 ? "+" : ""}${mod})`;
-      });
-
-      await message.reply(`**${character.name}'s Ability Scores**\n\n${lines.join("\n")}`);
+      const isCyberpunk = character.gameSystem === "cyberpunk" || !isDndStats(character.stats);
+      
+      if (isCyberpunk) {
+        const s = character.stats as CyberpunkStats;
+        const lines = [
+          `**INT:** ${s.int}`,
+          `**REF:** ${s.ref}`,
+          `**DEX:** ${s.dex}`,
+          `**TECH:** ${s.tech}`,
+          `**COOL:** ${s.cool}`,
+          `**WILL:** ${s.will}`,
+          `**LUCK:** ${s.luck}`,
+          `**MOVE:** ${s.move}`,
+          `**BODY:** ${s.body}`,
+          `**EMP:** ${s.emp}`,
+        ];
+        await message.reply(`**${character.name}'s Stats**\n\n${lines.join("\n")}`);
+      } else {
+        const lines = Object.entries(character.stats).map(([stat, val]) => {
+          const mod = Math.floor((val - 10) / 2);
+          return `**${stat.charAt(0).toUpperCase() + stat.slice(1)}:** ${val} (${mod >= 0 ? "+" : ""}${mod})`;
+        });
+        await message.reply(`**${character.name}'s Ability Scores**\n\n${lines.join("\n")}`);
+      }
       break;
     }
 
