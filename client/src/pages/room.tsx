@@ -681,6 +681,58 @@ export default function RoomPage() {
                       </div>
                       <Separator />
                       <div>
+                        <label className="text-sm text-muted-foreground mb-2 block">Lifepath</label>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-xs text-muted-foreground">Cultural Origin</label>
+                            <Select 
+                              value={characterStats.culturalOrigin || ""} 
+                              onValueChange={(value) => setCharacterStats(prev => ({ ...prev, culturalOrigin: value }))}
+                            >
+                              <SelectTrigger data-testid="select-cyberpunk-origin">
+                                <SelectValue placeholder="Select origin" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="North American">North American</SelectItem>
+                                <SelectItem value="South/Central American">South/Central American</SelectItem>
+                                <SelectItem value="Western European">Western European</SelectItem>
+                                <SelectItem value="Eastern European">Eastern European</SelectItem>
+                                <SelectItem value="Middle Eastern/North African">Middle Eastern/North African</SelectItem>
+                                <SelectItem value="Sub-Saharan African">Sub-Saharan African</SelectItem>
+                                <SelectItem value="South Asian">South Asian</SelectItem>
+                                <SelectItem value="Southeast Asian">Southeast Asian</SelectItem>
+                                <SelectItem value="East Asian">East Asian</SelectItem>
+                                <SelectItem value="Oceanian/Pacific Islander">Oceanian/Pacific Islander</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <label className="text-xs text-muted-foreground">Family Background</label>
+                            <Select 
+                              value={characterStats.familyBackground || ""} 
+                              onValueChange={(value) => setCharacterStats(prev => ({ ...prev, familyBackground: value }))}
+                            >
+                              <SelectTrigger data-testid="select-cyberpunk-family">
+                                <SelectValue placeholder="Select background" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="Corporate Executive">Corporate Executive</SelectItem>
+                                <SelectItem value="Corporate Manager">Corporate Manager</SelectItem>
+                                <SelectItem value="Corporate Worker">Corporate Worker</SelectItem>
+                                <SelectItem value="Nomad Pack">Nomad Pack</SelectItem>
+                                <SelectItem value="Gang Family">Gang Family</SelectItem>
+                                <SelectItem value="Combat Zone Poor">Combat Zone Poor</SelectItem>
+                                <SelectItem value="Urban Homeless">Urban Homeless</SelectItem>
+                                <SelectItem value="Megastructure Warren">Megastructure Warren</SelectItem>
+                                <SelectItem value="Reclaimers/Edgerunners">Reclaimers/Edgerunners</SelectItem>
+                                <SelectItem value="Wealthy Family">Wealthy Family</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      </div>
+                      <Separator />
+                      <div>
                         <label className="text-sm text-muted-foreground mb-2 block">Stats</label>
                         <div className="grid grid-cols-5 gap-2">
                           {["INT", "REF", "DEX", "TECH", "COOL", "WILL", "LUCK", "MOVE", "BODY", "EMP"].map((stat) => (
