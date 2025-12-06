@@ -72,6 +72,70 @@ export async function registerRoutes(
     }
 
     if (message.type === "chat" || message.type === "action") {
+      // Handle /give command: /give @PlayerName ItemName x Quantity
+      // Uses a greedy match for item name, with optional "x N" at the end for quantity
+      const giveMatch = message.content.match(/^\/give\s+@?(\S+)\s+(.+?)(?:\s+x\s*(\d+))?$/i);
+      if (giveMatch && room.hostName === playerName) {
+        const targetPlayerName = giveMatch[1];
+        const itemName = giveMatch[2].trim();
+        const quantity = parseInt(giveMatch[3]) || 1;
+
+        // Find the target player
+        const players = await storage.getPlayersByRoom(room.id);
+        const targetPlayer = players.find(p => p.name.toLowerCase() === targetPlayerName.toLowerCase());
+        
+        if (!targetPlayer) {
+          ws.send(JSON.stringify({ type: "error", content: `Player "${targetPlayerName}" not found.` }));
+          return;
+        }
+
+        // Get or create character for target player
+        let character = await storage.getCharacterByPlayer(targetPlayer.id, room.id);
+        if (!character) {
+          // Create a basic character for the player
+          character = await storage.createCharacter({
+            playerId: targetPlayer.id,
+            roomId: room.id,
+            name: targetPlayer.name,
+            gameSystem: room.gameSystem,
+            stats: {},
+            notes: null,
+          });
+        }
+
+        // Add item to inventory
+        await storage.createInventoryItem({
+          characterId: character.id,
+          name: itemName,
+          description: null,
+          quantity,
+          grantedBy: playerName,
+        });
+
+        // Broadcast system message about the item grant
+        const grantMessage: Message = {
+          id: randomUUID(),
+          roomId: room.id,
+          playerName: "System",
+          content: `${playerName} granted ${targetPlayer.name} "${itemName}"${quantity > 1 ? ` x${quantity}` : ""}.`,
+          type: "system",
+          timestamp: new Date().toISOString(),
+        };
+
+        const updatedHistory = [...(room.messageHistory || []), grantMessage].slice(-100);
+        await storage.updateRoom(room.id, { messageHistory: updatedHistory });
+
+        broadcastToRoom(roomCode, { type: "message", message: grantMessage });
+        broadcastToRoom(roomCode, { type: "inventory_update", playerId: targetPlayer.id });
+        return;
+      }
+
+      // Handle non-host trying to use /give
+      if (message.content.startsWith("/give") && room.hostName !== playerName) {
+        ws.send(JSON.stringify({ type: "error", content: "Only the host can grant items." }));
+        return;
+      }
+
       const chatMessage: Message = {
         id: randomUUID(),
         roomId: room.id,

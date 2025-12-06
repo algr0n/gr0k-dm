@@ -10,11 +10,11 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye } from "lucide-react";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { type Message, type Room, type Player, type Character, gameSystemLabels, type GameSystem } from "@shared/schema";
+import { type Message, type Room, type Player, type Character, type InventoryItem, gameSystemLabels, type GameSystem } from "@shared/schema";
 
 export default function RoomPage() {
   const { code } = useParams<{ code: string }>();
@@ -74,6 +74,12 @@ export default function RoomPage() {
     enabled: !!code && !!viewingPlayerId,
   });
 
+  // Fetch inventory for current character
+  const { data: inventory, isLoading: isLoadingInventory, refetch: refetchInventory } = useQuery<InventoryItem[]>({
+    queryKey: ["/api/characters", existingCharacter?.id, "inventory"],
+    enabled: !!existingCharacter?.id,
+  });
+
   // Load character data when it exists
   useEffect(() => {
     if (existingCharacter) {
@@ -110,6 +116,27 @@ export default function RoomPage() {
   });
 
   const isHost = roomData?.hostName === playerName;
+
+  const deleteInventoryItemMutation = useMutation({
+    mutationFn: async (itemId: string) => {
+      const response = await apiRequest("DELETE", `/api/inventory/${itemId}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter?.id, "inventory"] });
+      toast({
+        title: "Item removed",
+        description: "The item has been removed from your inventory.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Failed to remove item",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
 
   const endGameMutation = useMutation({
     mutationFn: async () => {
@@ -169,6 +196,12 @@ export default function RoomPage() {
           title: "Game ended",
           description: "The host has ended this game session.",
         });
+      } else if (data.type === "inventory_update") {
+        // Refetch inventory when items are granted to our character
+        // Check if the playerId in the update matches our playerId
+        if (data.playerId === playerId && existingCharacter?.id) {
+          queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter.id, "inventory"] });
+        }
       } else if (data.type === "error") {
         toast({
           title: "Error",
@@ -364,6 +397,10 @@ export default function RoomPage() {
               <TabsTrigger value="character" className="gap-2" data-testid="tab-character">
                 <User className="h-4 w-4" />
                 Character
+              </TabsTrigger>
+              <TabsTrigger value="inventory" className="gap-2" data-testid="tab-inventory">
+                <Package className="h-4 w-4" />
+                Inventory
               </TabsTrigger>
             </TabsList>
           </div>
@@ -729,6 +766,90 @@ export default function RoomPage() {
                       data-testid="textarea-notes"
                     />
                   </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="inventory" className="flex-1 mt-0 overflow-auto data-[state=inactive]:hidden">
+            <div className="max-w-2xl mx-auto space-y-4 p-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="font-serif flex items-center gap-2">
+                      <Package className="h-5 w-5" />
+                      Inventory
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Items granted by the DM appear here.
+                      {isHost && " Use /give @PlayerName ItemName x Quantity to grant items."}
+                    </p>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {!existingCharacter ? (
+                    <div className="text-center py-8">
+                      <p className="text-muted-foreground">Create a character first to see your inventory.</p>
+                      <Button 
+                        variant="outline" 
+                        className="mt-2"
+                        onClick={() => setActiveTab("character")}
+                        data-testid="button-go-to-character"
+                      >
+                        Go to Character Tab
+                      </Button>
+                    </div>
+                  ) : isLoadingInventory ? (
+                    <div className="flex justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin" />
+                    </div>
+                  ) : inventory && inventory.length > 0 ? (
+                    <div className="space-y-2">
+                      {inventory.map((item) => (
+                        <div 
+                          key={item.id} 
+                          className="flex items-center justify-between p-3 border rounded-md"
+                          data-testid={`inventory-item-${item.id}`}
+                        >
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium" data-testid={`text-item-name-${item.id}`}>{item.name}</span>
+                              {item.quantity > 1 && (
+                                <Badge variant="secondary" data-testid={`badge-quantity-${item.id}`}>
+                                  x{item.quantity}
+                                </Badge>
+                              )}
+                            </div>
+                            {item.description && (
+                              <p className="text-sm text-muted-foreground mt-1">{item.description}</p>
+                            )}
+                            {item.grantedBy && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Granted by: {item.grantedBy}
+                              </p>
+                            )}
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteInventoryItemMutation.mutate(item.id)}
+                            disabled={deleteInventoryItemMutation.isPending}
+                            data-testid={`button-delete-item-${item.id}`}
+                          >
+                            <Trash2 className="h-4 w-4 text-muted-foreground" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8">
+                      <Package className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
+                      <p className="text-muted-foreground">Your inventory is empty.</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        The DM can grant you items during the game.
+                      </p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
