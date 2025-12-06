@@ -66,7 +66,9 @@ async function handleCommand(message: DiscordMessage, command: string, args: str
 
 **Character Commands:**
 \`!create\` - Create a new character
-\`!character\` - View your character
+\`!characters\` - View all your saved characters
+\`!play [name/#]\` - Play as a saved character
+\`!character\` - View your active character
 \`!stats\` - View your stats
 \`!inventory\` - Check your inventory
 \`!delete\` - Delete your character
@@ -195,6 +197,82 @@ ${statBlock}
 ${backstory ? `*${backstory.substring(0, 300)}${backstory.length > 300 ? "..." : ""}*` : ""}
 
 Your adventure awaits! Use \`!start\` to begin.`);
+      break;
+    }
+
+    case "characters":
+    case "chars": {
+      const userCharacters = await storage.getCharactersByDiscordUser(userId);
+      
+      if (userCharacters.length === 0) {
+        await message.reply("You don't have any saved characters! Use `!create` to make one.");
+        return;
+      }
+
+      const activeChar = userCharacters.find(c => c.isActive);
+      const charList = userCharacters.map((char, index) => {
+        const activeMarker = char.isActive ? " [ACTIVE]" : "";
+        return `**${index + 1}.** ${char.name} - Level ${char.level} ${char.race} ${char.characterClass}${activeMarker}`;
+      }).join("\n");
+
+      await message.reply(`**Your Characters:**\n\n${charList}\n\nUse \`!play [name or #]\` to switch characters.`);
+      break;
+    }
+
+    case "play":
+    case "switch": {
+      const userCharacters = await storage.getCharactersByDiscordUser(userId);
+      
+      if (userCharacters.length === 0) {
+        await message.reply("You don't have any characters! Use `!create` to make one.");
+        return;
+      }
+
+      if (args.length === 0) {
+        await message.reply("Usage: `!play [character name or number]`\nExample: `!play Thorin` or `!play 1`");
+        return;
+      }
+
+      const input = args.join(" ");
+      let selectedChar;
+
+      // Check if input is a number
+      const num = parseInt(input, 10);
+      if (!isNaN(num) && num >= 1 && num <= userCharacters.length) {
+        selectedChar = userCharacters[num - 1];
+      } else {
+        // Search by name (case-insensitive)
+        selectedChar = userCharacters.find(c => 
+          c.name.toLowerCase() === input.toLowerCase()
+        );
+      }
+
+      if (!selectedChar) {
+        await message.reply(`Character not found. Use \`!characters\` to see your saved characters.`);
+        return;
+      }
+
+      // Deactivate all characters for this user
+      for (const char of userCharacters) {
+        if (char.isActive) {
+          await storage.updateCharacter(char.id, { isActive: false });
+        }
+      }
+
+      // Activate the selected character
+      await storage.updateCharacter(selectedChar.id, { isActive: true });
+
+      const statBlock = Object.entries(selectedChar.stats)
+        .map(([stat, val]) => `${stat.slice(0, 3).toUpperCase()}: ${val}`)
+        .join(" | ");
+
+      await message.reply(`**Now playing as ${selectedChar.name}!**
+
+**${selectedChar.name}** - Level ${selectedChar.level} ${selectedChar.race} ${selectedChar.characterClass}
+HP: ${selectedChar.currentHp}/${selectedChar.maxHp} | AC: ${selectedChar.armorClass}
+${statBlock}
+
+Your adventure continues!`);
       break;
     }
 
