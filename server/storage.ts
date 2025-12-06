@@ -18,6 +18,7 @@ export interface IStorage {
   // Characters
   getCharacter(id: string): Promise<Character | undefined>;
   getCharactersByDiscordUser(discordUserId: string): Promise<Character[]>;
+  getCharactersByDiscordUsername(discordUsername: string): Promise<Character[]>;
   getActiveCharacterByDiscordUser(discordUserId: string): Promise<Character | undefined>;
   getAllCharacters(): Promise<Character[]>;
   createCharacter(character: InsertCharacter): Promise<Character>;
@@ -65,6 +66,10 @@ export class DatabaseStorage implements IStorage {
 
   async getCharactersByDiscordUser(discordUserId: string): Promise<Character[]> {
     return await db.select().from(characters).where(eq(characters.discordUserId, discordUserId));
+  }
+
+  async getCharactersByDiscordUsername(discordUsername: string): Promise<Character[]> {
+    return await db.select().from(characters).where(eq(characters.discordUsername, discordUsername));
   }
 
   async getActiveCharacterByDiscordUser(discordUserId: string): Promise<Character | undefined> {

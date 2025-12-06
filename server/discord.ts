@@ -202,7 +202,17 @@ Your adventure awaits! Use \`!start\` to begin.`);
 
     case "characters":
     case "chars": {
-      const userCharacters = await storage.getCharactersByDiscordUser(userId);
+      // Get characters by both user ID and username
+      const byId = await storage.getCharactersByDiscordUser(userId);
+      const byUsername = await storage.getCharactersByDiscordUsername(username);
+      
+      // Merge and deduplicate
+      const seenIds = new Set<string>();
+      const userCharacters = [...byId, ...byUsername].filter(char => {
+        if (seenIds.has(char.id)) return false;
+        seenIds.add(char.id);
+        return true;
+      });
       
       if (userCharacters.length === 0) {
         await message.reply("You don't have any saved characters! Use `!create` to make one.");
@@ -221,7 +231,17 @@ Your adventure awaits! Use \`!start\` to begin.`);
 
     case "play":
     case "switch": {
-      const userCharacters = await storage.getCharactersByDiscordUser(userId);
+      // Get characters by both user ID and username
+      const byId = await storage.getCharactersByDiscordUser(userId);
+      const byUsername = await storage.getCharactersByDiscordUsername(username);
+      
+      // Merge and deduplicate
+      const seenIds = new Set<string>();
+      const userCharacters = [...byId, ...byUsername].filter(char => {
+        if (seenIds.has(char.id)) return false;
+        seenIds.add(char.id);
+        return true;
+      });
       
       if (userCharacters.length === 0) {
         await message.reply("You don't have any characters! Use `!create` to make one.");

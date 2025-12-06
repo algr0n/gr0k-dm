@@ -35,6 +35,7 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
     name: "",
     race: "",
     characterClass: "",
+    discordUsername: "",
     strength: 10,
     dexterity: 10,
     constitution: 10,
@@ -52,8 +53,8 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
         name: formData.name,
         race: formData.race,
         characterClass: formData.characterClass,
-        discordUserId: "web-user",
-        discordUsername: "Web Dashboard",
+        discordUserId: formData.discordUsername ? `username:${formData.discordUsername}` : "web-user",
+        discordUsername: formData.discordUsername || "Web Dashboard",
         stats: {
           strength: formData.strength,
           dexterity: formData.dexterity,
@@ -91,6 +92,7 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
       name: "",
       race: "",
       characterClass: "",
+      discordUsername: "",
       strength: 10,
       dexterity: 10,
       constitution: 10,
@@ -199,6 +201,19 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="discordUsername">Discord Username</Label>
+                <Input
+                  id="discordUsername"
+                  placeholder="e.g. zyro111 (to link with Discord)"
+                  value={formData.discordUsername}
+                  onChange={(e) => setFormData({ ...formData, discordUsername: e.target.value })}
+                  data-testid="input-discord-username"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Enter your Discord username to use this character with !characters command
+                </p>
               </div>
             </>
           )}
