@@ -2,7 +2,7 @@ import {
   type Character, type InsertCharacter,
   type GameSession, type InsertGameSession,
   type DiceRollRecord, type InsertDiceRoll,
-  type User, type InsertUser,
+  type User, type UpsertUser,
   characters, gameSessions, diceRolls, users
 } from "@shared/schema";
 import { db } from "./db";
@@ -12,8 +12,7 @@ import { randomUUID } from "crypto";
 export interface IStorage {
   // Users
   getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  upsertUser(user: UpsertUser): Promise<User>;
   
   // Characters
   getCharacter(id: string): Promise<Character | undefined>;
@@ -47,15 +46,19 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.username, username));
-    return result[0];
-  }
-
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const result = await db.insert(users).values({ ...insertUser, id }).returning();
-    return result[0];
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          ...userData,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return user;
   }
 
   // Characters
