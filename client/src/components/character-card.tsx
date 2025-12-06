@@ -4,12 +4,16 @@ import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Shield, Heart, Sparkles, Trash2 } from "lucide-react";
-import type { Character } from "@shared/schema";
+import type { Character, DndStats, CyberpunkStats } from "@shared/schema";
 
 interface CharacterCardProps {
   character: Character;
   onClick?: () => void;
   onDelete?: () => void;
+}
+
+function isDndStats(stats: DndStats | CyberpunkStats): stats is DndStats {
+  return 'strength' in stats;
 }
 
 function getStatModifier(stat: number): string {
@@ -27,6 +31,7 @@ function getInitials(name: string): string {
 }
 
 const CLASS_COLORS: Record<string, string> = {
+  // D&D classes
   warrior: "bg-red-500/20 text-red-700 dark:text-red-300",
   fighter: "bg-red-500/20 text-red-700 dark:text-red-300",
   mage: "bg-blue-500/20 text-blue-700 dark:text-blue-300",
@@ -42,11 +47,30 @@ const CLASS_COLORS: Record<string, string> = {
   warlock: "bg-violet-500/20 text-violet-700 dark:text-violet-300",
   monk: "bg-cyan-500/20 text-cyan-700 dark:text-cyan-300",
   barbarian: "bg-orange-500/20 text-orange-700 dark:text-orange-300",
+  // Cyberpunk roles
+  solo: "bg-red-500/20 text-red-700 dark:text-red-300",
+  netrunner: "bg-cyan-500/20 text-cyan-700 dark:text-cyan-300",
+  tech: "bg-orange-500/20 text-orange-700 dark:text-orange-300",
+  rockerboy: "bg-pink-500/20 text-pink-700 dark:text-pink-300",
+  media: "bg-blue-500/20 text-blue-700 dark:text-blue-300",
+  nomad: "bg-amber-500/20 text-amber-700 dark:text-amber-300",
+  fixer: "bg-purple-500/20 text-purple-700 dark:text-purple-300",
+  cop: "bg-slate-500/20 text-slate-700 dark:text-slate-300",
+  exec: "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300",
+  medtech: "bg-green-500/20 text-green-700 dark:text-green-300",
+};
+
+const GAME_SYSTEM_COLORS: Record<string, string> = {
+  dnd: "bg-amber-500/20 text-amber-700 dark:text-amber-300",
+  cyberpunk: "bg-cyan-500/20 text-cyan-700 dark:text-cyan-300",
 };
 
 export function CharacterCard({ character, onClick, onDelete }: CharacterCardProps) {
   const hpPercentage = (character.currentHp / character.maxHp) * 100;
   const classColor = CLASS_COLORS[character.characterClass.toLowerCase()] || "bg-muted text-muted-foreground";
+  const gameSystemColor = GAME_SYSTEM_COLORS[character.gameSystem] || GAME_SYSTEM_COLORS.dnd;
+  const stats = character.stats as DndStats | CyberpunkStats;
+  const isCyberpunk = !isDndStats(stats);
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -70,6 +94,9 @@ export function CharacterCard({ character, onClick, onDelete }: CharacterCardPro
             {character.name}
           </CardTitle>
           <div className="flex flex-wrap items-center gap-2 mt-1">
+            <Badge className={`text-xs ${gameSystemColor}`}>
+              {character.gameSystem === "cyberpunk" ? "Cyberpunk" : "D&D"}
+            </Badge>
             <Badge variant="outline" className="text-xs">
               {character.race}
             </Badge>
@@ -116,19 +143,32 @@ export function CharacterCard({ character, onClick, onDelete }: CharacterCardPro
             </div>
           </div>
 
-          <div className="grid grid-cols-6 gap-1 text-center">
-            {Object.entries(character.stats).map(([stat, value]) => (
-              <div key={stat} className="p-1 rounded bg-muted/50">
-                <div className="text-[10px] uppercase text-muted-foreground">
-                  {stat.slice(0, 3)}
+          {isCyberpunk ? (
+            <div className="grid grid-cols-5 gap-1 text-center">
+              {Object.entries(stats).map(([stat, value]) => (
+                <div key={stat} className="p-1 rounded bg-muted/50">
+                  <div className="text-[10px] uppercase text-muted-foreground">
+                    {stat}
+                  </div>
+                  <div className="text-sm font-bold font-mono">{value}</div>
                 </div>
-                <div className="text-sm font-bold font-mono">{value}</div>
-                <div className="text-[10px] text-muted-foreground font-mono">
-                  {getStatModifier(value)}
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-6 gap-1 text-center">
+              {Object.entries(stats).map(([stat, value]) => (
+                <div key={stat} className="p-1 rounded bg-muted/50">
+                  <div className="text-[10px] uppercase text-muted-foreground">
+                    {stat.slice(0, 3)}
+                  </div>
+                  <div className="text-sm font-bold font-mono">{value}</div>
+                  <div className="text-[10px] text-muted-foreground font-mono">
+                    {getStatModifier(value)}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

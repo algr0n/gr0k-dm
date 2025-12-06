@@ -10,16 +10,28 @@ import { Progress } from "@/components/ui/progress";
 import { Wand2, ChevronLeft, ChevronRight, Dices, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import type { GameSystem } from "@shared/schema";
 
-const RACES = [
+// D&D options
+const DND_RACES = [
   "Human", "Elf", "Dwarf", "Halfling", "Gnome", 
   "Half-Elf", "Half-Orc", "Tiefling", "Dragonborn"
 ];
 
-const CLASSES = [
+const DND_CLASSES = [
   "Fighter", "Wizard", "Rogue", "Cleric", "Ranger",
   "Paladin", "Barbarian", "Bard", "Druid", "Monk",
   "Sorcerer", "Warlock"
+];
+
+// Cyberpunk options
+const CYBERPUNK_BACKGROUNDS = [
+  "Streetkid", "Corporate", "Nomad"
+];
+
+const CYBERPUNK_ROLES = [
+  "Solo", "Netrunner", "Tech", "Rockerboy", "Media",
+  "Nomad", "Fixer", "Cop", "Exec", "Medtech"
 ];
 
 const STEPS = ["Basics", "Attributes", "Backstory"];
@@ -32,16 +44,29 @@ interface CharacterCreatorProps {
 export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) {
   const [step, setStep] = useState(0);
   const [formData, setFormData] = useState({
+    gameSystem: "dnd" as GameSystem,
     name: "",
     race: "",
     characterClass: "",
     discordUsername: "",
+    // D&D stats
     strength: 10,
     dexterity: 10,
     constitution: 10,
     intelligence: 10,
     wisdom: 10,
     charisma: 10,
+    // Cyberpunk stats
+    int: 5,
+    ref: 5,
+    dex: 5,
+    tech: 5,
+    cool: 5,
+    will: 5,
+    luck: 5,
+    move: 5,
+    body: 5,
+    emp: 5,
     backstory: "",
   });
   const queryClient = useQueryClient();
@@ -49,20 +74,36 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
 
   const createMutation = useMutation({
     mutationFn: async () => {
+      const stats = formData.gameSystem === "dnd" 
+        ? {
+            strength: formData.strength,
+            dexterity: formData.dexterity,
+            constitution: formData.constitution,
+            intelligence: formData.intelligence,
+            wisdom: formData.wisdom,
+            charisma: formData.charisma,
+          }
+        : {
+            int: formData.int,
+            ref: formData.ref,
+            dex: formData.dex,
+            tech: formData.tech,
+            cool: formData.cool,
+            will: formData.will,
+            luck: formData.luck,
+            move: formData.move,
+            body: formData.body,
+            emp: formData.emp,
+          };
+      
       const result = await apiRequest("POST", "/api/characters", {
         name: formData.name,
         race: formData.race,
         characterClass: formData.characterClass,
         discordUserId: formData.discordUsername ? `username:${formData.discordUsername}` : "web-user",
         discordUsername: formData.discordUsername || "Web Dashboard",
-        stats: {
-          strength: formData.strength,
-          dexterity: formData.dexterity,
-          constitution: formData.constitution,
-          intelligence: formData.intelligence,
-          wisdom: formData.wisdom,
-          charisma: formData.charisma,
-        },
+        gameSystem: formData.gameSystem,
+        stats,
         backstory: formData.backstory || undefined,
       });
       return result.json();
@@ -89,6 +130,7 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
   const resetForm = () => {
     setStep(0);
     setFormData({
+      gameSystem: "dnd" as GameSystem,
       name: "",
       race: "",
       characterClass: "",
@@ -99,26 +141,53 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
       intelligence: 10,
       wisdom: 10,
       charisma: 10,
+      int: 5,
+      ref: 5,
+      dex: 5,
+      tech: 5,
+      cool: 5,
+      will: 5,
+      luck: 5,
+      move: 5,
+      body: 5,
+      emp: 5,
       backstory: "",
     });
   };
 
   const rollStats = () => {
-    const roll4d6DropLowest = () => {
-      const rolls = Array.from({ length: 4 }, () => Math.floor(Math.random() * 6) + 1);
-      rolls.sort((a, b) => b - a);
-      return rolls.slice(0, 3).reduce((a, b) => a + b, 0);
-    };
-
-    setFormData((prev) => ({
-      ...prev,
-      strength: roll4d6DropLowest(),
-      dexterity: roll4d6DropLowest(),
-      constitution: roll4d6DropLowest(),
-      intelligence: roll4d6DropLowest(),
-      wisdom: roll4d6DropLowest(),
-      charisma: roll4d6DropLowest(),
-    }));
+    if (formData.gameSystem === "dnd") {
+      const roll4d6DropLowest = () => {
+        const rolls = Array.from({ length: 4 }, () => Math.floor(Math.random() * 6) + 1);
+        rolls.sort((a, b) => b - a);
+        return rolls.slice(0, 3).reduce((a, b) => a + b, 0);
+      };
+      setFormData((prev) => ({
+        ...prev,
+        strength: roll4d6DropLowest(),
+        dexterity: roll4d6DropLowest(),
+        constitution: roll4d6DropLowest(),
+        intelligence: roll4d6DropLowest(),
+        wisdom: roll4d6DropLowest(),
+        charisma: roll4d6DropLowest(),
+      }));
+    } else {
+      // Cyberpunk uses 1d10 for stats (values 1-10)
+      const rollD10 = () => Math.floor(Math.random() * 10) + 1;
+      setFormData((prev) => ({
+        ...prev,
+        int: rollD10(),
+        ref: rollD10(),
+        dex: rollD10(),
+        tech: rollD10(),
+        cool: rollD10(),
+        will: rollD10(),
+        luck: rollD10(),
+        move: rollD10(),
+        body: rollD10(),
+        emp: rollD10(),
+      }));
+    }
   };
 
   const canProceed = () => {
@@ -161,6 +230,21 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
           {step === 0 && (
             <>
               <div className="space-y-2">
+                <Label htmlFor="gameSystem">Game System</Label>
+                <Select 
+                  value={formData.gameSystem} 
+                  onValueChange={(value: GameSystem) => setFormData({ ...formData, gameSystem: value, race: "", characterClass: "" })}
+                >
+                  <SelectTrigger data-testid="select-game-system">
+                    <SelectValue placeholder="Choose a game system" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="dnd">D&D 5e</SelectItem>
+                    <SelectItem value="cyberpunk">Cyberpunk RED</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="name">Character Name</Label>
                 <Input
                   id="name"
@@ -171,32 +255,32 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="race">Race</Label>
+                <Label htmlFor="race">{formData.gameSystem === "dnd" ? "Race" : "Background"}</Label>
                 <Select 
                   value={formData.race} 
                   onValueChange={(value) => setFormData({ ...formData, race: value })}
                 >
                   <SelectTrigger data-testid="select-race">
-                    <SelectValue placeholder="Choose a race" />
+                    <SelectValue placeholder={formData.gameSystem === "dnd" ? "Choose a race" : "Choose a background"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {RACES.map((race) => (
+                    {(formData.gameSystem === "dnd" ? DND_RACES : CYBERPUNK_BACKGROUNDS).map((race) => (
                       <SelectItem key={race} value={race}>{race}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="class">Class</Label>
+                <Label htmlFor="class">{formData.gameSystem === "dnd" ? "Class" : "Role"}</Label>
                 <Select 
                   value={formData.characterClass} 
                   onValueChange={(value) => setFormData({ ...formData, characterClass: value })}
                 >
                   <SelectTrigger data-testid="select-class">
-                    <SelectValue placeholder="Choose a class" />
+                    <SelectValue placeholder={formData.gameSystem === "dnd" ? "Choose a class" : "Choose a role"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {CLASSES.map((cls) => (
+                    {(formData.gameSystem === "dnd" ? DND_CLASSES : CYBERPUNK_ROLES).map((cls) => (
                       <SelectItem key={cls} value={cls}>{cls}</SelectItem>
                     ))}
                   </SelectContent>
@@ -222,7 +306,7 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
             <>
               <div className="flex items-center justify-between mb-4">
                 <p className="text-sm text-muted-foreground">
-                  Set your ability scores
+                  {formData.gameSystem === "dnd" ? "Set your ability scores" : "Set your stats (1-10)"}
                 </p>
                 <Button 
                   variant="outline" 
@@ -234,25 +318,61 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
                   Roll Stats
                 </Button>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                {(["strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"] as const).map((stat) => (
-                  <div key={stat} className="space-y-1">
-                    <Label htmlFor={stat} className="text-xs uppercase">
-                      {stat}
-                    </Label>
-                    <Input
-                      id={stat}
-                      type="number"
-                      min={1}
-                      max={30}
-                      value={formData[stat]}
-                      onChange={(e) => setFormData({ ...formData, [stat]: parseInt(e.target.value) || 10 })}
-                      className="font-mono"
-                      data-testid={`input-stat-${stat}`}
-                    />
-                  </div>
-                ))}
-              </div>
+              {formData.gameSystem === "dnd" ? (
+                <div className="grid grid-cols-2 gap-4">
+                  {(["strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"] as const).map((stat) => (
+                    <div key={stat} className="space-y-1">
+                      <Label htmlFor={stat} className="text-xs uppercase">
+                        {stat}
+                      </Label>
+                      <Input
+                        id={stat}
+                        type="number"
+                        min={1}
+                        max={30}
+                        value={formData[stat]}
+                        onChange={(e) => setFormData({ ...formData, [stat]: parseInt(e.target.value) || 10 })}
+                        className="font-mono"
+                        data-testid={`input-stat-${stat}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {(["int", "ref", "dex", "tech", "cool", "will", "luck", "move", "body", "emp"] as const).map((stat) => {
+                    const statLabels: Record<string, string> = {
+                      int: "INT (Intelligence)",
+                      ref: "REF (Reflexes)",
+                      dex: "DEX (Dexterity)",
+                      tech: "TECH (Technical)",
+                      cool: "COOL",
+                      will: "WILL (Willpower)",
+                      luck: "LUCK",
+                      move: "MOVE (Movement)",
+                      body: "BODY",
+                      emp: "EMP (Empathy)",
+                    };
+                    return (
+                      <div key={stat} className="space-y-1">
+                        <Label htmlFor={stat} className="text-xs uppercase">
+                          {statLabels[stat]}
+                        </Label>
+                        <Input
+                          id={stat}
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={formData[stat]}
+                          onChange={(e) => setFormData({ ...formData, [stat]: parseInt(e.target.value) || 5 })}
+                          className="font-mono"
+                          data-testid={`input-stat-${stat}`}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </>
           )}
 
