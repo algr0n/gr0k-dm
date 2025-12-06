@@ -30,7 +30,14 @@ Dice interpretation:
 - 10-14: Success with minor complications
 - 5-9: Partial success or failure with opportunity
 - 2-4: Failure with consequences
-- Natural 1: Critical failure with dramatic consequences`,
+- Natural 1: Critical failure with dramatic consequences
+
+INVENTORY SYSTEM:
+When a player successfully picks up, receives, finds, or acquires an item, you MUST include this exact tag at the END of your response:
+[ITEM: PlayerName | ItemName | Quantity]
+Example: If a player named "Roland" picks up a healing potion, end your response with:
+[ITEM: Roland | Healing Potion | 1]
+Only grant items when the player's action reasonably succeeds. Do not include this tag if they fail to obtain the item.`,
 
   cyberpunk: `You are Grok, a gritty Game Master for Cyberpunk RED set in Night City, 2045. Your role is to:
 
@@ -55,7 +62,14 @@ Dice interpretation (d10 system):
 - 7-9: Success with style
 - 5-6: Partial success
 - 2-4: Failure with consequences
-- 1: Critical failure`,
+- 1: Critical failure
+
+INVENTORY SYSTEM:
+When a player successfully picks up, receives, finds, or acquires an item, you MUST include this exact tag at the END of your response:
+[ITEM: PlayerName | ItemName | Quantity]
+Example: If a player named "V" picks up a data shard, end your response with:
+[ITEM: V | Data Shard | 1]
+Only grant items when the player's action reasonably succeeds. Do not include this tag if they fail to obtain the item.`,
 };
 
 export async function generateDMResponse(

@@ -176,18 +176,60 @@ export async function registerRoutes(
 
       if (!message.content.startsWith("/") || diceMatch) {
         try {
-          const dmResponse = await generateDMResponse(
+          let dmResponse = await generateDMResponse(
             message.content,
             { ...room, messageHistory: updatedHistory },
             playerName,
             diceResult
           );
 
+          // Parse and handle [ITEM: PlayerName | ItemName | Quantity] tags
+          const itemMatches = dmResponse.matchAll(/\[ITEM:\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*(\d+)\s*\]/gi);
+          for (const match of itemMatches) {
+            const targetPlayerName = match[1].trim();
+            const itemName = match[2].trim();
+            const quantity = parseInt(match[3]) || 1;
+
+            // Find the target player
+            const players = await storage.getPlayersByRoom(room.id);
+            const targetPlayer = players.find(p => p.name.toLowerCase() === targetPlayerName.toLowerCase());
+            
+            if (targetPlayer) {
+              // Get or create character for target player
+              let character = await storage.getCharacterByPlayer(targetPlayer.id, room.id);
+              if (!character) {
+                character = await storage.createCharacter({
+                  playerId: targetPlayer.id,
+                  roomId: room.id,
+                  name: targetPlayer.name,
+                  gameSystem: room.gameSystem,
+                  stats: {},
+                  notes: null,
+                });
+              }
+
+              // Add item to inventory
+              await storage.createInventoryItem({
+                characterId: character.id,
+                name: itemName,
+                description: null,
+                quantity,
+                grantedBy: "Grok DM",
+              });
+
+              // Notify player of inventory update
+              broadcastToRoom(roomCode, { type: "inventory_update", playerId: targetPlayer.id });
+            }
+          }
+
+          // Remove the [ITEM:...] tags from the displayed message
+          const cleanedResponse = dmResponse.replace(/\[ITEM:\s*[^\]]+\]/gi, "").trim();
+
           const dmMessage: Message = {
             id: randomUUID(),
             roomId: room.id,
             playerName: "Grok DM",
-            content: dmResponse,
+            content: cleanedResponse,
             type: "dm",
             timestamp: new Date().toISOString(),
           };
