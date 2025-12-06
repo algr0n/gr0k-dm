@@ -469,6 +469,12 @@ async function handleNaturalMessage(message: DiscordMessage) {
 }
 
 export async function initDiscordBot() {
+  // Prevent multiple initializations
+  if (discordClient) {
+    console.log("Discord bot already initialized, skipping...");
+    return;
+  }
+
   try {
     const token = await getAccessToken();
 
