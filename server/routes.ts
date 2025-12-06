@@ -49,8 +49,9 @@ export async function registerRoutes(
       const character = await storage.createCharacter(validatedData);
       res.status(201).json(character);
     } catch (error) {
+      console.error("Character creation error:", error);
       if (error instanceof Error && error.name === "ZodError") {
-        return res.status(400).json({ error: "Invalid character data" });
+        return res.status(400).json({ error: "Invalid character data", details: error });
       }
       res.status(500).json({ error: "Failed to create character" });
     }
