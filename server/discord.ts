@@ -17,13 +17,18 @@ let botStatus = {
 };
 
 async function getAccessToken() {
-  // Use the DISCORD_BOT_TOKEN environment variable directly
-  const token = process.env.DISCORD_BOT_TOKEN;
+  // Use dev token in development, production token in production
+  const isDev = process.env.NODE_ENV === "development";
+  const token = isDev 
+    ? process.env.DISCORD_DEV_BOT_TOKEN 
+    : process.env.DISCORD_BOT_TOKEN;
   
   if (!token) {
-    throw new Error("DISCORD_BOT_TOKEN environment variable not set");
+    const envVar = isDev ? "DISCORD_DEV_BOT_TOKEN" : "DISCORD_BOT_TOKEN";
+    throw new Error(`${envVar} environment variable not set`);
   }
   
+  console.log(`Using ${isDev ? "development" : "production"} Discord bot`);
   return token;
 }
 
