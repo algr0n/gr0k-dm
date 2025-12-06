@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { type Message, type Room, type Player, type Character, type InventoryItem, gameSystemLabels, type GameSystem } from "@shared/schema";
+import { SpellBrowser } from "@/components/spell-browser";
 
 export default function RoomPage() {
   const { code } = useParams<{ code: string }>();
@@ -1458,104 +1459,61 @@ export default function RoomPage() {
                   <CardHeader>
                     <CardTitle className="font-serif flex items-center gap-2">
                       <Sparkles className="h-5 w-5" />
-                      Spells
+                      Spell Browser
                     </CardTitle>
                     <p className="text-sm text-muted-foreground">
-                      Add your known spells and cast them to notify the AI DM.
+                      Browse and manage your spells. Click a spell for details.
                     </p>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="flex gap-2">
-                      <Input
-                        placeholder="Add a spell..."
-                        value={characterStats.newSpellInput || ""}
-                        onChange={(e) => setCharacterStats(prev => ({ ...prev, newSpellInput: e.target.value }))}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && characterStats.newSpellInput?.trim()) {
-                            const spells = characterStats.spellList || [];
-                            setCharacterStats(prev => ({
-                              ...prev,
-                              spellList: [...spells, prev.newSpellInput.trim()],
-                              newSpellInput: "",
-                            }));
+                  <CardContent className="p-0">
+                    <SpellBrowser
+                      characterClass={characterStats.class}
+                      knownSpells={characterStats.knownSpells || []}
+                      preparedSpells={characterStats.preparedSpells || []}
+                      onAddKnownSpell={(spellId) => {
+                        setCharacterStats(prev => {
+                          const known = prev.knownSpells || [];
+                          if (known.includes(spellId)) {
+                            return prev;
                           }
-                        }}
-                        data-testid="input-add-spell"
-                      />
-                      <Button
-                        onClick={() => {
-                          if (characterStats.newSpellInput?.trim()) {
-                            const spells = characterStats.spellList || [];
-                            setCharacterStats(prev => ({
+                          return {
+                            ...prev,
+                            knownSpells: [...known, spellId],
+                          };
+                        });
+                        toast({
+                          title: "Spell Added",
+                          description: "Added spell to your known spells.",
+                        });
+                      }}
+                      onRemoveKnownSpell={(spellId) => {
+                        setCharacterStats(prev => ({
+                          ...prev,
+                          knownSpells: (prev.knownSpells || []).filter((id: string) => id !== spellId),
+                          preparedSpells: (prev.preparedSpells || []).filter((id: string) => id !== spellId),
+                        }));
+                        toast({
+                          title: "Spell Removed",
+                          description: "Removed spell from your known spells.",
+                        });
+                      }}
+                      onTogglePreparedSpell={(spellId) => {
+                        setCharacterStats(prev => {
+                          const prepared = prev.preparedSpells || [];
+                          if (prepared.includes(spellId)) {
+                            return {
                               ...prev,
-                              spellList: [...spells, prev.newSpellInput.trim()],
-                              newSpellInput: "",
-                            }));
+                              preparedSpells: prepared.filter((id: string) => id !== spellId),
+                            };
+                          } else {
+                            return {
+                              ...prev,
+                              preparedSpells: [...prepared, spellId],
+                            };
                           }
-                        }}
-                        disabled={!characterStats.newSpellInput?.trim()}
-                        data-testid="button-add-spell"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </div>
-
-                    {(characterStats.spellList && characterStats.spellList.length > 0) ? (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        {characterStats.spellList.map((spell: string, index: number) => (
-                          <div 
-                            key={`${spell}-${index}`}
-                            className="flex items-center justify-between p-2 border rounded-md gap-2"
-                            data-testid={`spell-${index}`}
-                          >
-                            <span className="text-sm">{spell}</span>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !gameEnded) {
-                                    wsRef.current.send(JSON.stringify({
-                                      type: "action",
-                                      content: `*${characterName || playerName} casts ${spell}!*`,
-                                    }));
-                                    toast({
-                                      title: "Spell Cast",
-                                      description: `You cast ${spell}`,
-                                    });
-                                    setActiveTab("chat");
-                                  }
-                                }}
-                                disabled={!isConnected || gameEnded}
-                                data-testid={`button-cast-spell-${index}`}
-                              >
-                                Cast
-                              </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={() => {
-                                  const spells = [...(characterStats.spellList || [])];
-                                  spells.splice(index, 1);
-                                  setCharacterStats(prev => ({ ...prev, spellList: spells }));
-                                }}
-                                data-testid={`button-remove-spell-${index}`}
-                              >
-                                <Trash2 className="h-4 w-4 text-muted-foreground" />
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-8">
-                        <Sparkles className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
-                        <p className="text-muted-foreground">No spells added yet.</p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Add spells using the input above.
-                        </p>
-                      </div>
-                    )}
+                        });
+                      }}
+                    />
                   </CardContent>
                 </Card>
               </div>
