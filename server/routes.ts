@@ -149,6 +149,19 @@ export async function registerRoutes(
     }
   });
 
+  // Delete session
+  app.delete("/api/sessions/:id", async (req, res) => {
+    try {
+      const deleted = await storage.deleteSession(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete session" });
+    }
+  });
+
   // Dice rolling endpoints
   app.get("/api/dice/history", async (_req, res) => {
     try {

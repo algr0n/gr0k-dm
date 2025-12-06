@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Wifi, WifiOff, Users, Gamepad2, Swords } from "lucide-react";
+import { Wifi, WifiOff, Users, Gamepad2, Swords, AlertTriangle } from "lucide-react";
 import type { BotStatus } from "@shared/schema";
 
 export function BotStatusCard() {
@@ -73,6 +73,12 @@ export function BotStatusCard() {
             Last activity: {new Date(status.lastActivity).toLocaleString()}
           </p>
         )}
+        <div className="mt-4 p-2 rounded-md bg-amber-500/10 border border-amber-500/20" data-testid="warning-multiple-instances">
+          <p className="text-xs text-amber-700 dark:text-amber-400 flex items-start gap-2">
+            <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+            <span>Only run one instance at a time. Running both development and published versions causes duplicate messages.</span>
+          </p>
+        </div>
       </CardContent>
     </Card>
   );
