@@ -639,6 +639,31 @@ export default function RoomPage() {
                           ))}
                         </div>
                       </div>
+                      <Separator />
+                      <div>
+                        <label className="text-sm text-muted-foreground mb-2 block">Currency</label>
+                        <div className="grid grid-cols-5 gap-2">
+                          {[
+                            { key: "pp", label: "PP", tooltip: "Platinum" },
+                            { key: "gp", label: "GP", tooltip: "Gold" },
+                            { key: "ep", label: "EP", tooltip: "Electrum" },
+                            { key: "sp", label: "SP", tooltip: "Silver" },
+                            { key: "cp", label: "CP", tooltip: "Copper" },
+                          ].map((coin) => (
+                            <div key={coin.key} className="text-center">
+                              <label className="text-xs text-muted-foreground" title={coin.tooltip}>{coin.label}</label>
+                              <Input 
+                                type="number" 
+                                value={characterStats[coin.key] || 0}
+                                onChange={(e) => setCharacterStats(prev => ({ ...prev, [coin.key]: parseInt(e.target.value) || 0 }))}
+                                min={0} 
+                                className="text-center"
+                                data-testid={`input-dnd-${coin.key}`}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </>
                   )}
 
@@ -749,6 +774,20 @@ export default function RoomPage() {
                               />
                             </div>
                           ))}
+                        </div>
+                      </div>
+                      <Separator />
+                      <div>
+                        <label className="text-sm text-muted-foreground mb-2 block">Currency</label>
+                        <div className="max-w-xs">
+                          <label className="text-xs text-muted-foreground">Eurobucks (eb)</label>
+                          <Input 
+                            type="number" 
+                            value={characterStats.eurobucks || 0}
+                            onChange={(e) => setCharacterStats(prev => ({ ...prev, eurobucks: parseInt(e.target.value) || 0 }))}
+                            min={0} 
+                            data-testid="input-cyberpunk-eurobucks"
+                          />
                         </div>
                       </div>
                     </>
