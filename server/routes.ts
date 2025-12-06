@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { parseDiceExpression } from "./dice";
-import { generateDMResponse, generateStartingScene } from "./grok";
+import { generateDMResponse, generateStartingScene, type CharacterInfo } from "./grok";
 import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, type Message, type Character, type InventoryItem } from "@shared/schema";
 
 const roomConnections = new Map<string, Set<WebSocket>>();
@@ -176,9 +176,21 @@ export async function registerRoutes(
 
       if (!message.content.startsWith("/") || diceMatch) {
         try {
-          // Get player count and current player's inventory for AI context
+          // Get player count, characters, and current player's inventory for AI context
           const players = await storage.getPlayersByRoom(room.id);
           const playerCount = players.length;
+          
+          // Get all characters in the room
+          const allCharacters = await storage.getCharactersByRoom(room.id);
+          const partyCharacters: CharacterInfo[] = allCharacters.map(char => {
+            const player = players.find(p => p.id === char.playerId);
+            return {
+              playerName: player?.name || "Unknown",
+              characterName: char.name,
+              stats: char.stats || {},
+              notes: char.notes
+            };
+          });
           
           // Find current player and get their inventory
           const currentPlayer = players.find(p => p.name === playerName);
@@ -197,7 +209,8 @@ export async function registerRoutes(
             playerName,
             diceResult,
             playerCount,
-            playerInventory
+            playerInventory,
+            partyCharacters
           );
 
           // Parse and handle [ITEM: PlayerName | ItemName | Quantity] tags

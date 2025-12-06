@@ -44,13 +44,21 @@ INVENTORY: When a player gets an item, add at END:
 [ITEM: PlayerName | ItemName | Quantity]`,
 };
 
+export interface CharacterInfo {
+  playerName: string;
+  characterName: string;
+  stats: Record<string, unknown>;
+  notes?: string | null;
+}
+
 export async function generateDMResponse(
   userMessage: string,
   room: Room,
   playerName: string,
   diceResult?: { expression: string; total: number; rolls: number[] },
   playerCount?: number,
-  playerInventory?: { name: string; quantity: number }[]
+  playerInventory?: { name: string; quantity: number }[],
+  partyCharacters?: CharacterInfo[]
 ): Promise<string> {
   const gameSystem = room.gameSystem || "dnd";
   const systemPrompt = SYSTEM_PROMPTS[gameSystem] || SYSTEM_PROMPTS.dnd;
@@ -66,8 +74,22 @@ export async function generateDMResponse(
     });
   }
 
-  // Add player count context
-  if (playerCount !== undefined && playerCount > 0) {
+  // Add party characters context
+  if (partyCharacters && partyCharacters.length > 0) {
+    const charDescriptions = partyCharacters.map(c => {
+      const statsStr = Object.entries(c.stats)
+        .filter(([_, v]) => v !== undefined && v !== null && v !== "")
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(", ");
+      const desc = `${c.playerName}'s character: ${c.characterName}`;
+      return statsStr ? `${desc} (${statsStr})` : desc;
+    }).join("\n");
+    messages.push({
+      role: "system",
+      content: `THE PARTY:\n${charDescriptions}`
+    });
+  } else if (playerCount !== undefined && playerCount > 0) {
+    // Fallback to just player count if no character data
     messages.push({
       role: "system",
       content: `Party size: ${playerCount} player${playerCount > 1 ? "s" : ""} in this session.`
