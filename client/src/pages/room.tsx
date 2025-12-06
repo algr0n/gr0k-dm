@@ -1513,6 +1513,32 @@ export default function RoomPage() {
                           }
                         });
                       }}
+                      onCastSpell={(spell) => {
+                        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !gameEnded) {
+                          wsRef.current.send(JSON.stringify({
+                            type: "action",
+                            content: `*${characterName || playerName} casts ${spell.name}!* (${spell.level === 0 ? "Cantrip" : `Level ${spell.level}`} ${spell.school} - ${spell.castingTime}, Range: ${spell.range})`,
+                          }));
+                          toast({
+                            title: "Spell Cast",
+                            description: `You cast ${spell.name}!`,
+                          });
+                          setActiveTab("chat");
+                        }
+                      }}
+                      onRollSpellDice={(spell, diceExpression) => {
+                        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !gameEnded) {
+                          wsRef.current.send(JSON.stringify({
+                            type: "chat",
+                            content: `/roll ${diceExpression} for ${spell.name}`,
+                          }));
+                          toast({
+                            title: "Rolling Dice",
+                            description: `Rolling ${diceExpression} for ${spell.name}`,
+                          });
+                          setActiveTab("chat");
+                        }
+                      }}
                     />
                   </CardContent>
                 </Card>

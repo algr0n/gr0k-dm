@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Search, BookOpen, Plus, Check, Loader2, Sparkles, Clock, Target, Wand2 } from "lucide-react";
+import { Search, BookOpen, Plus, Check, Loader2, Sparkles, Clock, Target, Wand2, Dice6, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface SpellComponents {
@@ -41,6 +41,8 @@ interface SpellBrowserProps {
   onAddKnownSpell: (spellId: string) => void;
   onRemoveKnownSpell: (spellId: string) => void;
   onTogglePreparedSpell: (spellId: string) => void;
+  onCastSpell?: (spell: Spell) => void;
+  onRollSpellDice?: (spell: Spell, diceExpression: string) => void;
 }
 
 const SCHOOLS = [
@@ -94,6 +96,12 @@ function formatComponents(components: SpellComponents): string {
   return parts.join(", ");
 }
 
+function extractDiceFromSpell(spell: Spell): string | null {
+  const dicePattern = /(\d+d\d+(?:\s*\+\s*\d+)?)/i;
+  const match = spell.description.match(dicePattern);
+  return match ? match[1].replace(/\s+/g, '') : null;
+}
+
 export function SpellBrowser({
   characterClass,
   knownSpells,
@@ -101,6 +109,8 @@ export function SpellBrowser({
   onAddKnownSpell,
   onRemoveKnownSpell,
   onTogglePreparedSpell,
+  onCastSpell,
+  onRollSpellDice,
 }: SpellBrowserProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [levelFilter, setLevelFilter] = useState<string>("all");
@@ -371,15 +381,36 @@ export function SpellBrowser({
               <div className="flex items-center gap-2 flex-wrap">
                 {isSpellKnown(selectedSpell.id) ? (
                   <>
+                    {onCastSpell && (
+                      <Button
+                        onClick={() => {
+                          onCastSpell(selectedSpell);
+                          setSelectedSpell(null);
+                        }}
+                        data-testid="button-cast-spell"
+                      >
+                        <Zap className="h-4 w-4 mr-2" />
+                        Cast Spell
+                      </Button>
+                    )}
+                    {onRollSpellDice && extractDiceFromSpell(selectedSpell) && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          const dice = extractDiceFromSpell(selectedSpell);
+                          if (dice) {
+                            onRollSpellDice(selectedSpell, dice);
+                            setSelectedSpell(null);
+                          }
+                        }}
+                        data-testid="button-roll-spell-dice"
+                      >
+                        <Dice6 className="h-4 w-4 mr-2" />
+                        Roll {extractDiceFromSpell(selectedSpell)}
+                      </Button>
+                    )}
                     <Button
-                      variant="outline"
-                      onClick={() => onRemoveKnownSpell(selectedSpell.id)}
-                      data-testid="button-remove-known-spell"
-                    >
-                      Remove from Known
-                    </Button>
-                    <Button
-                      variant={isSpellPrepared(selectedSpell.id) ? "secondary" : "default"}
+                      variant={isSpellPrepared(selectedSpell.id) ? "secondary" : "outline"}
                       onClick={() => onTogglePreparedSpell(selectedSpell.id)}
                       data-testid="button-toggle-prepared"
                     >
@@ -394,6 +425,13 @@ export function SpellBrowser({
                           Prepare Spell
                         </>
                       )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => onRemoveKnownSpell(selectedSpell.id)}
+                      data-testid="button-remove-known-spell"
+                    >
+                      Remove
                     </Button>
                   </>
                 ) : (
