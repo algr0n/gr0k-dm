@@ -362,6 +362,7 @@ export async function registerRoutes(
       }
       res.json(character);
     } catch (error) {
+      console.error("Character fetch error:", error);
       res.status(500).json({ error: "Failed to fetch character" });
     }
   });

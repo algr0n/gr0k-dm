@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -27,6 +28,9 @@ export default function RoomPage() {
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState("chat");
   const [gameEnded, setGameEnded] = useState(false);
+  
+  // View other player's character state
+  const [viewingPlayerId, setViewingPlayerId] = useState<string | null>(null);
   
   // Character form state
   const [characterName, setCharacterName] = useState("");
@@ -61,6 +65,13 @@ export default function RoomPage() {
   const { data: existingCharacter } = useQuery<Character>({
     queryKey: ["/api/rooms", code, "characters", playerId],
     enabled: !!code && !!playerId,
+  });
+
+  // Fetch character data for viewed player
+  const viewingPlayer = players.find(p => p.id === viewingPlayerId);
+  const { data: viewedCharacter, isLoading: isLoadingViewedCharacter } = useQuery<Character>({
+    queryKey: ["/api/rooms", code, "characters", viewingPlayerId],
+    enabled: !!code && !!viewingPlayerId,
   });
 
   // Load character data when it exists
@@ -294,9 +305,16 @@ export default function RoomPage() {
                   className="flex items-center gap-2 text-sm"
                   data-testid={`player-${player.id}`}
                 >
-                  <span className={cn(player.name === playerName && "font-medium")}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={cn("px-2 py-1 h-auto", player.name === playerName && "font-medium")}
+                    onClick={() => setViewingPlayerId(player.id)}
+                    data-testid={`button-view-player-${player.id}`}
+                  >
+                    <Eye className="h-3 w-3 mr-1" />
                     {player.name}
-                  </span>
+                  </Button>
                   {player.isHost && <Badge variant="outline">Host</Badge>}
                 </div>
               ))}
@@ -717,6 +735,69 @@ export default function RoomPage() {
           </TabsContent>
         </Tabs>
       </main>
+
+      <Dialog open={viewingPlayerId !== null} onOpenChange={(open) => !open && setViewingPlayerId(null)}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-serif flex items-center gap-2">
+              <User className="h-5 w-5" />
+              {viewingPlayer?.name}'s Character
+            </DialogTitle>
+          </DialogHeader>
+          
+          {isLoadingViewedCharacter ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : viewedCharacter ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <span className="text-sm text-muted-foreground">Character Name</span>
+                  <p className="font-medium" data-testid="text-viewed-character-name">{viewedCharacter.name}</p>
+                </div>
+                <div>
+                  <span className="text-sm text-muted-foreground">Player</span>
+                  <p className="font-medium">{viewingPlayer?.name}</p>
+                </div>
+              </div>
+
+              {viewedCharacter.stats && Object.keys(viewedCharacter.stats).length > 0 && (
+                <>
+                  <Separator />
+                  <div>
+                    <span className="text-sm text-muted-foreground mb-2 block">Stats</span>
+                    <div className="grid grid-cols-3 gap-2">
+                      {Object.entries(viewedCharacter.stats).map(([key, value]) => (
+                        <div key={key} className="text-center p-2 bg-muted rounded-md">
+                          <span className="text-xs text-muted-foreground uppercase">{key}</span>
+                          <p className="font-medium">{String(value)}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {viewedCharacter.notes && (
+                <>
+                  <Separator />
+                  <div>
+                    <span className="text-sm text-muted-foreground">Notes</span>
+                    <p className="text-sm mt-1 whitespace-pre-wrap" data-testid="text-viewed-character-notes">
+                      {viewedCharacter.notes}
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <p className="text-center text-muted-foreground py-8" data-testid="text-no-character">
+              This player hasn't created a character yet.
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
