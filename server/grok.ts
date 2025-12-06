@@ -48,7 +48,9 @@ export async function generateDMResponse(
   userMessage: string,
   room: Room,
   playerName: string,
-  diceResult?: { expression: string; total: number; rolls: number[] }
+  diceResult?: { expression: string; total: number; rolls: number[] },
+  playerCount?: number,
+  playerInventory?: { name: string; quantity: number }[]
 ): Promise<string> {
   const gameSystem = room.gameSystem || "dnd";
   const systemPrompt = SYSTEM_PROMPTS[gameSystem] || SYSTEM_PROMPTS.dnd;
@@ -61,6 +63,23 @@ export async function generateDMResponse(
     messages.push({ 
       role: "system", 
       content: `Current Scene: ${room.currentScene}` 
+    });
+  }
+
+  // Add player count context
+  if (playerCount !== undefined && playerCount > 0) {
+    messages.push({
+      role: "system",
+      content: `Party size: ${playerCount} player${playerCount > 1 ? "s" : ""} in this session.`
+    });
+  }
+
+  // Add current player's inventory context
+  if (playerInventory && playerInventory.length > 0) {
+    const itemList = playerInventory.map(i => `${i.name}${i.quantity > 1 ? ` x${i.quantity}` : ""}`).join(", ");
+    messages.push({
+      role: "system",
+      content: `${playerName}'s inventory: ${itemList}`
     });
   }
 
@@ -123,15 +142,15 @@ export async function generateStartingScene(gameSystem: string, roomName: string
       model: "grok-2-1212",
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: `Start a new adventure called "${roomName}". Set an exciting opening scene and welcome the players. End with a clear prompt for what they can do next.` },
+        { role: "user", content: `New adventure "${roomName}" starting. Welcome the players briefly, then ask 2-3 quick questions: What kind of characters are you playing? What tone do you prefer (serious/lighthearted)? Any themes you'd like to explore or avoid? Keep it conversational and brief.` },
       ],
-      max_tokens: 600,
+      max_tokens: 400,
       temperature: 0.9,
     });
 
-    return response.choices[0]?.message?.content || "Your adventure begins...";
+    return response.choices[0]?.message?.content || "Welcome, adventurers! Before we begin, tell me about your characters.";
   } catch (error) {
     console.error("Starting scene error:", error);
-    return "Your adventure begins... Tell me what you'd like to do!";
+    return "Welcome, adventurers! Tell me about your characters and what kind of adventure you're looking for.";
   }
 }

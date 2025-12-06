@@ -176,11 +176,28 @@ export async function registerRoutes(
 
       if (!message.content.startsWith("/") || diceMatch) {
         try {
+          // Get player count and current player's inventory for AI context
+          const players = await storage.getPlayersByRoom(room.id);
+          const playerCount = players.length;
+          
+          // Find current player and get their inventory
+          const currentPlayer = players.find(p => p.name === playerName);
+          let playerInventory: { name: string; quantity: number }[] = [];
+          if (currentPlayer) {
+            const character = await storage.getCharacterByPlayer(currentPlayer.id, room.id);
+            if (character) {
+              const items = await storage.getInventoryByCharacter(character.id);
+              playerInventory = items.map(item => ({ name: item.name, quantity: item.quantity }));
+            }
+          }
+
           let dmResponse = await generateDMResponse(
             message.content,
             { ...room, messageHistory: updatedHistory },
             playerName,
-            diceResult
+            diceResult,
+            playerCount,
+            playerInventory
           );
 
           // Parse and handle [ITEM: PlayerName | ItemName | Quantity] tags
@@ -330,6 +347,12 @@ export async function registerRoutes(
 
       if (!room.isActive) {
         return res.status(400).json({ error: "Room is no longer active" });
+      }
+
+      // Check player limit (max 8 players per room)
+      const existingPlayers = await storage.getPlayersByRoom(room.id);
+      if (existingPlayers.length >= 8) {
+        return res.status(400).json({ error: "Room is full (maximum 8 players)" });
       }
 
       const player = await storage.createPlayer({
