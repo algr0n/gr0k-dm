@@ -53,11 +53,7 @@ async function getAccessToken() {
 }
 
 export function getBotStatus() {
-  return {
-    ...botStatus,
-    activeGames: 0, // Will be updated from storage
-    totalCharacters: 0, // Will be updated from storage
-  };
+  return { ...botStatus };
 }
 
 export async function updateBotStatus() {
