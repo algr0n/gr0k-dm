@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut } from "lucide-react";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -133,6 +133,38 @@ export default function RoomPage() {
     onError: () => {
       toast({
         title: "Failed to remove item",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const [newItemName, setNewItemName] = useState("");
+  const [newItemQuantity, setNewItemQuantity] = useState(1);
+  const [showAddItemForm, setShowAddItemForm] = useState(false);
+
+  const addInventoryItemMutation = useMutation({
+    mutationFn: async (data: { name: string; quantity: number }) => {
+      const response = await apiRequest("POST", `/api/characters/${existingCharacter?.id}/inventory`, {
+        name: data.name,
+        quantity: data.quantity,
+        grantedBy: playerName,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter?.id, "inventory"] });
+      toast({
+        title: "Item added",
+        description: "The item has been added to your inventory.",
+      });
+      setNewItemName("");
+      setNewItemQuantity(1);
+      setShowAddItemForm(false);
+    },
+    onError: () => {
+      toast({
+        title: "Failed to add item",
         description: "Please try again.",
         variant: "destructive",
       });
@@ -960,12 +992,49 @@ export default function RoomPage() {
                       Inventory
                     </CardTitle>
                     <p className="text-sm text-muted-foreground">
-                      Items granted by the DM appear here.
-                      {isHost && " Use /give @PlayerName ItemName x Quantity to grant items."}
+                      Track your items here.
+                      {isHost && " Use /give @PlayerName ItemName x Quantity to grant items to players."}
                     </p>
                   </div>
+                  {existingCharacter && (
+                    <Button 
+                      size="sm" 
+                      onClick={() => setShowAddItemForm(!showAddItemForm)}
+                      data-testid="button-add-item"
+                    >
+                      <Plus className="h-4 w-4 mr-1" />
+                      Add Item
+                    </Button>
+                  )}
                 </CardHeader>
                 <CardContent>
+                  {showAddItemForm && existingCharacter && (
+                    <div className="mb-4 p-3 border rounded-md space-y-3">
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Item name"
+                          value={newItemName}
+                          onChange={(e) => setNewItemName(e.target.value)}
+                          data-testid="input-new-item-name"
+                        />
+                        <Input
+                          type="number"
+                          min={1}
+                          value={newItemQuantity}
+                          onChange={(e) => setNewItemQuantity(parseInt(e.target.value) || 1)}
+                          className="w-20"
+                          data-testid="input-new-item-quantity"
+                        />
+                        <Button
+                          onClick={() => addInventoryItemMutation.mutate({ name: newItemName, quantity: newItemQuantity })}
+                          disabled={!newItemName.trim() || addInventoryItemMutation.isPending}
+                          data-testid="button-submit-add-item"
+                        >
+                          {addInventoryItemMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                   {!existingCharacter ? (
                     <div className="text-center py-8">
                       <p className="text-muted-foreground">Create a character first to see your inventory.</p>

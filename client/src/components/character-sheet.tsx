@@ -1,24 +1,19 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { 
-  Shield, Heart, Sparkles, Sword, Package, 
-  Scroll, User, BookOpen 
+  Sparkles, Sword, Package, 
+  User, BookOpen, Coins
 } from "lucide-react";
-import type { Character } from "@shared/schema";
+import type { Character, InventoryItem } from "@shared/schema";
 
 interface CharacterSheetProps {
   character: Character | null;
+  inventory?: InventoryItem[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
-}
-
-function getStatModifier(stat: number): string {
-  const mod = Math.floor((stat - 10) / 2);
-  return mod >= 0 ? `+${mod}` : `${mod}`;
 }
 
 function getInitials(name: string): string {
@@ -30,19 +25,13 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
-const STAT_NAMES: Record<string, string> = {
-  strength: "Strength",
-  dexterity: "Dexterity",
-  constitution: "Constitution",
-  intelligence: "Intelligence",
-  wisdom: "Wisdom",
-  charisma: "Charisma",
-};
-
-export function CharacterSheet({ character, open, onOpenChange }: CharacterSheetProps) {
+export function CharacterSheet({ character, inventory = [], open, onOpenChange }: CharacterSheetProps) {
   if (!character) return null;
 
-  const hpPercentage = (character.currentHp / character.maxHp) * 100;
+  const stats = character.stats as Record<string, unknown>;
+  const race = (stats.race as string) || "Unknown";
+  const characterClass = (stats.class as string) || "Unknown";
+  const level = (stats.level as number) || 1;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -56,62 +45,42 @@ export function CharacterSheet({ character, open, onOpenChange }: CharacterSheet
             </Avatar>
             <div>
               <h2 className="font-serif text-2xl">{character.name}</h2>
-              <div className="flex items-center gap-2 mt-1">
-                <Badge variant="outline">{character.race}</Badge>
-                <Badge>{character.characterClass}</Badge>
+              <div className="flex items-center gap-2 flex-wrap mt-1">
+                <Badge variant="outline">{race}</Badge>
+                <Badge>{characterClass}</Badge>
                 <Badge variant="secondary">
                   <Sparkles className="h-3 w-3 mr-1" />
-                  Level {character.level}
+                  Level {level}
                 </Badge>
               </div>
             </div>
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Character sheet for {character.name}
+          </DialogDescription>
         </DialogHeader>
 
         <ScrollArea className="max-h-[60vh] pr-4">
           <div className="space-y-6">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Heart className="h-5 w-5 text-red-500" />
-                  <span className="font-medium">Hit Points</span>
-                </div>
-                <Progress value={hpPercentage} className="h-3" />
-                <p className="text-sm text-muted-foreground font-mono text-center">
-                  {character.currentHp} / {character.maxHp}
-                </p>
-              </div>
-              <div className="flex items-center justify-center p-4 rounded-md bg-muted/50">
-                <div className="text-center">
-                  <Shield className="h-8 w-8 mx-auto text-muted-foreground" />
-                  <p className="text-3xl font-bold font-mono mt-1">{character.armorClass}</p>
-                  <p className="text-xs text-muted-foreground">Armor Class</p>
-                </div>
-              </div>
-            </div>
-
-            <Separator />
-
             <div>
               <h3 className="flex items-center gap-2 font-serif text-lg mb-4">
                 <User className="h-5 w-5" />
-                Ability Scores
+                Character Info
               </h3>
-              <div className="grid grid-cols-3 gap-3">
-                {Object.entries(character.stats).map(([stat, value]) => (
-                  <div 
-                    key={stat} 
-                    className="p-3 rounded-md bg-muted/50 text-center border border-border/50"
-                  >
-                    <p className="text-xs uppercase text-muted-foreground font-medium">
-                      {STAT_NAMES[stat] || stat}
-                    </p>
-                    <p className="text-2xl font-bold font-mono">{value}</p>
-                    <p className="text-sm text-muted-foreground font-mono">
-                      {getStatModifier(value)}
-                    </p>
-                  </div>
-                ))}
+              <div className="grid grid-cols-2 gap-3">
+                {Object.entries(stats)
+                  .filter(([key]) => !["race", "class", "level"].includes(key))
+                  .map(([stat, value]) => (
+                    <div 
+                      key={stat} 
+                      className="p-3 rounded-md bg-muted/50 text-center border border-border/50"
+                    >
+                      <p className="text-xs uppercase text-muted-foreground font-medium">
+                        {stat}
+                      </p>
+                      <p className="text-lg font-bold font-mono">{String(value)}</p>
+                    </div>
+                  ))}
               </div>
             </div>
 
@@ -122,24 +91,30 @@ export function CharacterSheet({ character, open, onOpenChange }: CharacterSheet
                 <Package className="h-5 w-5" />
                 Inventory
               </h3>
-              {character.inventory.length === 0 ? (
+              {inventory.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-4">
                   No items in inventory
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {character.inventory.map((item) => (
+                  {inventory.map((item) => (
                     <div 
                       key={item.id}
                       className="flex items-center justify-between p-2 rounded-md bg-muted/30"
+                      data-testid={`sheet-inventory-item-${item.id}`}
                     >
                       <div className="flex items-center gap-2">
-                        {item.type === "weapon" && <Sword className="h-4 w-4 text-red-500" />}
-                        {item.type === "armor" && <Shield className="h-4 w-4 text-blue-500" />}
-                        {item.type === "potion" && <Sparkles className="h-4 w-4 text-purple-500" />}
-                        {item.type === "misc" && <Package className="h-4 w-4 text-muted-foreground" />}
-                        {item.type === "gold" && <span className="text-yellow-500">$</span>}
+                        {item.name.toLowerCase().includes("gold") || item.name.toLowerCase().includes("coin") ? (
+                          <Coins className="h-4 w-4 text-yellow-500" />
+                        ) : item.name.toLowerCase().includes("sword") || item.name.toLowerCase().includes("weapon") ? (
+                          <Sword className="h-4 w-4 text-red-500" />
+                        ) : (
+                          <Package className="h-4 w-4 text-muted-foreground" />
+                        )}
                         <span className="font-medium">{item.name}</span>
+                        {item.description && (
+                          <span className="text-sm text-muted-foreground">- {item.description}</span>
+                        )}
                       </div>
                       {item.quantity > 1 && (
                         <Badge variant="secondary" className="text-xs">
@@ -152,16 +127,16 @@ export function CharacterSheet({ character, open, onOpenChange }: CharacterSheet
               )}
             </div>
 
-            {character.backstory && (
+            {character.notes && (
               <>
                 <Separator />
                 <div>
                   <h3 className="flex items-center gap-2 font-serif text-lg mb-4">
                     <BookOpen className="h-5 w-5" />
-                    Backstory
+                    Notes
                   </h3>
                   <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                    {character.backstory}
+                    {character.notes}
                   </p>
                 </div>
               </>

@@ -8,7 +8,7 @@ import { CharacterSheet } from "./character-sheet";
 import { CharacterCreator } from "./character-creator";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Character } from "@shared/schema";
+import type { Character, InventoryItem } from "@shared/schema";
 
 export function CharacterList() {
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
@@ -18,6 +18,11 @@ export function CharacterList() {
 
   const { data: characters = [], isLoading } = useQuery<Character[]>({
     queryKey: ["/api/characters"],
+  });
+
+  const { data: inventory = [] } = useQuery<InventoryItem[]>({
+    queryKey: ["/api/characters", selectedCharacter?.id, "inventory"],
+    enabled: !!selectedCharacter?.id && sheetOpen,
   });
 
   const deleteMutation = useMutation({
@@ -95,6 +100,7 @@ export function CharacterList() {
 
       <CharacterSheet
         character={selectedCharacter}
+        inventory={inventory}
         open={sheetOpen}
         onOpenChange={setSheetOpen}
       />
