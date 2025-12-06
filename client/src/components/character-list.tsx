@@ -79,7 +79,7 @@ export function CharacterList() {
                 <Users className="h-12 w-12 text-muted-foreground/50 mb-4" />
                 <p className="text-muted-foreground">No characters yet</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Create a character in Discord using <code className="text-xs bg-muted px-1 py-0.5 rounded">!create</code>
+                  Click "Create" to make your first character
                 </p>
               </div>
             ) : (

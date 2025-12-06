@@ -74,7 +74,7 @@ export function CommandsHelp() {
       <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
         <CardTitle className="flex items-center gap-2">
           <Terminal className="h-5 w-5" />
-          <span className="font-serif">Discord Commands</span>
+          <span className="font-serif">Chat Commands</span>
         </CardTitle>
       </CardHeader>
       <CardContent>

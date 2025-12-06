@@ -72,7 +72,7 @@ export function SessionChat() {
       <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0 pb-2">
         <CardTitle className="flex items-center gap-2">
           <MessageCircle className="h-5 w-5" />
-          <span className="font-serif">Discord Chat</span>
+          <span className="font-serif">Game Chat</span>
         </CardTitle>
         <div className="flex items-center gap-2 flex-wrap">
           {activeSessions.length > 0 && (
@@ -118,7 +118,7 @@ export function SessionChat() {
               <MessageCircle className="h-12 w-12 text-muted-foreground/50 mb-4" />
               <p className="text-muted-foreground">No active game sessions</p>
               <p className="text-sm text-muted-foreground mt-1">
-                Start a game in Discord with <code className="text-xs bg-muted px-1 py-0.5 rounded">!start</code>
+                Start a new adventure to begin chatting
               </p>
             </div>
           ) : messages.length === 0 ? (
@@ -159,7 +159,7 @@ export function SessionChat() {
                       <span className="text-sm font-medium">
                         {message.role === "assistant"
                           ? "Grok DM"
-                          : message.discordUsername || "Player"}
+                          : message.username || "Player"}
                       </span>
                       <span className="text-xs text-muted-foreground">
                         {new Date(message.timestamp).toLocaleTimeString()}

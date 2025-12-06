@@ -18,7 +18,7 @@ export default function Dashboard() {
           Grok DM
         </h1>
         <p className="text-muted-foreground mt-2">
-          AI-powered Dungeon Master for your Discord adventures
+          AI-powered Dungeon Master for your tabletop adventures
         </p>
       </header>
 

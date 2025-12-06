@@ -101,7 +101,7 @@ export function GameSessions() {
                 <Gamepad2 className="h-12 w-12 text-muted-foreground/50 mb-4" />
                 <p className="text-muted-foreground">No active games</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Start a game in Discord with <code className="text-xs bg-muted px-1 py-0.5 rounded">!start</code>
+                  Click "New" to start an adventure
                 </p>
               </div>
             ) : (
