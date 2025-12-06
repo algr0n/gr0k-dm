@@ -623,5 +623,81 @@ export async function registerRoutes(
     }
   });
 
+  // Spells API endpoint
+  app.get("/api/spells", async (req, res) => {
+    try {
+      const spellsData = await import("../shared/data/spells.json");
+      const spells = spellsData.default || spellsData;
+      
+      const { search, level, school, class: charClass, concentration, ritual } = req.query;
+      
+      let filteredSpells = [...spells];
+      
+      // Filter by search term (name or description)
+      if (search && typeof search === "string") {
+        const searchLower = search.toLowerCase();
+        filteredSpells = filteredSpells.filter(spell => 
+          spell.name.toLowerCase().includes(searchLower) ||
+          spell.description.toLowerCase().includes(searchLower)
+        );
+      }
+      
+      // Filter by level (can be comma-separated: "0,1,2")
+      if (level && typeof level === "string") {
+        const levels = level.split(",").map(l => parseInt(l.trim()));
+        filteredSpells = filteredSpells.filter(spell => levels.includes(spell.level));
+      }
+      
+      // Filter by school
+      if (school && typeof school === "string") {
+        const schoolLower = school.toLowerCase();
+        filteredSpells = filteredSpells.filter(spell => 
+          spell.school.toLowerCase() === schoolLower
+        );
+      }
+      
+      // Filter by class
+      if (charClass && typeof charClass === "string") {
+        const classLower = charClass.toLowerCase();
+        filteredSpells = filteredSpells.filter(spell => 
+          spell.classes.some(c => c.toLowerCase() === classLower)
+        );
+      }
+      
+      // Filter by concentration
+      if (concentration !== undefined) {
+        const conc = concentration === "true";
+        filteredSpells = filteredSpells.filter(spell => spell.concentration === conc);
+      }
+      
+      // Filter by ritual
+      if (ritual !== undefined) {
+        const rit = ritual === "true";
+        filteredSpells = filteredSpells.filter(spell => spell.ritual === rit);
+      }
+      
+      res.json(filteredSpells);
+    } catch (error) {
+      console.error("Spells fetch error:", error);
+      res.status(500).json({ error: "Failed to fetch spells" });
+    }
+  });
+
+  // Get single spell by ID
+  app.get("/api/spells/:id", async (req, res) => {
+    try {
+      const spellsData = await import("../shared/data/spells.json");
+      const spells = spellsData.default || spellsData;
+      
+      const spell = spells.find((s: any) => s.id === req.params.id);
+      if (!spell) {
+        return res.status(404).json({ error: "Spell not found" });
+      }
+      res.json(spell);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch spell" });
+    }
+  });
+
   return httpServer;
 }
