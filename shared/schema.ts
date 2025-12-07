@@ -264,19 +264,27 @@ export const insertDiceRollSchema = createInsertSchema(diceRolls).omit({ id: tru
 export type InsertDiceRoll = z.infer<typeof insertDiceRollSchema>;
 export type DiceRollRecord = typeof diceRolls.$inferSelect;
 
-// Users table (for Replit Auth)
+// Users table (for local username/password auth)
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: varchar("email").unique(),
+  password: varchar("password"),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
-  username: varchar("username"),
+  username: varchar("username").unique(),
   profileImageUrl: varchar("profile_image_url"),
   customProfileImageUrl: varchar("custom_profile_image_url"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const insertUserSchema = createInsertSchema(users)
+  .pick({ username: true, password: true })
+  .extend({
+    username: z.string().min(3).max(30),
+    password: z.string().min(6).max(100),
+  });
+export type InsertUser = z.infer<typeof insertUserSchema>;
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 

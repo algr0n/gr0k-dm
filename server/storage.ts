@@ -2,7 +2,7 @@ import {
   type Room, type InsertRoom,
   type Player, type InsertPlayer,
   type DiceRollRecord, type InsertDiceRoll,
-  type User, type UpsertUser,
+  type User, type UpsertUser, type InsertUser,
   type Character, type InsertCharacter,
   type InventoryItem, type InsertInventoryItem,
   type SavedCharacter, type InsertSavedCharacter,
@@ -33,6 +33,8 @@ function generateRoomCode(): string {
 export interface IStorage {
   // Users
   getUser(id: string): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
   upsertUser(user: UpsertUser): Promise<User>;
   updateUserProfile(id: string, updates: { username?: string; customProfileImageUrl?: string | null }): Promise<User | undefined>;
 
@@ -117,6 +119,21 @@ export interface IStorage {
 class DatabaseStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
     return await db.query.users.findFirst({ where: eq(users.id, id) });
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return await db.query.users.findFirst({ where: eq(users.username, username) });
+  }
+
+  async createUser(userData: InsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values({
+        username: userData.username,
+        password: userData.password,
+      })
+      .returning();
+    return user;
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {
