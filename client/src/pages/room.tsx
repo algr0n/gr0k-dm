@@ -165,6 +165,9 @@ export default function RoomPage() {
   // Load saved character dialog state
   const [showLoadCharacterDialog, setShowLoadCharacterDialog] = useState(false);
   
+  // Character death dialog state
+  const [showDeathDialog, setShowDeathDialog] = useState(false);
+  
   // Character form state
   const [characterName, setCharacterName] = useState("");
   const [characterStats, setCharacterStats] = useState<Record<string, any>>({});
@@ -229,7 +232,7 @@ export default function RoomPage() {
   // Fetch saved characters for authenticated user
   const { data: savedCharacters, isLoading: isLoadingSavedCharacters } = useQuery<SavedCharacter[]>({
     queryKey: ["/api/saved-characters"],
-    enabled: !!user && showLoadCharacterDialog,
+    enabled: !!user && (showLoadCharacterDialog || showDeathDialog),
   });
 
   // Fetch current player's room character data (new system)
@@ -315,6 +318,32 @@ export default function RoomPage() {
       toast({
         title: "Failed to save character",
         description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const switchCharacterMutation = useMutation({
+    mutationFn: async (savedCharacterId: string) => {
+      const response = await apiRequest("POST", `/api/rooms/${code}/switch-character`, {
+        savedCharacterId,
+        playerName,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "my-character"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "room-characters"] });
+      setShowDeathDialog(false);
+      toast({
+        title: "Character switched",
+        description: "You are now playing with a new character!",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to switch character",
+        description: error.message || "Please try again.",
         variant: "destructive",
       });
     },
@@ -1210,6 +1239,28 @@ export default function RoomPage() {
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-6">
+                    {!myCharacterData.roomCharacter.isAlive && (
+                      <Card className="border-destructive bg-destructive/5">
+                        <CardContent className="py-4">
+                          <div className="flex items-center gap-4">
+                            <XCircle className="h-8 w-8 text-destructive shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-medium">Your character has fallen</h4>
+                              <p className="text-sm text-muted-foreground">
+                                You can continue watching or bring in a new character.
+                              </p>
+                            </div>
+                            <Button 
+                              onClick={() => setShowDeathDialog(true)}
+                              data-testid="button-switch-character"
+                            >
+                              <User className="h-4 w-4 mr-2" />
+                              New Character
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium flex items-center gap-2">
@@ -1902,6 +1953,87 @@ export default function RoomPage() {
             <p className="text-center text-muted-foreground py-8" data-testid="text-no-saved-characters">
               You don't have any saved characters yet. Create characters from the Characters page in your account menu.
             </p>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDeathDialog} onOpenChange={setShowDeathDialog}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-serif flex items-center gap-2">
+              <User className="h-5 w-5" />
+              Select New Character
+            </DialogTitle>
+            <DialogDescription>
+              Your character has fallen. Choose another character to continue your adventure.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {isLoadingSavedCharacters ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : savedCharacters && savedCharacters.length > 0 ? (
+            <div className="space-y-3">
+              {savedCharacters
+                .filter(char => char.gameSystem === roomData?.gameSystem)
+                .map((char) => (
+                  <Card 
+                    key={char.id} 
+                    className="hover-elevate cursor-pointer"
+                    onClick={() => switchCharacterMutation.mutate(char.id)}
+                    data-testid={`card-death-character-${char.id}`}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0 flex-1">
+                          <h4 className="font-medium truncate">
+                            {char.characterName}
+                          </h4>
+                          <p className="text-sm text-muted-foreground">
+                            {char.race && char.class ? `${char.race} ${char.class}` : ""}
+                            {char.level ? ` (Level ${char.level})` : ""}
+                          </p>
+                        </div>
+                        <Button 
+                          size="sm"
+                          disabled={switchCharacterMutation.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            switchCharacterMutation.mutate(char.id);
+                          }}
+                          data-testid={`button-select-death-character-${char.id}`}
+                        >
+                          {switchCharacterMutation.isPending ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            "Select"
+                          )}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              {savedCharacters.filter(char => char.gameSystem === roomData?.gameSystem).length === 0 && (
+                <div className="text-center py-4 space-y-3">
+                  <p className="text-muted-foreground">
+                    No saved characters match this game system ({gameSystemLabels[roomData?.gameSystem as GameSystem] || roomData?.gameSystem}).
+                  </p>
+                  <Button variant="outline" onClick={() => setLocation("/characters")}>
+                    Create New Character
+                  </Button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-8 space-y-3">
+              <p className="text-muted-foreground">
+                You don't have any saved characters yet.
+              </p>
+              <Button onClick={() => setLocation("/characters")}>
+                Create Character
+              </Button>
+            </div>
           )}
         </DialogContent>
       </Dialog>

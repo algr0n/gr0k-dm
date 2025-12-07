@@ -583,6 +583,67 @@ export async function registerRoutes(
     }
   });
 
+  // Switch to a new character when current one is dead
+  app.post("/api/rooms/:code/switch-character", isAuthenticated, async (req, res) => {
+    try {
+      const { code } = req.params;
+      const { savedCharacterId, playerName } = req.body;
+      const userId = (req.user as any).claims?.sub;
+
+      const room = await storage.getRoomByCode(code);
+      if (!room || !room.isActive) {
+        return res.status(404).json({ error: "Room not found or inactive" });
+      }
+
+      // Get current room character
+      const currentRoomCharacter = await storage.getRoomCharacterByUserInRoom(userId, room.id);
+      if (!currentRoomCharacter) {
+        return res.status(404).json({ error: "No current character in this room" });
+      }
+
+      // Only allow switching if character is dead
+      if (currentRoomCharacter.isAlive) {
+        return res.status(400).json({ error: "Cannot switch character while current character is alive" });
+      }
+
+      // Validate the new character
+      const savedCharacter = await storage.getSavedCharacter(savedCharacterId);
+      if (!savedCharacter) {
+        return res.status(404).json({ error: "Saved character not found" });
+      }
+
+      if (savedCharacter.userId !== userId) {
+        return res.status(403).json({ error: "You do not own this character" });
+      }
+
+      if (savedCharacter.gameSystem !== room.gameSystem) {
+        return res.status(400).json({ error: "Character game system does not match room" });
+      }
+
+      // Delete the old room character and its status effects
+      await storage.deleteStatusEffectsByRoomCharacter(currentRoomCharacter.id);
+      await storage.deleteRoomCharacter(currentRoomCharacter.id);
+
+      // Create new room character instance
+      const roomCharacter = await storage.createRoomCharacter({
+        roomId: room.id,
+        savedCharacterId: savedCharacterId,
+        userId: userId,
+        playerName: playerName,
+        currentHp: savedCharacter.maxHp,
+        isAlive: true,
+        experience: 0,
+        temporaryHp: 0,
+        gold: 0,
+      });
+
+      res.json({ roomCharacter, savedCharacter });
+    } catch (error) {
+      console.error("Error switching character:", error);
+      res.status(500).json({ error: "Failed to switch character" });
+    }
+  });
+
   // Get current player's room character with saved character data
   app.get("/api/rooms/:code/my-character", isAuthenticated, async (req, res) => {
     try {
