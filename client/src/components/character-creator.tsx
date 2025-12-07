@@ -22,6 +22,9 @@ import {
   type DndStatName,
   type CyberpunkStatName,
   DND_CLASS_HP_BONUSES,
+  DND_RACE_BONUSES,
+  CYBERPUNK_BACKGROUND_BONUSES,
+  CYBERPUNK_ROLE_BONUSES,
 } from "@shared/race-class-bonuses";
 
 // D&D options
@@ -341,54 +344,86 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
               </div>
               {formData.gameSystem === "dnd" ? (
                 <div className="grid grid-cols-2 gap-4">
-                  {(["strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"] as const).map((stat) => (
-                    <div key={stat} className="space-y-1">
-                      <Label htmlFor={stat} className="text-xs uppercase">
-                        {stat}
-                      </Label>
-                      <Input
-                        id={stat}
-                        type="number"
-                        min={1}
-                        max={30}
-                        value={formData[stat]}
-                        onChange={(e) => setFormData({ ...formData, [stat]: parseInt(e.target.value) || 10 })}
-                        className="font-mono"
-                        data-testid={`input-stat-${stat}`}
-                      />
-                    </div>
-                  ))}
+                  {(["strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"] as const).map((stat) => {
+                    const raceBonus = formData.race ? (DND_RACE_BONUSES[formData.race]?.[stat] || 0) : 0;
+                    const finalValue = formData[stat] + raceBonus;
+                    return (
+                      <div key={stat} className="space-y-1">
+                        <Label htmlFor={stat} className="text-xs uppercase flex items-center justify-between gap-2">
+                          <span>{stat}</span>
+                          {raceBonus !== 0 && (
+                            <Badge variant="secondary" className="text-xs px-1 py-0">
+                              {raceBonus > 0 ? `+${raceBonus}` : raceBonus}
+                            </Badge>
+                          )}
+                        </Label>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            id={stat}
+                            type="number"
+                            min={1}
+                            max={30}
+                            value={formData[stat]}
+                            onChange={(e) => setFormData({ ...formData, [stat]: parseInt(e.target.value) || 10 })}
+                            className="font-mono"
+                            data-testid={`input-stat-${stat}`}
+                          />
+                          {raceBonus !== 0 && (
+                            <span className="text-sm font-mono font-bold text-primary" data-testid={`stat-final-${stat}`}>
+                              = {finalValue}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   {(["int", "ref", "dex", "tech", "cool", "will", "luck", "move", "body", "emp"] as const).map((stat) => {
                     const statLabels: Record<string, string> = {
-                      int: "INT (Intelligence)",
-                      ref: "REF (Reflexes)",
-                      dex: "DEX (Dexterity)",
-                      tech: "TECH (Technical)",
+                      int: "INT",
+                      ref: "REF",
+                      dex: "DEX",
+                      tech: "TECH",
                       cool: "COOL",
-                      will: "WILL (Willpower)",
+                      will: "WILL",
                       luck: "LUCK",
-                      move: "MOVE (Movement)",
+                      move: "MOVE",
                       body: "BODY",
-                      emp: "EMP (Empathy)",
+                      emp: "EMP",
                     };
+                    const bgBonus = formData.race ? (CYBERPUNK_BACKGROUND_BONUSES[formData.race]?.[stat] || 0) : 0;
+                    const roleBonus = formData.characterClass ? (CYBERPUNK_ROLE_BONUSES[formData.characterClass]?.[stat] || 0) : 0;
+                    const totalBonus = bgBonus + roleBonus;
+                    const finalValue = formData[stat] + totalBonus;
                     return (
                       <div key={stat} className="space-y-1">
-                        <Label htmlFor={stat} className="text-xs uppercase">
-                          {statLabels[stat]}
+                        <Label htmlFor={stat} className="text-xs uppercase flex items-center justify-between gap-2">
+                          <span>{statLabels[stat]}</span>
+                          {totalBonus !== 0 && (
+                            <Badge variant="secondary" className="text-xs px-1 py-0">
+                              {totalBonus > 0 ? `+${totalBonus}` : totalBonus}
+                            </Badge>
+                          )}
                         </Label>
-                        <Input
-                          id={stat}
-                          type="number"
-                          min={1}
-                          max={10}
-                          value={formData[stat]}
-                          onChange={(e) => setFormData({ ...formData, [stat]: parseInt(e.target.value) || 5 })}
-                          className="font-mono"
-                          data-testid={`input-stat-${stat}`}
-                        />
+                        <div className="flex items-center gap-2">
+                          <Input
+                            id={stat}
+                            type="number"
+                            min={1}
+                            max={10}
+                            value={formData[stat]}
+                            onChange={(e) => setFormData({ ...formData, [stat]: parseInt(e.target.value) || 5 })}
+                            className="font-mono"
+                            data-testid={`input-stat-${stat}`}
+                          />
+                          {totalBonus !== 0 && (
+                            <span className="text-sm font-mono font-bold text-primary" data-testid={`stat-final-${stat}`}>
+                              = {finalValue}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

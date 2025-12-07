@@ -217,29 +217,24 @@ export default function RoomPage() {
     }
   }, []);
 
-  const { data: roomData, isLoading, error } = useQuery<Room & { players: Player[] }>({
+  const { data: roomData, isLoading, error } = useQuery<Room & { players: Player[]; characters: Character[] }>({
     queryKey: ["/api/rooms", code],
     enabled: !!code,
   });
 
-  // Fetch existing character data
-  const { data: existingCharacter } = useQuery<Character>({
-    queryKey: ["/api/rooms", code, "characters", playerId],
-    enabled: !!code && !!playerId,
-  });
+  // Get all characters from room data (already fetched with room info)
+  const allCharacters = roomData?.characters || [];
+  
+  // Use roomData.players for display (most up-to-date after refetch), fallback to state for WebSocket updates
+  const displayPlayers = roomData?.players || players;
 
-  // Fetch all characters for the room to display character names
-  const { data: allCharacters } = useQuery<Character[]>({
-    queryKey: ["/api/rooms", code, "characters"],
-    enabled: !!code,
-  });
+  // Find current player's character from room data
+  const existingCharacter = allCharacters.find(c => c.playerId === playerId);
 
-  // Fetch character data for viewed player
-  const viewingPlayer = players.find(p => p.id === viewingPlayerId);
-  const { data: viewedCharacter, isLoading: isLoadingViewedCharacter } = useQuery<Character>({
-    queryKey: ["/api/rooms", code, "characters", viewingPlayerId],
-    enabled: !!code && !!viewingPlayerId,
-  });
+  // Find character for viewed player
+  const viewingPlayer = displayPlayers.find(p => p.id === viewingPlayerId);
+  const viewedCharacter = viewingPlayerId ? allCharacters.find(c => c.playerId === viewingPlayerId) : undefined;
+  const isLoadingViewedCharacter = isLoading;
 
   // Fetch inventory for current character (with joined item details)
   type InventoryWithItem = InventoryItem & { item: Item };
@@ -321,8 +316,8 @@ export default function RoomPage() {
       return response.json();
     },
     onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "characters", playerId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "characters"] });
+      // Invalidate the main room query to refresh the characters list
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", code] });
       if (existingCharacter?.id) {
         queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter.id] });
         queryClient.invalidateQueries({ queryKey: ["inventory", existingCharacter.id] });
@@ -374,7 +369,7 @@ export default function RoomPage() {
     },
   });
 
-  const currentPlayer = players.find(p => p.id === playerId);
+  const currentPlayer = displayPlayers.find(p => p.id === playerId);
   const isHost = currentPlayer?.isHost || roomData?.hostName === playerName;
   
   // Combat turn check - determine if current player can send messages
@@ -862,11 +857,11 @@ export default function RoomPage() {
         <div className="flex-1 p-4">
           <div className="flex items-center gap-2 mb-3">
             <Users className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Players ({players.length})</span>
+            <span className="text-sm font-medium">Players ({displayPlayers.length})</span>
           </div>
           <ScrollArea className="h-40">
             <div className="space-y-2">
-              {players.map((player) => (
+              {displayPlayers.map((player) => (
                 <div
                   key={player.id}
                   className="flex items-center gap-2 text-sm"
