@@ -312,6 +312,8 @@ export const savedCharacters = pgTable("saved_characters", {
   initiativeModifier: integer("initiative_modifier").notNull().default(0),
   backstory: text("backstory"),
   gameSystem: text("game_system").notNull().default("dnd"),
+  xp: integer("xp").notNull().default(0),
+  levelChoices: jsonb("level_choices").$type<Record<string, unknown>[]>().default([]),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
