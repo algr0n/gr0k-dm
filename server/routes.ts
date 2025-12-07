@@ -55,7 +55,21 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  const wss = new WebSocketServer({ server: httpServer });
+  const wss = new WebSocketServer({ noServer: true });
+
+  // Handle WebSocket upgrade manually to avoid conflicts with Vite HMR
+  httpServer.on("upgrade", (request, socket, head) => {
+    const pathname = request.url?.split("?")[0];
+    
+    // Skip Vite HMR connections
+    if (pathname === "/vite-hmr") {
+      return; // Let Vite handle this
+    }
+    
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit("connection", ws, request);
+    });
+  });
 
   wss.on("connection", (ws: WebSocket, req) => {
     const urlParams = new URLSearchParams(req.url?.split("?")[1]);
