@@ -54,9 +54,10 @@ export const rooms = pgTable("rooms", {
   messageHistory: jsonb("message_history").$type<Message[]>().notNull().default([]),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastActivityAt: timestamp("last_activity_at").notNull().defaultNow(),
 });
 
-export const insertRoomSchema = createInsertSchema(rooms).omit({ id: true, createdAt: true });
+export const insertRoomSchema = createInsertSchema(rooms).omit({ id: true, createdAt: true, lastActivityAt: true });
 export type InsertRoom = z.infer<typeof insertRoomSchema>;
 export type Room = typeof rooms.$inferSelect;
 

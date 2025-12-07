@@ -8,7 +8,7 @@ import {
   rooms, players, diceRolls, users, characters, inventoryItems
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, lt } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 function generateRoomCode(): string {
@@ -61,6 +61,14 @@ export interface IStorage {
   createInventoryItem(item: InsertInventoryItem): Promise<InventoryItem>;
   updateInventoryItem(id: string, updates: Partial<InventoryItem>): Promise<InventoryItem | undefined>;
   deleteInventoryItem(id: string): Promise<boolean>;
+  
+  // Room Cleanup
+  deleteCharactersByRoom(roomId: string): Promise<boolean>;
+  deleteDiceRollsByRoom(roomId: string): Promise<boolean>;
+  deleteInventoryByRoom(roomId: string): Promise<boolean>;
+  deleteRoomWithAllData(roomId: string): Promise<boolean>;
+  getStaleInactiveRooms(hoursOld: number): Promise<Room[]>;
+  updateRoomActivity(id: string): Promise<Room | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -285,6 +293,51 @@ export class DatabaseStorage implements IStorage {
   async deleteInventoryItem(id: string): Promise<boolean> {
     const result = await db.delete(inventoryItems).where(eq(inventoryItems.id, id)).returning();
     return result.length > 0;
+  }
+
+  // Room Cleanup Methods
+  async deleteCharactersByRoom(roomId: string): Promise<boolean> {
+    await db.delete(characters).where(eq(characters.roomId, roomId));
+    return true;
+  }
+
+  async deleteDiceRollsByRoom(roomId: string): Promise<boolean> {
+    await db.delete(diceRolls).where(eq(diceRolls.roomId, roomId));
+    return true;
+  }
+
+  async deleteInventoryByRoom(roomId: string): Promise<boolean> {
+    const roomCharacters = await this.getCharactersByRoom(roomId);
+    for (const char of roomCharacters) {
+      await db.delete(inventoryItems).where(eq(inventoryItems.characterId, char.id));
+    }
+    return true;
+  }
+
+  async deleteRoomWithAllData(roomId: string): Promise<boolean> {
+    await this.deleteInventoryByRoom(roomId);
+    await this.deleteCharactersByRoom(roomId);
+    await this.deleteDiceRollsByRoom(roomId);
+    await this.deletePlayersByRoom(roomId);
+    await this.deleteRoom(roomId);
+    return true;
+  }
+
+  async getStaleInactiveRooms(hoursOld: number): Promise<Room[]> {
+    const cutoffDate = new Date(Date.now() - hoursOld * 60 * 60 * 1000);
+    return await db.select().from(rooms)
+      .where(and(
+        eq(rooms.isActive, false),
+        lt(rooms.lastActivityAt, cutoffDate)
+      ));
+  }
+
+  async updateRoomActivity(id: string): Promise<Room | undefined> {
+    const result = await db.update(rooms)
+      .set({ lastActivityAt: new Date() })
+      .where(eq(rooms.id, id))
+      .returning();
+    return result[0];
   }
 }
 

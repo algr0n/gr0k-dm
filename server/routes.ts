@@ -170,7 +170,7 @@ export async function registerRoutes(
       }
 
       const updatedHistory = [...(room.messageHistory || []), chatMessage].slice(-100);
-      await storage.updateRoom(room.id, { messageHistory: updatedHistory });
+      await storage.updateRoom(room.id, { messageHistory: updatedHistory, lastActivityAt: new Date() });
 
       broadcastToRoom(roomCode, { type: "message", message: chatMessage });
 
@@ -265,7 +265,7 @@ export async function registerRoutes(
           };
 
           const finalHistory = [...updatedHistory, dmMessage].slice(-100);
-          await storage.updateRoom(room.id, { messageHistory: finalHistory });
+          await storage.updateRoom(room.id, { messageHistory: finalHistory, lastActivityAt: new Date() });
 
           broadcastToRoom(roomCode, { type: "message", message: dmMessage });
         } catch (error) {
@@ -322,6 +322,7 @@ export async function registerRoutes(
       await storage.updateRoom(room.id, { 
         messageHistory: [dmMessage],
         currentScene: startingScene.slice(0, 200),
+        lastActivityAt: new Date(),
       });
 
       res.status(201).json({ ...room, hostPlayer });
@@ -384,7 +385,7 @@ export async function registerRoutes(
       };
 
       const updatedHistory = [...(room.messageHistory || []), joinMessage].slice(-100);
-      await storage.updateRoom(room.id, { messageHistory: updatedHistory });
+      await storage.updateRoom(room.id, { messageHistory: updatedHistory, lastActivityAt: new Date() });
 
       broadcastToRoom(req.params.code.toUpperCase(), { type: "message", message: joinMessage });
       broadcastToRoom(req.params.code.toUpperCase(), { type: "player_joined", player });
@@ -421,7 +422,7 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Only the host can end the game" });
       }
 
-      await storage.updateRoom(room.id, { isActive: false });
+      await storage.updateRoom(room.id, { isActive: false, lastActivityAt: new Date() });
 
       const endMessage: Message = {
         id: randomUUID(),
@@ -433,7 +434,7 @@ export async function registerRoutes(
       };
 
       const updatedHistory = [...(room.messageHistory || []), endMessage].slice(-100);
-      await storage.updateRoom(room.id, { messageHistory: updatedHistory });
+      await storage.updateRoom(room.id, { messageHistory: updatedHistory, lastActivityAt: new Date() });
 
       broadcastToRoom(req.params.code.toUpperCase(), { type: "message", message: endMessage });
       broadcastToRoom(req.params.code.toUpperCase(), { type: "game_ended" });
@@ -456,6 +457,16 @@ export async function registerRoutes(
 
       await storage.deletePlayer(playerId);
 
+      // Check if room is now empty - if so, delete it completely
+      const remainingPlayers = await storage.getPlayersByRoom(room.id);
+      if (remainingPlayers.length === 0) {
+        console.log(`Room ${room.code} is empty, deleting all data...`);
+        await storage.deleteRoomWithAllData(room.id);
+        roomConnections.delete(req.params.code.toUpperCase());
+        res.json({ success: true, roomDeleted: true });
+        return;
+      }
+
       const leaveMessage: Message = {
         id: randomUUID(),
         roomId: room.id,
@@ -466,7 +477,7 @@ export async function registerRoutes(
       };
 
       const updatedHistory = [...(room.messageHistory || []), leaveMessage].slice(-100);
-      await storage.updateRoom(room.id, { messageHistory: updatedHistory });
+      await storage.updateRoom(room.id, { messageHistory: updatedHistory, lastActivityAt: new Date() });
 
       broadcastToRoom(req.params.code.toUpperCase(), { type: "message", message: leaveMessage });
       broadcastToRoom(req.params.code.toUpperCase(), { type: "player_left", playerId, playerName });
@@ -734,6 +745,30 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to fetch spell" });
     }
   });
+
+  // Periodic cleanup job: Delete stale inactive rooms (older than 24 hours)
+  const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // Run every hour
+  const STALE_ROOM_HOURS = 24; // Delete rooms inactive for 24+ hours
+  
+  async function cleanupStaleRooms() {
+    try {
+      const staleRooms = await storage.getStaleInactiveRooms(STALE_ROOM_HOURS);
+      for (const room of staleRooms) {
+        console.log(`Cleaning up stale room: ${room.code} (inactive since ${room.lastActivityAt})`);
+        await storage.deleteRoomWithAllData(room.id);
+        roomConnections.delete(room.code);
+      }
+      if (staleRooms.length > 0) {
+        console.log(`Cleaned up ${staleRooms.length} stale room(s)`);
+      }
+    } catch (error) {
+      console.error("Stale room cleanup error:", error);
+    }
+  }
+  
+  // Run cleanup on startup and then periodically
+  cleanupStaleRooms();
+  setInterval(cleanupStaleRooms, CLEANUP_INTERVAL_MS);
 
   return httpServer;
 }
