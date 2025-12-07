@@ -269,13 +269,21 @@ export const users = pgTable("users", {
   email: varchar("email").unique(),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
+  username: varchar("username"),
   profileImageUrl: varchar("profile_image_url"),
+  customProfileImageUrl: varchar("custom_profile_image_url"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
+
+export const updateUserProfileSchema = z.object({
+  username: z.string().min(2).max(30).optional(),
+  customProfileImageUrl: z.string().url().optional().nullable(),
+});
+export type UpdateUserProfile = z.infer<typeof updateUserProfileSchema>;
 
 // Saved characters (linked to user accounts, separate from room-specific characters)
 export const savedCharacters = pgTable("saved_characters", {

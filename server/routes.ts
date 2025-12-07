@@ -5,7 +5,7 @@ import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { parseDiceExpression } from "./dice";
 import { generateDMResponse, generateBatchedDMResponse, generateStartingScene, generateCombatDMTurn, type CharacterInfo, type BatchedMessage, type DroppedItemInfo, getTokenUsage } from "./grok";
-import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, insertSavedCharacterSchema, type Message, type Character, type InventoryItem } from "@shared/schema";
+import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, insertSavedCharacterSchema, updateUserProfileSchema, type Message, type Character, type InventoryItem } from "@shared/schema";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 
 const roomConnections = new Map<string, Set<WebSocket>>();
@@ -264,6 +264,101 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  // Profile update route
+  app.patch("/api/profile", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).claims.sub;
+      
+      const parseResult = updateUserProfileSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        return res.status(400).json({ error: "Invalid profile data", details: parseResult.error.flatten() });
+      }
+      
+      const { username, customProfileImageUrl } = parseResult.data;
+      
+      const updates: { username?: string; customProfileImageUrl?: string | null } = {};
+      if (username !== undefined) {
+        updates.username = username;
+      }
+      if (customProfileImageUrl !== undefined) {
+        updates.customProfileImageUrl = customProfileImageUrl;
+      }
+      
+      const user = await storage.updateUserProfile(userId, updates);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      res.json(user);
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      res.status(500).json({ error: "Failed to update profile" });
+    }
+  });
+
+  // Profile image upload URL
+  app.post("/api/profile/upload-url", isAuthenticated, async (req, res) => {
+    try {
+      if (!process.env.PRIVATE_OBJECT_DIR) {
+        return res.status(503).json({ 
+          error: "Image uploads not configured",
+          message: "Profile picture uploads are not available. Object storage needs to be set up."
+        });
+      }
+      const { ObjectStorageService } = await import("./objectStorage");
+      const objectStorageService = new ObjectStorageService();
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      res.json({ uploadURL });
+    } catch (error) {
+      console.error("Error getting upload URL:", error);
+      res.status(500).json({ error: "Failed to get upload URL" });
+    }
+  });
+
+  // Profile image update (after upload completes)
+  app.put("/api/profile/image", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).claims.sub;
+      const { imageUrl } = req.body;
+      
+      if (!imageUrl) {
+        return res.status(400).json({ error: "imageUrl is required" });
+      }
+
+      const { ObjectStorageService } = await import("./objectStorage");
+      const objectStorageService = new ObjectStorageService();
+      const objectPath = await objectStorageService.trySetObjectEntityAclPolicy(
+        imageUrl,
+        {
+          owner: userId,
+          visibility: "public",
+        }
+      );
+
+      const user = await storage.updateUserProfile(userId, { customProfileImageUrl: objectPath });
+      res.json({ objectPath, user });
+    } catch (error) {
+      console.error("Error updating profile image:", error);
+      res.status(500).json({ error: "Failed to update profile image" });
+    }
+  });
+
+  // Serve uploaded objects
+  app.get("/objects/:objectPath(*)", async (req, res) => {
+    try {
+      const { ObjectStorageService, ObjectNotFoundError } = await import("./objectStorage");
+      const objectStorageService = new ObjectStorageService();
+      const objectFile = await objectStorageService.getObjectEntityFile(req.path);
+      objectStorageService.downloadObject(objectFile, res);
+    } catch (error) {
+      console.error("Error serving object:", error);
+      const { ObjectNotFoundError } = await import("./objectStorage");
+      if (error instanceof ObjectNotFoundError) {
+        return res.sendStatus(404);
+      }
+      return res.sendStatus(500);
     }
   });
 

@@ -9,10 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/useAuth";
-import { LogIn, LogOut, User, Scroll } from "lucide-react";
+import { LogIn, LogOut, User, Scroll, Settings } from "lucide-react";
 import Landing from "@/pages/landing";
 import RoomPage from "@/pages/room";
 import Characters from "@/pages/characters";
+import ProfileSettings from "@/pages/profile";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -21,6 +22,7 @@ function Router() {
       <Route path="/" component={Landing} />
       <Route path="/room/:code" component={RoomPage} />
       <Route path="/characters" component={Characters} />
+      <Route path="/profile" component={ProfileSettings} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -61,14 +63,14 @@ function Header() {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="rounded-full" data-testid="button-user-menu">
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src={user.profileImageUrl || undefined} alt={user.firstName || "User"} />
+                    <AvatarImage src={user.customProfileImageUrl || user.profileImageUrl || undefined} alt={user.username || user.firstName || "User"} />
                     <AvatarFallback>{getInitials(user.firstName || user.email || "U")}</AvatarFallback>
                   </Avatar>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <div className="px-2 py-1.5 text-sm font-medium" data-testid="text-user-name">
-                  {user.firstName} {user.lastName}
+                  {user.username || `${user.firstName || ''} ${user.lastName || ''}`.trim() || 'User'}
                 </div>
                 <div className="px-2 pb-1.5 text-xs text-muted-foreground" data-testid="text-user-email">
                   {user.email}
@@ -78,6 +80,12 @@ function Header() {
                   <Link href="/characters">
                     <Scroll className="mr-2 h-4 w-4" />
                     My Characters
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/profile" data-testid="link-profile-settings">
+                    <Settings className="mr-2 h-4 w-4" />
+                    Profile Settings
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />

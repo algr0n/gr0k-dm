@@ -32,6 +32,7 @@ export interface IStorage {
   // Users
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
+  updateUserProfile(id: string, updates: { username?: string; customProfileImageUrl?: string | null }): Promise<User | undefined>;
 
   // Rooms
   getRoom(id: string): Promise<Room | undefined>;
@@ -114,6 +115,17 @@ class DatabaseStorage implements IStorage {
       })
       .returning();
     return user;
+  }
+
+  async updateUserProfile(id: string, updates: { username?: string; customProfileImageUrl?: string | null }): Promise<User | undefined> {
+    const result = await db.update(users)
+      .set({
+        ...updates,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, id))
+      .returning();
+    return result[0];
   }
 
   async getRoom(id: string): Promise<Room | undefined> {
