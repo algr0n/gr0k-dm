@@ -73,7 +73,7 @@ export async function registerRoutes(
 
   wss.on("connection", (ws: WebSocket, req) => {
     const urlParams = new URLSearchParams(req.url?.split("?")[1]);
-    const roomCode = urlParams.get("roomCode");
+    const roomCode = urlParams.get("room") || urlParams.get("roomCode");
 
     if (!roomCode) {
       ws.close(1008, "Room code required");
@@ -84,6 +84,32 @@ export async function registerRoutes(
       roomConnections.set(roomCode, new Set());
     }
     roomConnections.get(roomCode)!.add(ws);
+
+    const playerName = urlParams.get("player") || "Anonymous";
+
+    ws.on("message", async (data) => {
+      try {
+        const message = JSON.parse(data.toString());
+        
+        if (message.type === "chat" || message.type === "action") {
+          // Queue the message for batch processing
+          await queueMessage(roomCode, {
+            type: message.type,
+            playerName: playerName,
+            content: message.content,
+            timestamp: Date.now(),
+          });
+        } else if (message.type === "get_combat_state") {
+          // Send current combat state
+          const combatState = roomCombatState.get(roomCode);
+          if (combatState) {
+            ws.send(JSON.stringify({ type: "combat_update", combat: combatState }));
+          }
+        }
+      } catch (error) {
+        console.error("[WebSocket] Message parsing error:", error);
+      }
+    });
 
     ws.on("close", () => {
       roomConnections.get(roomCode)?.delete(ws);
@@ -171,8 +197,9 @@ export async function registerRoutes(
     try {
       // Generate batched DM response
       const dmResponse = await generateBatchedDMResponse(
-        room,
         batchedMessages,
+        room,
+        undefined, // playerCount
         characterInfos
       );
 
@@ -486,7 +513,7 @@ export async function registerRoutes(
       });
 
       // Generate starting combat scene if needed
-      const startingScene = await generateStartingScene(room);
+      const startingScene = await generateStartingScene(room.gameSystem, room.name);
       broadcastToRoom(code, {
         type: "dm",
         content: startingScene,

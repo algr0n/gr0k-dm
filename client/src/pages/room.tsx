@@ -17,7 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { type Message, type Room, type Player, type Character, type InventoryItem, gameSystemLabels, type GameSystem } from "@shared/schema";
+import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, gameSystemLabels, type GameSystem } from "@shared/schema";
 import { SpellBrowser } from "@/components/spell-browser";
 import { FloatingCharacterPanel } from "@/components/floating-character-panel";
 import { Heart } from "lucide-react";
@@ -35,6 +35,105 @@ interface CombatState {
   isActive: boolean;
   currentTurnIndex: number;
   initiatives: InitiativeEntry[];
+}
+
+interface ParsedMessagePart {
+  type: "text" | "item";
+  content: string;
+  item?: Item;
+}
+
+function parseMessageForItems(content: string, itemNameMap: Map<string, Item>): ParsedMessagePart[] {
+  if (itemNameMap.size === 0) {
+    return [{ type: "text", content }];
+  }
+
+  const sortedItemNames = Array.from(itemNameMap.keys()).sort((a, b) => b.length - a.length);
+  const pattern = new RegExp(
+    `\\b(${sortedItemNames.map(name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`,
+    'gi'
+  );
+
+  const parts: ParsedMessagePart[] = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = pattern.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: "text", content: content.slice(lastIndex, match.index) });
+    }
+    const matchedText = match[0];
+    const item = itemNameMap.get(matchedText.toLowerCase());
+    if (item) {
+      parts.push({ type: "item", content: matchedText, item });
+    } else {
+      parts.push({ type: "text", content: matchedText });
+    }
+    lastIndex = pattern.lastIndex;
+  }
+
+  if (lastIndex < content.length) {
+    parts.push({ type: "text", content: content.slice(lastIndex) });
+  }
+
+  return parts.length > 0 ? parts : [{ type: "text", content }];
+}
+
+interface MessageContentProps {
+  content: string;
+  itemNameMap: Map<string, Item>;
+  isDmMessage: boolean;
+  onPickupItem: (item: Item) => void;
+  canPickup: boolean;
+  isPickingUp: boolean;
+}
+
+function MessageContent({ content, itemNameMap, isDmMessage, onPickupItem, canPickup, isPickingUp }: MessageContentProps) {
+  const parts = parseMessageForItems(content, itemNameMap);
+  
+  if (parts.length === 1 && parts[0].type === "text") {
+    return <span className="whitespace-pre-wrap">{content}</span>;
+  }
+
+  return (
+    <span className="whitespace-pre-wrap">
+      {parts.map((part, index) => {
+        if (part.type === "text") {
+          return <span key={index}>{part.content}</span>;
+        }
+        return (
+          <span 
+            key={index}
+            className="inline-flex items-center gap-1"
+          >
+            <Badge
+              variant="outline"
+              className={cn(
+                "font-medium cursor-default border-primary/50 bg-primary/10 text-primary",
+                isDmMessage && canPickup && "cursor-pointer"
+              )}
+              data-testid={`item-badge-${part.item?.id}`}
+            >
+              <Package className="h-3 w-3 mr-1" />
+              {part.content}
+              {isDmMessage && canPickup && part.item && (
+                <span
+                  className="inline-flex items-center justify-center ml-1 cursor-pointer hover-elevate active-elevate-2 rounded-sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!isPickingUp) onPickupItem(part.item!);
+                  }}
+                  data-testid={`button-pickup-${part.item.id}`}
+                >
+                  <Plus className="h-3 w-3" />
+                </span>
+              )}
+            </Badge>
+          </span>
+        );
+      })}
+    </span>
+  );
 }
 
 export default function RoomPage() {
@@ -114,6 +213,18 @@ export default function RoomPage() {
     enabled: !!existingCharacter?.id,
   });
 
+  // Fetch all items for item name detection in chat
+  const { data: allItems } = useQuery<Item[]>({
+    queryKey: ["/api/items"],
+    staleTime: 1000 * 60 * 10,
+  });
+
+  // Build a map of item names (lowercase) to item data for quick lookup
+  const itemNameMap = allItems?.reduce((acc, item) => {
+    acc.set(item.name.toLowerCase(), item);
+    return acc;
+  }, new Map<string, Item>()) ?? new Map<string, Item>();
+
   // Load character data when it exists
   useEffect(() => {
     if (existingCharacter) {
@@ -133,9 +244,20 @@ export default function RoomPage() {
       });
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "characters", playerId] });
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "characters"] });
+      if (existingCharacter?.id) {
+        queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter.id] });
+        queryClient.invalidateQueries({ queryKey: ["inventory", existingCharacter.id] });
+      }
+      if (data?.id) {
+        queryClient.invalidateQueries({ queryKey: ["/api/characters", data.id] });
+        queryClient.invalidateQueries({ queryKey: ["inventory", data.id] });
+      }
+      const newCurrentHp = characterStats.currentHp ?? 0;
+      const newMaxHp = characterStats.maxHp ?? 1;
+      setLiveHp({ current: newCurrentHp, max: newMaxHp });
       toast({
         title: "Character saved",
         description: "Your character has been saved successfully.",
@@ -233,6 +355,34 @@ export default function RoomPage() {
     onError: () => {
       toast({
         title: "Failed to add item",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const pickupItemMutation = useMutation({
+    mutationFn: async (data: { itemId: string; itemName: string }) => {
+      if (!existingCharacter?.id) {
+        throw new Error("No character to add item to");
+      }
+      const response = await apiRequest("POST", `/api/characters/${existingCharacter.id}/inventory`, {
+        itemId: data.itemId,
+        quantity: 1,
+      });
+      return response.json();
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter?.id, "inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory", existingCharacter?.id] });
+      toast({
+        title: "Item picked up",
+        description: `${variables.itemName} has been added to your inventory.`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Failed to pick up item",
         description: "Please try again.",
         variant: "destructive",
       });
@@ -399,7 +549,19 @@ export default function RoomPage() {
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         
-        if (data.type === "message") {
+        // Handle chat/action/roll/dm/system messages directly from broadcast
+        if (data.type === "chat" || data.type === "action" || data.type === "roll" || data.type === "dm" || data.type === "system") {
+          const newMessage: Message = {
+            id: data.id || crypto.randomUUID(),
+            roomId: data.roomId || "",
+            playerName: data.playerName || "System",
+            content: data.content,
+            type: data.type,
+            timestamp: data.timestamp?.toString() || Date.now().toString(),
+            diceResult: data.diceResult,
+          };
+          setMessages((prev) => [...prev, newMessage]);
+        } else if (data.type === "message") {
           setMessages((prev) => [...prev, data.message]);
         } else if (data.type === "player_joined") {
           setPlayers((prev) => [...prev, data.player]);
@@ -854,7 +1016,16 @@ export default function RoomPage() {
                         </span>
                       </div>
                     )}
-                    <p className="whitespace-pre-wrap">{message.content}</p>
+                    <p>
+                      <MessageContent
+                        content={message.content}
+                        itemNameMap={itemNameMap}
+                        isDmMessage={message.type === "dm"}
+                        onPickupItem={(item) => pickupItemMutation.mutate({ itemId: item.id, itemName: item.name })}
+                        canPickup={!!existingCharacter?.id && !gameEnded}
+                        isPickingUp={pickupItemMutation.isPending}
+                      />
+                    </p>
                     {message.diceResult && (
                       <div className="mt-2 flex items-center gap-2 text-sm">
                         <Dice6 className="h-4 w-4" />

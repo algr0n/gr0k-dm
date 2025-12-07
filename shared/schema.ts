@@ -91,7 +91,7 @@ export const rooms = pgTable("rooms", {
   maxPlayers: integer("max_players").notNull().default(6),
   lastActivityAt: timestamp("last_activity_at").notNull().defaultNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => sql`now()`),
+  updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
   index("idx_rooms_code").on(table.code),
   index("idx_rooms_active").on(table.isActive),
@@ -150,7 +150,7 @@ export const characters = pgTable("characters", {
   initiativeModifier: integer("initiative_modifier").notNull().default(0),
   backstory: text("backstory"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => sql`now()`),
+  updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
   index("idx_characters_room").on(table.roomId),
   index("idx_characters_player").on(table.playerId),
@@ -207,7 +207,7 @@ export const inventoryItems = pgTable("inventory_items", {
   notes: text("notes"),
   attunementSlot: boolean("attunement_slot").default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => sql`now()`),
+  updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
   index("idx_inventory_character").on(table.characterId),
   index("idx_inventory_item").on(table.itemId),
