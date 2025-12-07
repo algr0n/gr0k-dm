@@ -1,13 +1,16 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Swords, Users, Dice6, Bot, Plus, LogIn, Loader2, RotateCcw } from "lucide-react";
+import { Swords, Users, Dice6, Bot, Plus, LogIn, Loader2, RotateCcw, Globe, Search } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { gameSystems, gameSystemLabels, type GameSystem, type Room } from "@shared/schema";
@@ -18,11 +21,14 @@ export default function Landing() {
   
   const [hostDialogOpen, setHostDialogOpen] = useState(false);
   const [joinDialogOpen, setJoinDialogOpen] = useState(false);
+  const [browseDialogOpen, setBrowseDialogOpen] = useState(false);
   const [gameName, setGameName] = useState("");
   const [gameSystem, setGameSystem] = useState<GameSystem>("dnd");
   const [hostName, setHostName] = useState("");
+  const [isPublic, setIsPublic] = useState(false);
   const [roomCode, setRoomCode] = useState("");
   const [playerName, setPlayerName] = useState("");
+  const [browseFilter, setBrowseFilter] = useState<GameSystem | "all">("all");
   
   // Check for last game session with state to enable reactivity
   const [lastRoomCode, setLastRoomCode] = useState<string | null>(null);
@@ -35,12 +41,35 @@ export default function Landing() {
   
   const canRejoin = lastRoomCode && lastPlayerName;
 
+  type PublicRoom = Room & { playerCount: number };
+  
+  const { data: publicRooms, isLoading: isLoadingPublicRooms } = useQuery<PublicRoom[]>({
+    queryKey: ["/api/rooms/public"],
+    queryFn: async () => {
+      const response = await fetch("/api/rooms/public");
+      if (!response.ok) throw new Error("Failed to fetch public rooms");
+      return response.json();
+    },
+    enabled: browseDialogOpen,
+  });
+
+  const filteredRooms = publicRooms?.filter(room => 
+    browseFilter === "all" || room.gameSystem === browseFilter
+  ) || [];
+
+  const handleJoinFromBrowser = (code: string) => {
+    setRoomCode(code);
+    setBrowseDialogOpen(false);
+    setJoinDialogOpen(true);
+  };
+
   const createRoomMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("POST", "/api/rooms", {
         name: gameName,
         gameSystem,
         hostName,
+        isPublic,
       });
       return response.json() as Promise<Room & { hostPlayer: { id: string } }>;
     },
@@ -179,6 +208,17 @@ export default function Landing() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="is-public"
+                      checked={isPublic}
+                      onCheckedChange={(checked) => setIsPublic(checked === true)}
+                      data-testid="checkbox-public"
+                    />
+                    <Label htmlFor="is-public" className="text-sm font-normal cursor-pointer">
+                      List game publicly so anyone can join
+                    </Label>
+                  </div>
                   <Button 
                     type="submit" 
                     className="w-full" 
@@ -251,6 +291,92 @@ export default function Landing() {
                     )}
                   </Button>
                 </form>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={browseDialogOpen} onOpenChange={setBrowseDialogOpen}>
+              <DialogTrigger asChild>
+                <Button size="lg" variant="outline" data-testid="button-browse-games">
+                  <Globe className="mr-2 h-5 w-5" />
+                  Browse Games
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Public Games</DialogTitle>
+                  <DialogDescription>
+                    Browse and join games that are open to anyone.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="browse-filter" className="shrink-0">Filter by system:</Label>
+                    <Select value={browseFilter} onValueChange={(v) => setBrowseFilter(v as GameSystem | "all")}>
+                      <SelectTrigger id="browse-filter" className="w-48" data-testid="select-browse-filter">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all" data-testid="option-filter-all">All Systems</SelectItem>
+                        {gameSystems.map((system) => (
+                          <SelectItem key={system} value={system} data-testid={`option-filter-${system}`}>
+                            {gameSystemLabels[system]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <ScrollArea className="h-64">
+                    {isLoadingPublicRooms ? (
+                      <div className="flex items-center justify-center py-8">
+                        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : filteredRooms.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground">
+                        <Search className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                        <p>No public games available right now.</p>
+                        <p className="text-sm">Try hosting one yourself!</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {filteredRooms.map((room) => (
+                          <div
+                            key={room.id}
+                            className="flex items-center justify-between gap-4 p-3 rounded-md border hover-elevate"
+                            data-testid={`room-card-${room.code}`}
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium truncate" data-testid={`text-room-name-${room.code}`}>
+                                {room.name}
+                              </div>
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                <Badge variant="secondary" className="shrink-0">
+                                  {gameSystemLabels[room.gameSystem as GameSystem]}
+                                </Badge>
+                                <span className="truncate">by {room.hostName}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 shrink-0">
+                              <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                                <Users className="h-4 w-4" />
+                                <span data-testid={`text-player-count-${room.code}`}>
+                                  {room.playerCount}/{room.maxPlayers}
+                                </span>
+                              </div>
+                              <Button
+                                size="sm"
+                                onClick={() => handleJoinFromBrowser(room.code)}
+                                data-testid={`button-join-room-${room.code}`}
+                              >
+                                Join
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </ScrollArea>
+                </div>
               </DialogContent>
             </Dialog>
           </div>

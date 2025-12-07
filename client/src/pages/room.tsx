@@ -11,7 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords } from "lucide-react";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -31,6 +32,7 @@ export default function RoomPage() {
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState("chat");
   const [gameEnded, setGameEnded] = useState(false);
+  const [isRoomPublic, setIsRoomPublic] = useState(false);
   
   // View other player's character state
   const [viewingPlayerId, setViewingPlayerId] = useState<string | null>(null);
@@ -220,11 +222,39 @@ export default function RoomPage() {
     },
   });
 
+  const toggleVisibilityMutation = useMutation({
+    mutationFn: async (newValue: boolean) => {
+      const response = await apiRequest("POST", `/api/rooms/${code}/visibility`, {
+        hostName: playerName,
+        isPublic: newValue,
+      });
+      return response.json();
+    },
+    onSuccess: (_, newValue) => {
+      setIsRoomPublic(newValue);
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", code] });
+      toast({
+        title: newValue ? "Room is now public" : "Room is now private",
+        description: newValue
+          ? "Anyone can find and join your game."
+          : "Only players with the code can join.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Failed to change visibility",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   useEffect(() => {
     if (roomData) {
       setMessages(roomData.messageHistory || []);
       setPlayers(roomData.players || []);
       setGameEnded(!roomData.isActive);
+      setIsRoomPublic(roomData.isPublic || false);
       sessionStorage.setItem("lastRoomCode", code || "");
     }
   }, [roomData, code]);
@@ -426,6 +456,21 @@ export default function RoomPage() {
               {isConnected ? "Connected" : "Disconnected"}
             </span>
           </div>
+          
+          {isHost && !gameEnded && (
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <div className="flex items-center gap-2">
+                <Globe className="h-4 w-4 text-muted-foreground" />
+                <span className="text-muted-foreground">Public game</span>
+              </div>
+              <Switch
+                checked={isRoomPublic}
+                onCheckedChange={(checked) => toggleVisibilityMutation.mutate(checked)}
+                disabled={toggleVisibilityMutation.isPending}
+                data-testid="switch-public"
+              />
+            </div>
+          )}
           
           {isHost && !gameEnded && (
             <Button
