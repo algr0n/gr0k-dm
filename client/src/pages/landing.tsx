@@ -445,7 +445,7 @@ export default function Landing() {
                     <DialogHeader>
                       <DialogTitle>Select Your Character</DialogTitle>
                       <DialogDescription>
-                        Choose a character for {gameSystemLabels[gameSystem]} or skip to play without one.
+                        Choose a character for {gameSystemLabels[gameSystem]} to start your adventure.
                       </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4">
@@ -471,7 +471,7 @@ export default function Landing() {
                       <Button
                         className="w-full"
                         onClick={handleHostComplete}
-                        disabled={isLoadingCharacters || (availableCharacters.length > 0 && !selectedCharacterId) || completeHostMutation.isPending}
+                        disabled={isLoadingCharacters || !selectedCharacterId || completeHostMutation.isPending}
                         data-testid="button-host-with-character"
                       >
                         {completeHostMutation.isPending ? (
@@ -485,7 +485,7 @@ export default function Landing() {
                             Loading characters...
                           </>
                         ) : availableCharacters.length === 0 ? (
-                          "Start Game Without Character"
+                          "Create a Character First"
                         ) : (
                           "Start Game"
                         )}
@@ -572,11 +572,11 @@ export default function Landing() {
                       
                       <Button
                         className="w-full"
-                        onClick={availableCharacters.length > 0 ? handleJoinWithCharacter : () => joinWithoutCharacterMutation.mutate()}
-                        disabled={isLoadingCharacters || (availableCharacters.length > 0 && !selectedCharacterId) || joinRoomMutation.isPending || joinWithoutCharacterMutation.isPending}
+                        onClick={handleJoinWithCharacter}
+                        disabled={isLoadingCharacters || !selectedCharacterId || joinRoomMutation.isPending}
                         data-testid="button-join-with-character"
                       >
-                        {(joinRoomMutation.isPending || joinWithoutCharacterMutation.isPending) ? (
+                        {joinRoomMutation.isPending ? (
                           <>
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                             Joining...
@@ -587,7 +587,7 @@ export default function Landing() {
                             Loading characters...
                           </>
                         ) : availableCharacters.length === 0 ? (
-                          "Join Game Without Character"
+                          "Create a Character First"
                         ) : (
                           "Join Game"
                         )}
@@ -809,8 +809,18 @@ function CharacterSelectionList({
           You don't have any {gameSystem ? gameSystemLabels[gameSystem] : ""} characters yet.
         </p>
         <p className="text-sm mt-2">
-          Visit the Characters page to create one, or skip to play without a character.
+          You need to create a character before joining a game.
         </p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-3"
+          onClick={() => window.location.href = "/characters"}
+          data-testid="button-go-to-characters"
+        >
+          <Plus className="mr-1 h-4 w-4" />
+          Create Character
+        </Button>
       </div>
     );
   }
