@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Swords, Users, Dice6, Bot, Plus, LogIn, Loader2, RotateCcw, Globe, Search } from "lucide-react";
+import { Swords, Users, Dice6, Bot, Plus, LogIn, Loader2, RotateCcw, Globe, Search, Heart } from "lucide-react";
+import cashAppQR from "@assets/IMG_2407_1765085234277.webp";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -428,6 +429,39 @@ export default function Landing() {
               <CardDescription>
                 Roll dice with /roll commands and let the AI DM interpret your results.
               </CardDescription>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="mt-12 max-w-md w-full">
+          <Card>
+            <CardHeader className="text-center pb-2">
+              <Heart className="h-8 w-8 text-muted-foreground mb-2 mx-auto" />
+              <CardTitle className="text-lg">Support the Project</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col items-center gap-4">
+              <CardDescription className="text-center">
+                If you enjoy Grok DM, consider supporting development with a donation.
+              </CardDescription>
+              <img 
+                src={cashAppQR} 
+                alt="Cash App QR Code for $joleson" 
+                className="w-40 h-40 rounded-md"
+                data-testid="img-cashapp-qr"
+              />
+              <p className="text-lg font-mono font-medium" data-testid="text-cashtag">$joleson</p>
+              <Button
+                variant="outline"
+                asChild
+                data-testid="button-donate-cashapp"
+              >
+                <a href="https://cash.app/$joleson" target="_blank" rel="noopener noreferrer">
+                  Donate via Cash App
+                </a>
+              </Button>
+              <p className="text-xs text-muted-foreground text-center">
+                Or scan the QR code with Cash App
+              </p>
             </CardContent>
           </Card>
         </div>
