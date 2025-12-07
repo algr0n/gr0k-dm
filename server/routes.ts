@@ -1179,6 +1179,17 @@ export async function registerRoutes(
       broadcastToRoom(req.params.code.toUpperCase(), { type: "message", message: endMessage });
       broadcastToRoom(req.params.code.toUpperCase(), { type: "game_ended" });
 
+      // Clean up in-memory state for the room
+      const roomCode = req.params.code.toUpperCase();
+      roomDroppedItems.delete(roomCode);
+      roomCombatState.delete(roomCode);
+      messageQueue.delete(roomCode);
+      const timer = batchTimers.get(roomCode);
+      if (timer) {
+        clearTimeout(timer);
+        batchTimers.delete(roomCode);
+      }
+
       res.json({ success: true });
     } catch (error) {
       console.error("End game error:", error);
@@ -1224,7 +1235,16 @@ export async function registerRoutes(
       if (remainingPlayers.length === 0) {
         console.log(`Room ${room.code} is empty, deleting all data...`);
         await storage.deleteRoomWithAllData(room.id);
-        roomConnections.delete(req.params.code.toUpperCase());
+        const roomCode = req.params.code.toUpperCase();
+        roomConnections.delete(roomCode);
+        roomDroppedItems.delete(roomCode);
+        roomCombatState.delete(roomCode);
+        messageQueue.delete(roomCode);
+        const timer = batchTimers.get(roomCode);
+        if (timer) {
+          clearTimeout(timer);
+          batchTimers.delete(roomCode);
+        }
         res.json({ success: true, roomDeleted: true });
         return;
       }
