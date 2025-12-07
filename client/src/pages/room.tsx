@@ -457,7 +457,7 @@ export default function RoomPage() {
 
   return (
     <div className="h-[calc(100vh-3.5rem)] flex">
-      <aside className="w-64 border-r flex flex-col bg-muted/30">
+      <aside className="w-64 h-full border-r flex flex-col bg-muted/30 overflow-hidden">
         <div className="p-4 border-b">
           <h2 className="font-bold font-serif text-lg truncate" data-testid="text-room-name">
             {roomData.name}
@@ -667,8 +667,8 @@ export default function RoomPage() {
         </div>
       </aside>
 
-      <main className="flex-1 flex flex-col">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
+      <main className="flex-1 flex flex-col h-full overflow-hidden">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
           <div className="sticky top-0 z-50 border-b px-4 bg-background">
             <TabsList className="h-12">
               <TabsTrigger value="chat" className="gap-2" data-testid="tab-chat">
