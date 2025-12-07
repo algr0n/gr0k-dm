@@ -628,6 +628,93 @@ export async function registerRoutes(
         }
       }
 
+      // Parse and handle [DEATH_SAVES: PlayerName | Successes/Failures] tags
+      const deathSavesRegex = /\[DEATH_SAVES:\s*([^|]+)\s*\|\s*(\d+)\s*\/\s*(\d+)\s*\]/gi;
+      let deathSavesMatch;
+      while ((deathSavesMatch = deathSavesRegex.exec(dmResponse)) !== null) {
+        const targetPlayerName = deathSavesMatch[1].trim();
+        const successes = parseInt(deathSavesMatch[2]);
+        const failures = parseInt(deathSavesMatch[3]);
+
+        const targetPlayer = players.find(p => p.name.toLowerCase() === targetPlayerName.toLowerCase());
+        
+        if (targetPlayer) {
+          const character = await storage.getCharacterByPlayer(targetPlayer.id, room.id);
+          if (character) {
+            await storage.updateCharacter(character.id, { 
+              deathSaveSuccesses: successes, 
+              deathSaveFailures: failures 
+            });
+            console.log(`[Death Saves] ${targetPlayerName}: ${successes} successes, ${failures} failures`);
+            broadcastToRoom(roomCode, { 
+              type: "character_update", 
+              playerId: targetPlayer.id,
+              characterId: character.id,
+              deathSaveSuccesses: successes,
+              deathSaveFailures: failures
+            });
+          }
+        }
+      }
+
+      // Parse and handle [DEAD: PlayerName] tags
+      const deadRegex = /\[DEAD:\s*([^\]]+)\s*\]/gi;
+      let deadMatch;
+      const newlyDeadPlayers: string[] = [];
+      while ((deadMatch = deadRegex.exec(dmResponse)) !== null) {
+        const targetPlayerName = deadMatch[1].trim();
+
+        const targetPlayer = players.find(p => p.name.toLowerCase() === targetPlayerName.toLowerCase());
+        
+        if (targetPlayer) {
+          const character = await storage.getCharacterByPlayer(targetPlayer.id, room.id);
+          if (character && !character.isDead) {
+            await storage.updateCharacter(character.id, { isDead: true });
+            console.log(`[DEAD] ${targetPlayerName} has died!`);
+            newlyDeadPlayers.push(targetPlayerName);
+            broadcastToRoom(roomCode, { 
+              type: "character_update", 
+              playerId: targetPlayer.id,
+              characterId: character.id,
+              isDead: true
+            });
+          }
+        }
+      }
+
+      // Check for TPK (Total Party Kill) - all player characters dead
+      if (newlyDeadPlayers.length > 0) {
+        const allCharacters = await storage.getCharactersByRoom(room.id);
+        const playerCharacters = allCharacters.filter(c => 
+          players.some(p => p.id === c.playerId && !p.isHost)
+        );
+        
+        // If we have player characters and all are dead, trigger TPK
+        if (playerCharacters.length > 0 && playerCharacters.every(c => c.isDead)) {
+          console.log(`[TPK] Total Party Kill in room ${roomCode}!`);
+          
+          // Send TPK message before ending game
+          const tpkMessage: Message = {
+            id: randomUUID(),
+            roomId: room.id,
+            playerName: "System",
+            content: "TOTAL PARTY KILL! All adventurers have fallen. The adventure has ended. You can download your adventure as a PDF to remember this epic tale.",
+            type: "system",
+            timestamp: new Date().toISOString(),
+          };
+          
+          const tpkHistory = [...(room.messageHistory || []), tpkMessage].slice(-100);
+          await storage.updateRoom(room.id, { 
+            messageHistory: tpkHistory, 
+            isActive: false,
+            lastActivityAt: new Date() 
+          });
+          
+          broadcastToRoom(roomCode, { type: "message", message: tpkMessage });
+          broadcastToRoom(roomCode, { type: "game_ended", reason: "tpk" });
+        }
+      }
+
       // Parse and handle [COMBAT_START] tag - auto-initiate combat
       if (/\[COMBAT_START\]/i.test(dmResponse)) {
         const existingCombat = roomCombatState.get(roomCode);
@@ -724,6 +811,8 @@ export async function registerRoutes(
         .replace(/\[ITEM:\s*[^\]]+\]/gi, "")
         .replace(/\[REMOVE_ITEM:\s*[^\]]+\]/gi, "")
         .replace(/\[HP:\s*[^\]]+\]/gi, "")
+        .replace(/\[DEATH_SAVES:\s*[^\]]+\]/gi, "")
+        .replace(/\[DEAD:\s*[^\]]+\]/gi, "")
         .replace(/\[COMBAT_START\]/gi, "")
         .replace(/\[COMBAT_END\]/gi, "")
         .trim();
