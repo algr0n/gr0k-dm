@@ -173,6 +173,32 @@ export default function RoomPage() {
     },
   });
 
+  const dropInventoryItemMutation = useMutation({
+    mutationFn: async (item: InventoryItem) => {
+      const response = await apiRequest("DELETE", `/api/inventory/${item.id}`);
+      await response.json();
+      return item;
+    },
+    onSuccess: (item) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter?.id, "inventory"] });
+      if (wsRef.current?.readyState === WebSocket.OPEN && !gameEnded) {
+        wsRef.current.send(JSON.stringify({
+          type: "drop_item",
+          itemId: item.id,
+          itemName: item.name,
+          quantity: item.quantity,
+        }));
+      }
+    },
+    onError: () => {
+      toast({
+        title: "Failed to drop item",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const [newItemName, setNewItemName] = useState("");
   const [newItemQuantity, setNewItemQuantity] = useState(1);
   const [showAddItemForm, setShowAddItemForm] = useState(false);
@@ -1952,6 +1978,8 @@ export default function RoomPage() {
         onClose={() => setShowCharacterPanel(false)}
         currentHp={liveHp?.current}
         maxHp={liveHp?.max}
+        onDropItem={(item) => dropInventoryItemMutation.mutate(item)}
+        isDropping={dropInventoryItemMutation.isPending}
       />
     </div>
   );

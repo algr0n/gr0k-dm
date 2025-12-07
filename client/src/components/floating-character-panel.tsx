@@ -13,7 +13,8 @@ import {
   ChevronDown, 
   ChevronRight,
   X,
-  User
+  User,
+  Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { type Character, type InventoryItem } from "@shared/schema";
@@ -26,6 +27,8 @@ interface FloatingCharacterPanelProps {
   onClose: () => void;
   currentHp?: number;
   maxHp?: number;
+  onDropItem?: (item: InventoryItem) => void;
+  isDropping?: boolean;
 }
 
 export function FloatingCharacterPanel({
@@ -36,6 +39,8 @@ export function FloatingCharacterPanel({
   onClose,
   currentHp: propCurrentHp,
   maxHp: propMaxHp,
+  onDropItem,
+  isDropping,
 }: FloatingCharacterPanelProps) {
   const [inventoryOpen, setInventoryOpen] = useState(true);
   const [skillsOpen, setSkillsOpen] = useState(false);
@@ -138,15 +143,29 @@ export function FloatingCharacterPanel({
                   inventory.map((item) => (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between text-sm py-1"
+                      className="flex items-center justify-between text-sm py-1 group"
                       data-testid={`inventory-item-${item.id}`}
                     >
-                      <span className="truncate">{item.name}</span>
-                      {item.quantity > 1 && (
-                        <Badge variant="outline" className="ml-2 h-5 px-1.5 text-xs">
-                          x{item.quantity}
-                        </Badge>
-                      )}
+                      <span className="truncate flex-1">{item.name}</span>
+                      <div className="flex items-center gap-1">
+                        {item.quantity > 1 && (
+                          <Badge variant="outline" className="h-5 px-1.5 text-xs">
+                            x{item.quantity}
+                          </Badge>
+                        )}
+                        {onDropItem && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={() => onDropItem(item)}
+                            disabled={isDropping}
+                            data-testid={`button-drop-item-${item.id}`}
+                          >
+                            <Trash2 className="h-3 w-3 text-muted-foreground" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   ))
                 ) : (

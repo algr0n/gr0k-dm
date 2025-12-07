@@ -455,6 +455,37 @@ export async function registerRoutes(
       const combatState = roomCombatState.get(roomCode) || null;
       ws.send(JSON.stringify({ type: "combat_update", combat: combatState }));
     }
+
+    if (message.type === "drop_item") {
+      const itemName = message.itemName;
+      const quantity = message.quantity || 1;
+      
+      if (!itemName || typeof itemName !== "string") {
+        ws.send(JSON.stringify({ type: "error", content: "Invalid drop item request" }));
+        return;
+      }
+      
+      const players = await storage.getPlayersByRoom(room.id);
+      const player = players.find(p => p.name === playerName);
+      
+      const dropMessage: Message = {
+        id: randomUUID(),
+        roomId: room.id,
+        playerName: "System",
+        content: `${playerName} drops ${itemName}${quantity > 1 ? ` x${quantity}` : ""}.`,
+        type: "system",
+        timestamp: new Date().toISOString(),
+      };
+
+      const updatedHistory = [...(room.messageHistory || []), dropMessage].slice(-100);
+      await storage.updateRoom(room.id, { messageHistory: updatedHistory, lastActivityAt: new Date() });
+
+      broadcastToRoom(roomCode, { type: "message", message: dropMessage });
+      if (player) {
+        broadcastToRoom(roomCode, { type: "inventory_update", playerId: player.id });
+      }
+      return;
+    }
   }
 
   // Process queued messages as a batch
