@@ -75,9 +75,9 @@ const dndStartingItems: Record<string, string[]> = {
   default: ["dagger", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
 };
 
-// Helper function to grant starting items to a new room character
+// Helper function to grant starting items to a saved character (permanent inventory)
 async function grantStartingItems(
-  roomCharacterId: string,
+  savedCharacterId: string,
   gameSystem: string,
   characterClass: string | null | undefined
 ): Promise<void> {
@@ -87,11 +87,10 @@ async function grantStartingItems(
     
     for (const itemId of itemIds) {
       try {
-        await storage.addToRoomInventory({
-          roomCharacterId,
+        await storage.addToSavedInventory({
+          savedCharacterId,
           itemId,
           quantity: itemId === "rations-1-day" ? 5 : itemId === "torch" ? 5 : 1,
-          grantedBy: "Starting Equipment",
         });
       } catch (error) {
         console.error(`Failed to add starting item ${itemId}:`, error);
@@ -481,6 +480,10 @@ export async function registerRoutes(
       const userId = req.user!.id;
       const parsed = insertSavedCharacterSchema.parse({ ...req.body, userId });
       const character = await storage.createSavedCharacter(parsed);
+      
+      // Grant starting items to the saved character based on game system and class
+      await grantStartingItems(character.id, character.gameSystem, character.class);
+      
       res.json(character);
     } catch (error) {
       console.error("Error creating saved character:", error);
@@ -529,6 +532,78 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete character" });
+    }
+  });
+
+  // Saved character inventory routes
+  app.get("/api/saved-characters/:id/inventory", isAuthenticated, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user!.id;
+      const character = await storage.getSavedCharacter(id);
+      if (!character || character.userId !== userId) {
+        return res.status(404).json({ error: "Character not found" });
+      }
+      const inventory = await storage.getSavedInventoryWithDetails(id);
+      res.json(inventory);
+    } catch (error) {
+      console.error("Error fetching inventory:", error);
+      res.status(500).json({ error: "Failed to fetch inventory" });
+    }
+  });
+
+  app.post("/api/saved-characters/:id/inventory", isAuthenticated, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user!.id;
+      const { itemId, itemName, quantity = 1 } = req.body;
+      
+      const character = await storage.getSavedCharacter(id);
+      if (!character || character.userId !== userId) {
+        return res.status(404).json({ error: "Character not found" });
+      }
+      
+      // Support adding by item ID or by searching item name
+      let resolvedItemId = itemId;
+      if (!resolvedItemId && itemName) {
+        const items = await storage.searchItems(itemName);
+        if (items.length === 0) {
+          return res.status(404).json({ error: "Item not found" });
+        }
+        resolvedItemId = items[0].id;
+      }
+      
+      if (!resolvedItemId) {
+        return res.status(400).json({ error: "itemId or itemName required" });
+      }
+      
+      const inventoryItem = await storage.addToSavedInventory({
+        savedCharacterId: id,
+        itemId: resolvedItemId,
+        quantity,
+      });
+      res.json(inventoryItem);
+    } catch (error) {
+      console.error("Error adding to inventory:", error);
+      res.status(500).json({ error: "Failed to add item to inventory" });
+    }
+  });
+
+  app.delete("/api/saved-characters/:id/inventory/:inventoryItemId", isAuthenticated, async (req, res) => {
+    try {
+      const { id, inventoryItemId } = req.params;
+      const userId = req.user!.id;
+      
+      const character = await storage.getSavedCharacter(id);
+      if (!character || character.userId !== userId) {
+        return res.status(404).json({ error: "Character not found" });
+      }
+      
+      await storage.deleteSavedInventoryItem(inventoryItemId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting inventory item:", error);
+      res.status(500).json({ error: "Failed to delete item" });
     }
   });
 
@@ -623,9 +698,6 @@ export async function registerRoutes(
           temporaryHp: 0,
           gold: 0,
         });
-        
-        // Grant starting items based on game system and class
-        await grantStartingItems(roomCharacter.id, room.gameSystem, savedCharacter.class);
       }
 
       await storage.updateRoomActivity(room.id);
@@ -691,9 +763,6 @@ export async function registerRoutes(
         temporaryHp: 0,
         gold: 0,
       });
-
-      // Grant starting items based on game system and class
-      await grantStartingItems(roomCharacter.id, room.gameSystem, savedCharacter.class);
 
       res.json({ roomCharacter });
     } catch (error) {
@@ -1402,55 +1471,6 @@ export async function registerRoutes(
 
       const added = await storage.addToInventory(insert);
       res.json(added);
-    } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
-    }
-  });
-
-  // Room Character Inventory API (items acquired during gameplay)
-  app.get("/api/room-characters/:roomCharacterId/inventory", isAuthenticated, async (req, res) => {
-    try {
-      const { roomCharacterId } = req.params;
-      const inventory = await storage.getRoomInventoryByCharacter(roomCharacterId);
-      res.json(inventory);
-    } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
-    }
-  });
-
-  app.post("/api/room-characters/:roomCharacterId/inventory", isAuthenticated, async (req, res) => {
-    try {
-      const { roomCharacterId } = req.params;
-      const { itemId, name, quantity = 1, grantedBy } = req.body;
-      
-      // If name provided, look up the item by name
-      let resolvedItemId = itemId;
-      if (!itemId && name) {
-        const foundItems = await storage.searchItems(name);
-        if (foundItems.length > 0) {
-          resolvedItemId = foundItems[0].id;
-        } else {
-          return res.status(404).json({ error: "Item not found" });
-        }
-      }
-      
-      if (!resolvedItemId) {
-        return res.status(400).json({ error: "itemId or name is required" });
-      }
-      
-      const insert = { roomCharacterId, itemId: resolvedItemId, quantity, grantedBy };
-      const added = await storage.addToRoomInventory(insert);
-      res.json(added);
-    } catch (error) {
-      res.status(500).json({ error: (error as Error).message });
-    }
-  });
-
-  app.delete("/api/room-characters/:roomCharacterId/inventory/:itemId", isAuthenticated, async (req, res) => {
-    try {
-      const { itemId } = req.params;
-      await storage.deleteRoomInventoryItem(itemId);
-      res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }

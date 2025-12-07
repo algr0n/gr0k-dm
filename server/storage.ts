@@ -9,10 +9,8 @@ import {
   type SavedInventoryItem, type InsertSavedInventoryItem,
   type RoomCharacter, type InsertRoomCharacter, type UpdateRoomCharacter,
   type CharacterStatusEffect, type InsertStatusEffect,
-  type RoomInventoryItem, type InsertRoomInventoryItem,
   rooms, players, diceRolls, users, characters, inventoryItems,
-  savedCharacters, savedInventoryItems, roomCharacters, characterStatusEffects,
-  roomInventoryItems
+  savedCharacters, savedInventoryItems, roomCharacters, characterStatusEffects
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, lt, sql, count } from "drizzle-orm";
@@ -98,6 +96,7 @@ export interface IStorage {
 
   // Saved Inventory
   getSavedInventoryByCharacter(savedCharacterId: string): Promise<SavedInventoryItem[]>;
+  getSavedInventoryWithDetails(savedCharacterId: string): Promise<(SavedInventoryItem & { item: Item })[]>;
   addToSavedInventory(insert: InsertSavedInventoryItem): Promise<SavedInventoryItem>;
   updateSavedInventoryItem(id: string, updates: Partial<SavedInventoryItem>): Promise<SavedInventoryItem | undefined>;
   deleteSavedInventoryItem(id: string): Promise<boolean>;
@@ -117,10 +116,6 @@ export interface IStorage {
   deleteStatusEffect(id: string): Promise<boolean>;
   deleteStatusEffectsByRoomCharacter(roomCharacterId: string): Promise<boolean>;
 
-  // Room Inventory (items acquired during gameplay)
-  getRoomInventoryByCharacter(roomCharacterId: string): Promise<(RoomInventoryItem & { item: Item })[]>;
-  addToRoomInventory(insert: InsertRoomInventoryItem): Promise<RoomInventoryItem>;
-  deleteRoomInventoryItem(id: string): Promise<boolean>;
 }
 
 class DatabaseStorage implements IStorage {
@@ -473,6 +468,14 @@ class DatabaseStorage implements IStorage {
       .where(eq(savedInventoryItems.savedCharacterId, savedCharacterId));
   }
 
+  async getSavedInventoryWithDetails(savedCharacterId: string): Promise<(SavedInventoryItem & { item: Item })[]> {
+    const results = await db.query.savedInventoryItems.findMany({
+      where: eq(savedInventoryItems.savedCharacterId, savedCharacterId),
+      with: { item: true },
+    });
+    return results;
+  }
+
   async addToSavedInventory(insert: InsertSavedInventoryItem): Promise<SavedInventoryItem> {
     const existing = await db.query.savedInventoryItems.findFirst({
       where: and(
@@ -574,45 +577,6 @@ class DatabaseStorage implements IStorage {
 
   async deleteStatusEffectsByRoomCharacter(roomCharacterId: string): Promise<boolean> {
     await db.delete(characterStatusEffects).where(eq(characterStatusEffects.roomCharacterId, roomCharacterId));
-    return true;
-  }
-
-  // Room Inventory (items acquired during gameplay)
-  async getRoomInventoryByCharacter(roomCharacterId: string): Promise<(RoomInventoryItem & { item: Item })[]> {
-    const results = await db.query.roomInventoryItems.findMany({
-      where: eq(roomInventoryItems.roomCharacterId, roomCharacterId),
-      with: { item: true },
-    });
-    return results;
-  }
-
-  async addToRoomInventory(insert: InsertRoomInventoryItem): Promise<RoomInventoryItem> {
-    // Check if item already exists for this character
-    const existing = await db.query.roomInventoryItems.findFirst({
-      where: and(
-        eq(roomInventoryItems.roomCharacterId, insert.roomCharacterId),
-        eq(roomInventoryItems.itemId, insert.itemId)
-      )
-    });
-
-    if (existing) {
-      // Increment quantity
-      return await db.update(roomInventoryItems)
-        .set({ quantity: existing.quantity + (insert.quantity || 1) })
-        .where(eq(roomInventoryItems.id, existing.id))
-        .returning()
-        .then(r => r[0]);
-    }
-
-    // Insert new item
-    return await db.insert(roomInventoryItems)
-      .values(insert)
-      .returning()
-      .then(r => r[0]);
-  }
-
-  async deleteRoomInventoryItem(id: string): Promise<boolean> {
-    await db.delete(roomInventoryItems).where(eq(roomInventoryItems.id, id));
     return true;
   }
 }

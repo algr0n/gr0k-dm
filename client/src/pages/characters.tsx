@@ -13,9 +13,104 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit2, Loader2, Shield, Heart, Zap, LogIn, Sword, User, Dices } from "lucide-react";
+import { Plus, Trash2, Edit2, Loader2, Shield, Heart, Zap, LogIn, Sword, User, Dices, Package } from "lucide-react";
 import { gameSystems, gameSystemLabels, type GameSystem, type SavedCharacter } from "@shared/schema";
 import { dnd5eData, cyberpunkRedData } from "@/lib/gameData";
+import { ChevronDown, ChevronUp } from "lucide-react";
+
+interface InventoryItemWithDetails {
+  id: string;
+  savedCharacterId: string;
+  itemId: string;
+  quantity: number;
+  equipped: boolean;
+  notes: string | null;
+  attunementSlot: number | null;
+  item: {
+    id: string;
+    name: string;
+    category: string;
+    type: string | null;
+    subtype: string | null;
+    rarity: string;
+    cost: string | null;
+    weight: number | null;
+    description: string;
+    properties: unknown;
+    requiresAttunement: boolean;
+    gameSystem: string;
+    source: string | null;
+  };
+}
+
+function CharacterInventory({ characterId }: { characterId: string }) {
+  const [isOpen, setIsOpen] = useState(false);
+  
+  const { data: inventory, isLoading } = useQuery<InventoryItemWithDetails[]>({
+    queryKey: ["/api/saved-characters", characterId, "inventory"],
+    enabled: isOpen,
+  });
+
+  if (!isOpen) {
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full justify-start text-muted-foreground"
+        onClick={() => setIsOpen(true)}
+        data-testid={`button-show-inventory-${characterId}`}
+      >
+        <Package className="mr-1 h-3 w-3" />
+        Show Inventory
+        <ChevronDown className="ml-auto h-3 w-3" />
+      </Button>
+    );
+  }
+
+  return (
+    <div className="mt-2 border-t pt-2">
+      <Button
+        variant="ghost"
+        size="sm"
+        className="w-full justify-start text-muted-foreground mb-2"
+        onClick={() => setIsOpen(false)}
+        data-testid={`button-hide-inventory-${characterId}`}
+      >
+        <Package className="mr-1 h-3 w-3" />
+        Inventory
+        <ChevronUp className="ml-auto h-3 w-3" />
+      </Button>
+      
+      {isLoading ? (
+        <div className="flex items-center justify-center py-2">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        </div>
+      ) : !inventory || inventory.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic px-2">No items in inventory</p>
+      ) : (
+        <div className="space-y-1 max-h-32 overflow-y-auto">
+          {inventory.map((invItem) => (
+            <div
+              key={invItem.id}
+              className="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded bg-muted/50"
+              data-testid={`inventory-item-${invItem.id}`}
+            >
+              <span className="truncate flex-1" title={invItem.item.name}>
+                {invItem.item.name}
+                {invItem.quantity > 1 && ` (x${invItem.quantity})`}
+              </span>
+              {invItem.equipped && (
+                <Badge variant="outline" className="text-[10px] px-1 py-0">
+                  Equipped
+                </Badge>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 type FormStep = "system" | "details";
 
@@ -1109,7 +1204,8 @@ export default function Characters() {
                     {character.backstory}
                   </p>
                 )}
-                <div className="flex items-center gap-2 flex-wrap">
+                <CharacterInventory characterId={character.id} />
+                <div className="flex items-center gap-2 flex-wrap mt-4">
                   <Button
                     variant="outline"
                     size="sm"

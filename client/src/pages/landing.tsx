@@ -8,13 +8,38 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Swords, Users, Dice6, Bot, Plus, LogIn, Loader2, RotateCcw, Globe, Search, Heart, ChevronLeft, User, AlertCircle } from "lucide-react";
+import { Swords, Users, Dice6, Bot, Plus, LogIn, Loader2, RotateCcw, Globe, Search, Heart, ChevronLeft, User, AlertCircle, Package, ChevronDown, ChevronUp } from "lucide-react";
 import cashAppQR from "@assets/IMG_2407_1765085234277.webp";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { gameSystems, gameSystemLabels, type GameSystem, type Room, type SavedCharacter } from "@shared/schema";
+
+interface InventoryItemWithDetails {
+  id: string;
+  savedCharacterId: string;
+  itemId: string;
+  quantity: number;
+  equipped: boolean;
+  notes: string | null;
+  attunementSlot: number | null;
+  item: {
+    id: string;
+    name: string;
+    category: string;
+    type: string | null;
+    subtype: string | null;
+    rarity: string;
+    cost: string | null;
+    weight: number | null;
+    description: string;
+    properties: unknown;
+    requiresAttunement: boolean;
+    gameSystem: string;
+    source: string | null;
+  };
+}
 
 type JoinStep = "details" | "character";
 type HostStep = "details" | "character";
@@ -778,6 +803,58 @@ export default function Landing() {
   );
 }
 
+// Inventory preview for selected character
+function CharacterInventoryPreview({ characterId }: { characterId: string }) {
+  const { data: inventory, isLoading } = useQuery<InventoryItemWithDetails[]>({
+    queryKey: ["/api/saved-characters", characterId, "inventory"],
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Loading inventory...
+      </div>
+    );
+  }
+
+  if (!inventory || inventory.length === 0) {
+    return (
+      <div className="flex items-center gap-1 py-1 text-xs text-muted-foreground">
+        <Package className="h-3 w-3" />
+        No items
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 pt-2 border-t">
+      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
+        <Package className="h-3 w-3" />
+        Inventory ({inventory.length} items)
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {inventory.slice(0, 4).map((invItem) => (
+          <Badge
+            key={invItem.id}
+            variant="secondary"
+            className="text-[10px] px-1.5 py-0"
+            data-testid={`inventory-preview-${invItem.id}`}
+          >
+            {invItem.item.name}
+            {invItem.quantity > 1 && ` x${invItem.quantity}`}
+          </Badge>
+        ))}
+        {inventory.length > 4 && (
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+            +{inventory.length - 4} more
+          </Badge>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Character selection list component
 function CharacterSelectionList({
   characters,
@@ -826,12 +903,12 @@ function CharacterSelectionList({
   }
 
   return (
-    <ScrollArea className="h-48">
+    <ScrollArea className="h-64">
       <div className="space-y-2">
         {characters.map((char) => (
           <div
             key={char.id}
-            className={`flex items-center gap-3 p-3 rounded-md border cursor-pointer transition-colors ${
+            className={`p-3 rounded-md border cursor-pointer transition-colors ${
               selectedId === char.id
                 ? "border-primary bg-primary/5"
                 : "hover-elevate"
@@ -839,25 +916,30 @@ function CharacterSelectionList({
             onClick={() => onSelect(selectedId === char.id ? null : char.id)}
             data-testid={`character-option-${char.id}`}
           >
-            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-muted">
-              <User className="h-5 w-5 text-muted-foreground" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-medium truncate" data-testid={`text-character-name-${char.id}`}>
-                {char.characterName}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-muted">
+                <User className="h-5 w-5 text-muted-foreground" />
               </div>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                {char.race && <span>{char.race}</span>}
-                {char.class && <span>{char.class}</span>}
-                <Badge variant="outline" className="text-xs">
-                  Lvl {char.level}
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate" data-testid={`text-character-name-${char.id}`}>
+                  {char.characterName}
+                </div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
+                  {char.race && <span>{char.race}</span>}
+                  {char.class && <span>{char.class}</span>}
+                  <Badge variant="outline" className="text-xs">
+                    Lvl {char.level}
+                  </Badge>
+                </div>
+              </div>
+              {selectedId === char.id && (
+                <Badge variant="default" className="shrink-0">
+                  Selected
                 </Badge>
-              </div>
+              )}
             </div>
             {selectedId === char.id && (
-              <Badge variant="default" className="shrink-0">
-                Selected
-              </Badge>
+              <CharacterInventoryPreview characterId={char.id} />
             )}
           </div>
         ))}

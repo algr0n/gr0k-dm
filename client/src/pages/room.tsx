@@ -236,13 +236,6 @@ export default function RoomPage() {
   const viewedCharacter = viewingPlayerId ? allCharacters.find(c => c.playerId === viewingPlayerId) : undefined;
   const isLoadingViewedCharacter = isLoading;
 
-  // Fetch inventory for current character (with joined item details)
-  type InventoryWithItem = InventoryItem & { item: Item };
-  const { data: inventory, isLoading: isLoadingInventory, refetch: refetchInventory } = useQuery<InventoryWithItem[]>({
-    queryKey: ["/api/room-characters", myCharacterData?.roomCharacter?.id, "inventory"],
-    enabled: !!myCharacterData?.roomCharacter?.id,
-  });
-
   // Fetch all items for item name detection in chat
   const { data: allItems } = useQuery<Item[]>({
     queryKey: ["/api/items"],
@@ -264,6 +257,14 @@ export default function RoomPage() {
   const { data: myCharacterData, isLoading: isLoadingMyCharacter } = useQuery<MyCharacterData>({
     queryKey: ["/api/rooms", code, "my-character"],
     enabled: !!code && !!user,
+  });
+
+  // Fetch inventory for current character from saved character (with joined item details)
+  type InventoryWithItem = InventoryItem & { item: Item };
+  const savedCharacterId = myCharacterData?.savedCharacter?.id;
+  const { data: inventory, isLoading: isLoadingInventory, refetch: refetchInventory } = useQuery<InventoryWithItem[]>({
+    queryKey: ["/api/saved-characters", savedCharacterId, "inventory"],
+    enabled: !!savedCharacterId,
   });
 
   // Build a map of item names (lowercase) to item data for quick lookup
@@ -382,11 +383,12 @@ export default function RoomPage() {
 
   const deleteInventoryItemMutation = useMutation({
     mutationFn: async (itemId: string) => {
-      const response = await apiRequest("DELETE", `/api/inventory/${itemId}`);
+      if (!savedCharacterId) throw new Error("No character");
+      const response = await apiRequest("DELETE", `/api/saved-characters/${savedCharacterId}/inventory/${itemId}`);
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter?.id, "inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/saved-characters", savedCharacterId, "inventory"] });
       toast({
         title: "Item removed",
         description: "The item has been removed from your inventory.",
@@ -403,12 +405,13 @@ export default function RoomPage() {
 
   const dropInventoryItemMutation = useMutation({
     mutationFn: async (item: InventoryItem & { item: Item }) => {
-      const response = await apiRequest("DELETE", `/api/inventory/${item.id}`);
+      if (!savedCharacterId) throw new Error("No character");
+      const response = await apiRequest("DELETE", `/api/saved-characters/${savedCharacterId}/inventory/${item.id}`);
       await response.json();
       return item;
     },
     onSuccess: (item) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter?.id, "inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/saved-characters", savedCharacterId, "inventory"] });
       if (wsRef.current?.readyState === WebSocket.OPEN && !gameEnded) {
         wsRef.current.send(JSON.stringify({
           type: "drop_item",
@@ -433,15 +436,15 @@ export default function RoomPage() {
 
   const addInventoryItemMutation = useMutation({
     mutationFn: async (data: { name: string; quantity: number }) => {
-      const response = await apiRequest("POST", `/api/room-characters/${myCharacterData?.roomCharacter?.id}/inventory`, {
-        name: data.name,
+      if (!savedCharacterId) throw new Error("No character");
+      const response = await apiRequest("POST", `/api/saved-characters/${savedCharacterId}/inventory`, {
+        itemName: data.name,
         quantity: data.quantity,
-        grantedBy: playerName,
       });
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/room-characters", myCharacterData?.roomCharacter?.id, "inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/saved-characters", savedCharacterId, "inventory"] });
       toast({
         title: "Item added",
         description: "The item has been added to your inventory.",
@@ -461,18 +464,15 @@ export default function RoomPage() {
 
   const pickupItemMutation = useMutation({
     mutationFn: async (data: { itemId: string; itemName: string }) => {
-      if (!myCharacterData?.roomCharacter?.id) {
-        throw new Error("No character to add item to");
-      }
-      const response = await apiRequest("POST", `/api/room-characters/${myCharacterData.roomCharacter.id}/inventory`, {
+      if (!savedCharacterId) throw new Error("No character to add item to");
+      const response = await apiRequest("POST", `/api/saved-characters/${savedCharacterId}/inventory`, {
         itemId: data.itemId,
         quantity: 1,
       });
       return response.json();
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/room-characters", myCharacterData?.roomCharacter?.id, "inventory"] });
-      queryClient.invalidateQueries({ queryKey: ["inventory", myCharacterData?.roomCharacter?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/saved-characters", savedCharacterId, "inventory"] });
       toast({
         title: "Item picked up",
         description: `${variables.itemName} has been added to your inventory.`,

@@ -356,6 +356,17 @@ export const savedInventoryItems = pgTable("saved_inventory_items", {
   index("idx_saved_inventory_character").on(table.savedCharacterId),
 ]);
 
+export const savedInventoryItemsRelations = relations(savedInventoryItems, ({ one }) => ({
+  savedCharacter: one(savedCharacters, {
+    fields: [savedInventoryItems.savedCharacterId],
+    references: [savedCharacters.id],
+  }),
+  item: one(items, {
+    fields: [savedInventoryItems.itemId],
+    references: [items.id],
+  }),
+}));
+
 export const insertSavedInventoryItemSchema = createInsertSchema(savedInventoryItems)
   .omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertSavedInventoryItem = z.infer<typeof insertSavedInventoryItemSchema>;
