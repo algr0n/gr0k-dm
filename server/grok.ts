@@ -284,7 +284,7 @@ export async function generateDMResponse(
 
   try {
     const response = await openai.chat.completions.create({
-      model: "grok-2-1212",
+      model: "grok-4-1-fast-reasoning",
       messages,
       max_tokens: 1000,
       temperature: cacheable ? 0.3 : 0.8, // Lower temperature for cacheable queries for consistency
@@ -380,7 +380,7 @@ export async function generateBatchedDMResponse(
 
   try {
     const response = await openai.chat.completions.create({
-      model: "grok-2-1212",
+      model: "grok-4-1-fast-reasoning",
       messages,
       max_tokens: 1200,
       temperature: 0.8,
@@ -400,7 +400,7 @@ export async function generateSceneDescription(prompt: string, gameSystem: strin
   
   try {
     const response = await openai.chat.completions.create({
-      model: "grok-2-1212",
+      model: "grok-4-1-fast-reasoning",
       messages: [
         { role: "system", content: systemPrompt + "\n\nDescribe this scene vividly in 2-3 paragraphs." },
         { role: "user", content: `Describe this scene: ${prompt}` },
@@ -421,7 +421,7 @@ export async function generateStartingScene(gameSystem: string, roomName: string
   
   try {
     const response = await openai.chat.completions.create({
-      model: "grok-2-1212",
+      model: "grok-4-1-fast-reasoning",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: `New adventure "${roomName}" starting. Welcome the players briefly, then ask 2-3 quick questions: What kind of characters are you playing? What tone do you prefer (serious/lighthearted)? Any themes you'd like to explore or avoid? Keep it conversational and brief.` },
@@ -491,7 +491,7 @@ export async function generateCombatDMTurn(
 
   try {
     const response = await openai.chat.completions.create({
-      model: "grok-2-1212",
+      model: "grok-4-1-fast-reasoning",
       messages,
       max_tokens: 600,
       temperature: 0.8,
