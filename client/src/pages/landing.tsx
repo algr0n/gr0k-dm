@@ -8,13 +8,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Swords, Users, Dice6, Bot, Plus, LogIn, Loader2, RotateCcw, Globe, Search, Heart } from "lucide-react";
+import { Swords, Users, Dice6, Bot, Plus, LogIn, Loader2, RotateCcw, Globe, Search, Heart, ChevronLeft, User, AlertCircle } from "lucide-react";
 import cashAppQR from "@assets/IMG_2407_1765085234277.webp";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { gameSystems, gameSystemLabels, type GameSystem, type Room } from "@shared/schema";
+import { gameSystems, gameSystemLabels, type GameSystem, type Room, type SavedCharacter } from "@shared/schema";
+
+type JoinStep = "details" | "character";
+type HostStep = "details" | "character";
 
 export default function Landing() {
   const [, setLocation] = useLocation();
@@ -31,6 +34,15 @@ export default function Landing() {
   const [playerName, setPlayerName] = useState("");
   const [browseFilter, setBrowseFilter] = useState<GameSystem | "all">("all");
   
+  // Multi-step join flow
+  const [joinStep, setJoinStep] = useState<JoinStep>("details");
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+  const [targetRoom, setTargetRoom] = useState<Room | null>(null);
+  
+  // Multi-step host flow
+  const [hostStep, setHostStep] = useState<HostStep>("details");
+  const [createdRoom, setCreatedRoom] = useState<(Room & { hostPlayer: { id: string } }) | null>(null);
+  
   // Check for last game session with state to enable reactivity
   const [lastRoomCode, setLastRoomCode] = useState<string | null>(null);
   const [lastPlayerName, setLastPlayerName] = useState<string | null>(null);
@@ -41,6 +53,31 @@ export default function Landing() {
   }, []);
   
   const canRejoin = lastRoomCode && lastPlayerName;
+
+  // Fetch current user for authentication check
+  const { data: currentUser } = useQuery<{ id: string } | null>({
+    queryKey: ["/api/auth/user"],
+    queryFn: async () => {
+      try {
+        const response = await fetch("/api/auth/user");
+        if (!response.ok) return null;
+        return response.json();
+      } catch {
+        return null;
+      }
+    },
+  });
+
+  // Fetch saved characters for the user
+  const { data: savedCharacters, isLoading: isLoadingCharacters } = useQuery<SavedCharacter[]>({
+    queryKey: ["/api/saved-characters"],
+    enabled: !!currentUser && (joinStep === "character" || hostStep === "character"),
+  });
+
+  // Filter characters by game system
+  const availableCharacters = savedCharacters?.filter(
+    (char) => char.gameSystem === (targetRoom?.gameSystem || gameSystem)
+  ) || [];
 
   type PublicRoom = Room & { playerCount: number };
   
@@ -64,6 +101,58 @@ export default function Landing() {
     setJoinDialogOpen(true);
   };
 
+  // Fetch room info for join flow
+  const fetchRoomMutation = useMutation({
+    mutationFn: async (code: string) => {
+      const response = await fetch(`/api/rooms/${code}`);
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Room not found");
+      }
+      return response.json() as Promise<Room>;
+    },
+    onSuccess: (room) => {
+      setTargetRoom(room);
+      setJoinStep("character");
+    },
+    onError: (error: Error) => {
+      setJoinStep("details");
+      toast({
+        title: "Room not found",
+        description: error.message || "Check the room code and try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Join without character (for unauthenticated users)
+  const joinWithoutCharacterMutation = useMutation({
+    mutationFn: async () => {
+      const code = roomCode.toUpperCase();
+      const name = playerName;
+      const response = await apiRequest("POST", `/api/rooms/${code}/join`, {
+        playerName: name,
+      });
+      const data = await response.json();
+      return { ...data, code, name };
+    },
+    onSuccess: (data) => {
+      sessionStorage.setItem("playerName", data.name);
+      sessionStorage.setItem("playerId", data.player.id);
+      sessionStorage.setItem("lastRoomCode", data.code);
+      setJoinDialogOpen(false);
+      resetJoinDialog();
+      setLocation(`/room/${data.code}`);
+    },
+    onError: () => {
+      toast({
+        title: "Failed to join room",
+        description: "Check the room code and try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const createRoomMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("POST", "/api/rooms", {
@@ -75,10 +164,17 @@ export default function Landing() {
       return response.json() as Promise<Room & { hostPlayer: { id: string } }>;
     },
     onSuccess: (data) => {
-      setHostDialogOpen(false);
-      sessionStorage.setItem("playerName", hostName);
-      sessionStorage.setItem("playerId", data.hostPlayer.id);
-      setLocation(`/room/${data.code}`);
+      setCreatedRoom(data);
+      if (currentUser) {
+        // If logged in, show character selection
+        setHostStep("character");
+      } else {
+        // If not logged in, go directly to room
+        sessionStorage.setItem("playerName", hostName);
+        sessionStorage.setItem("playerId", data.hostPlayer.id);
+        setHostDialogOpen(false);
+        setLocation(`/room/${data.code}`);
+      }
     },
     onError: () => {
       toast({
@@ -91,16 +187,23 @@ export default function Landing() {
 
   const joinRoomMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", `/api/rooms/${roomCode.toUpperCase()}/join`, {
-        playerName,
+      const code = roomCode.toUpperCase();
+      const name = playerName;
+      const charId = selectedCharacterId;
+      const response = await apiRequest("POST", `/api/rooms/${code}/join`, {
+        playerName: name,
+        savedCharacterId: charId,
       });
-      return response.json();
+      const data = await response.json();
+      return { ...data, code, name };
     },
     onSuccess: (data) => {
-      setJoinDialogOpen(false);
-      sessionStorage.setItem("playerName", playerName);
+      sessionStorage.setItem("playerName", data.name);
       sessionStorage.setItem("playerId", data.player.id);
-      setLocation(`/room/${roomCode.toUpperCase()}`);
+      sessionStorage.setItem("lastRoomCode", data.code);
+      setJoinDialogOpen(false);
+      resetJoinDialog();
+      setLocation(`/room/${data.code}`);
     },
     onError: () => {
       toast({
@@ -110,6 +213,61 @@ export default function Landing() {
       });
     },
   });
+
+  // Complete host flow with character selection
+  const completeHostMutation = useMutation({
+    mutationFn: async () => {
+      if (!createdRoom) throw new Error("No room created");
+      // If character selected, create room character
+      if (selectedCharacterId && currentUser) {
+        await apiRequest("POST", `/api/rooms/${createdRoom.code}/join-with-character`, {
+          playerName: hostName,
+          savedCharacterId: selectedCharacterId,
+          playerId: createdRoom.hostPlayer.id,
+        });
+      }
+      return createdRoom;
+    },
+    onSuccess: (room) => {
+      sessionStorage.setItem("playerName", hostName);
+      sessionStorage.setItem("playerId", room.hostPlayer.id);
+      setHostDialogOpen(false);
+      resetHostDialog();
+      setLocation(`/room/${room.code}`);
+    },
+    onError: () => {
+      toast({
+        title: "Failed to assign character",
+        description: "Your room was created, but the character could not be assigned. You can create a new character in the game.",
+        variant: "destructive",
+      });
+      // Still navigate to room even if character assignment fails
+      if (createdRoom) {
+        sessionStorage.setItem("playerName", hostName);
+        sessionStorage.setItem("playerId", createdRoom.hostPlayer.id);
+        setHostDialogOpen(false);
+        resetHostDialog();
+        setLocation(`/room/${createdRoom.code}`);
+      }
+    },
+  });
+
+  const resetJoinDialog = () => {
+    setJoinStep("details");
+    setSelectedCharacterId(null);
+    setTargetRoom(null);
+    setRoomCode("");
+    setPlayerName("");
+  };
+
+  const resetHostDialog = () => {
+    setHostStep("details");
+    setSelectedCharacterId(null);
+    setCreatedRoom(null);
+    setGameName("");
+    setHostName("");
+    setIsPublic(false);
+  };
 
   const handleHostGame = (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,7 +282,7 @@ export default function Landing() {
     createRoomMutation.mutate();
   };
 
-  const handleJoinGame = (e: React.FormEvent) => {
+  const handleJoinStep1 = (e: React.FormEvent) => {
     e.preventDefault();
     if (!roomCode.trim() || !playerName.trim()) {
       toast({
@@ -134,7 +292,37 @@ export default function Landing() {
       });
       return;
     }
+    
+    if (currentUser) {
+      // Fetch room info and proceed to character selection
+      fetchRoomMutation.mutate(roomCode.toUpperCase());
+    } else {
+      // Not logged in, join directly without character
+      joinWithoutCharacterMutation.mutate();
+    }
+  };
+
+  const handleJoinWithCharacter = () => {
     joinRoomMutation.mutate();
+  };
+
+  const handleHostComplete = () => {
+    completeHostMutation.mutate();
+  };
+
+  const handleDialogClose = (open: boolean, type: "join" | "host") => {
+    if (!open) {
+      if (type === "join") {
+        resetJoinDialog();
+      } else {
+        resetHostDialog();
+      }
+    }
+    if (type === "join") {
+      setJoinDialogOpen(open);
+    } else {
+      setHostDialogOpen(open);
+    }
   };
 
   return (
@@ -159,7 +347,7 @@ export default function Landing() {
               </Button>
             )}
             
-            <Dialog open={hostDialogOpen} onOpenChange={setHostDialogOpen}>
+            <Dialog open={hostDialogOpen} onOpenChange={(open) => handleDialogClose(open, "host")}>
               <DialogTrigger asChild>
                 <Button size="lg" data-testid="button-host-game">
                   <Plus className="mr-2 h-5 w-5" />
@@ -167,79 +355,142 @@ export default function Landing() {
                 </Button>
               </DialogTrigger>
               <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Create a New Game</DialogTitle>
-                  <DialogDescription>
-                    Set up your game room and get a shareable code for players to join.
-                  </DialogDescription>
-                </DialogHeader>
-                <form onSubmit={handleHostGame} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="host-name">Your Name</Label>
-                    <Input
-                      id="host-name"
-                      placeholder="Enter your display name"
-                      value={hostName}
-                      onChange={(e) => setHostName(e.target.value)}
-                      data-testid="input-host-name"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="game-name">Game Name</Label>
-                    <Input
-                      id="game-name"
-                      placeholder="e.g., The Lost Dungeon of Xor"
-                      value={gameName}
-                      onChange={(e) => setGameName(e.target.value)}
-                      data-testid="input-game-name"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="game-system">Game System</Label>
-                    <Select value={gameSystem} onValueChange={(v) => setGameSystem(v as GameSystem)}>
-                      <SelectTrigger id="game-system" data-testid="select-game-system">
-                        <SelectValue placeholder="Select a game system" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {gameSystems.map((system) => (
-                          <SelectItem key={system} value={system} data-testid={`option-system-${system}`}>
-                            {gameSystemLabels[system]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id="is-public"
-                      checked={isPublic}
-                      onCheckedChange={(checked) => setIsPublic(checked === true)}
-                      data-testid="checkbox-public"
-                    />
-                    <Label htmlFor="is-public" className="text-sm font-normal cursor-pointer">
-                      List game publicly so anyone can join
-                    </Label>
-                  </div>
-                  <Button 
-                    type="submit" 
-                    className="w-full" 
-                    disabled={createRoomMutation.isPending}
-                    data-testid="button-create-room"
-                  >
-                    {createRoomMutation.isPending ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Creating...
-                      </>
-                    ) : (
-                      "Create Game Room"
-                    )}
-                  </Button>
-                </form>
+                {hostStep === "details" ? (
+                  <>
+                    <DialogHeader>
+                      <DialogTitle>Create a New Game</DialogTitle>
+                      <DialogDescription>
+                        Set up your game room and get a shareable code for players to join.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <form onSubmit={handleHostGame} className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="host-name">Your Name</Label>
+                        <Input
+                          id="host-name"
+                          placeholder="Enter your display name"
+                          value={hostName}
+                          onChange={(e) => setHostName(e.target.value)}
+                          data-testid="input-host-name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="game-name">Game Name</Label>
+                        <Input
+                          id="game-name"
+                          placeholder="e.g., The Lost Dungeon of Xor"
+                          value={gameName}
+                          onChange={(e) => setGameName(e.target.value)}
+                          data-testid="input-game-name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="game-system">Game System</Label>
+                        <Select value={gameSystem} onValueChange={(v) => setGameSystem(v as GameSystem)}>
+                          <SelectTrigger id="game-system" data-testid="select-game-system">
+                            <SelectValue placeholder="Select a game system" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {gameSystems.map((system) => (
+                              <SelectItem key={system} value={system} data-testid={`option-system-${system}`}>
+                                {gameSystemLabels[system]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id="is-public"
+                          checked={isPublic}
+                          onCheckedChange={(checked) => setIsPublic(checked === true)}
+                          data-testid="checkbox-public"
+                        />
+                        <Label htmlFor="is-public" className="text-sm font-normal cursor-pointer">
+                          List game publicly so anyone can join
+                        </Label>
+                      </div>
+                      <Button 
+                        type="submit" 
+                        className="w-full" 
+                        disabled={createRoomMutation.isPending}
+                        data-testid="button-create-room"
+                      >
+                        {createRoomMutation.isPending ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Creating...
+                          </>
+                        ) : (
+                          "Create Game Room"
+                        )}
+                      </Button>
+                    </form>
+                  </>
+                ) : (
+                  <>
+                    <DialogHeader>
+                      <DialogTitle>Select Your Character</DialogTitle>
+                      <DialogDescription>
+                        Choose a character for {gameSystemLabels[gameSystem]} or skip to play without one.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setHostStep("details")}
+                        className="mb-2"
+                        data-testid="button-host-back"
+                      >
+                        <ChevronLeft className="mr-1 h-4 w-4" />
+                        Back
+                      </Button>
+                      
+                      <CharacterSelectionList
+                        characters={availableCharacters}
+                        selectedId={selectedCharacterId}
+                        onSelect={setSelectedCharacterId}
+                        isLoading={isLoadingCharacters}
+                        gameSystem={gameSystem}
+                      />
+                      
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => {
+                            setSelectedCharacterId(null);
+                            handleHostComplete();
+                          }}
+                          disabled={completeHostMutation.isPending}
+                          data-testid="button-host-skip-character"
+                        >
+                          Skip (No Character)
+                        </Button>
+                        <Button
+                          className="flex-1"
+                          onClick={handleHostComplete}
+                          disabled={!selectedCharacterId || completeHostMutation.isPending}
+                          data-testid="button-host-with-character"
+                        >
+                          {completeHostMutation.isPending ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Joining...
+                            </>
+                          ) : (
+                            "Start Game"
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </DialogContent>
             </Dialog>
 
-            <Dialog open={joinDialogOpen} onOpenChange={setJoinDialogOpen}>
+            <Dialog open={joinDialogOpen} onOpenChange={(open) => handleDialogClose(open, "join")}>
               <DialogTrigger asChild>
                 <Button size="lg" variant="outline" data-testid="button-join-game">
                   <LogIn className="mr-2 h-5 w-5" />
@@ -247,51 +498,123 @@ export default function Landing() {
                 </Button>
               </DialogTrigger>
               <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Join a Game</DialogTitle>
-                  <DialogDescription>
-                    Enter the room code shared by your host to join the adventure.
-                  </DialogDescription>
-                </DialogHeader>
-                <form onSubmit={handleJoinGame} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="player-name">Your Name</Label>
-                    <Input
-                      id="player-name"
-                      placeholder="Enter your display name"
-                      value={playerName}
-                      onChange={(e) => setPlayerName(e.target.value)}
-                      data-testid="input-player-name"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="room-code">Room Code</Label>
-                    <Input
-                      id="room-code"
-                      placeholder="e.g., ABC123"
-                      value={roomCode}
-                      onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                      maxLength={8}
-                      className="font-mono text-center text-lg tracking-widest"
-                      data-testid="input-room-code"
-                    />
-                  </div>
-                  <Button 
-                    type="submit" 
-                    className="w-full" 
-                    disabled={joinRoomMutation.isPending}
-                    data-testid="button-submit-join"
-                  >
-                    {joinRoomMutation.isPending ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Joining...
-                      </>
-                    ) : (
-                      "Join Game"
-                    )}
-                  </Button>
-                </form>
+                {joinStep === "details" ? (
+                  <>
+                    <DialogHeader>
+                      <DialogTitle>Join a Game</DialogTitle>
+                      <DialogDescription>
+                        Enter the room code shared by your host to join the adventure.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <form onSubmit={handleJoinStep1} className="space-y-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="player-name">Your Name</Label>
+                        <Input
+                          id="player-name"
+                          placeholder="Enter your display name"
+                          value={playerName}
+                          onChange={(e) => setPlayerName(e.target.value)}
+                          data-testid="input-player-name"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="room-code">Room Code</Label>
+                        <Input
+                          id="room-code"
+                          placeholder="e.g., ABC123"
+                          value={roomCode}
+                          onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+                          maxLength={8}
+                          className="font-mono text-center text-lg tracking-widest"
+                          data-testid="input-room-code"
+                        />
+                      </div>
+                      <Button 
+                        type="submit" 
+                        className="w-full" 
+                        disabled={joinWithoutCharacterMutation.isPending || fetchRoomMutation.isPending}
+                        data-testid="button-submit-join"
+                      >
+                        {(joinWithoutCharacterMutation.isPending || fetchRoomMutation.isPending) ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            {fetchRoomMutation.isPending ? "Finding room..." : "Joining..."}
+                          </>
+                        ) : currentUser ? (
+                          "Next: Select Character"
+                        ) : (
+                          "Join Game"
+                        )}
+                      </Button>
+                    </form>
+                  </>
+                ) : (
+                  <>
+                    <DialogHeader>
+                      <DialogTitle>Select Your Character</DialogTitle>
+                      <DialogDescription>
+                        Choose a character for {targetRoom ? gameSystemLabels[targetRoom.gameSystem as GameSystem] : "this game"}.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setJoinStep("details")}
+                        className="mb-2"
+                        data-testid="button-join-back"
+                      >
+                        <ChevronLeft className="mr-1 h-4 w-4" />
+                        Back
+                      </Button>
+                      
+                      <CharacterSelectionList
+                        characters={availableCharacters}
+                        selectedId={selectedCharacterId}
+                        onSelect={setSelectedCharacterId}
+                        isLoading={isLoadingCharacters}
+                        gameSystem={targetRoom?.gameSystem as GameSystem}
+                      />
+                      
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => {
+                            setSelectedCharacterId(null);
+                            joinWithoutCharacterMutation.mutate();
+                          }}
+                          disabled={joinRoomMutation.isPending || joinWithoutCharacterMutation.isPending}
+                          data-testid="button-join-skip-character"
+                        >
+                          {joinWithoutCharacterMutation.isPending ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Joining...
+                            </>
+                          ) : (
+                            "Skip (No Character)"
+                          )}
+                        </Button>
+                        <Button
+                          className="flex-1"
+                          onClick={handleJoinWithCharacter}
+                          disabled={!selectedCharacterId || joinRoomMutation.isPending || joinWithoutCharacterMutation.isPending}
+                          data-testid="button-join-with-character"
+                        >
+                          {joinRoomMutation.isPending ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Joining...
+                            </>
+                          ) : (
+                            "Join Game"
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )}
               </DialogContent>
             </Dialog>
 
@@ -470,5 +793,83 @@ export default function Landing() {
         Powered by Grok AI
       </footer>
     </div>
+  );
+}
+
+// Character selection list component
+function CharacterSelectionList({
+  characters,
+  selectedId,
+  onSelect,
+  isLoading,
+  gameSystem,
+}: {
+  characters: SavedCharacter[];
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  isLoading: boolean;
+  gameSystem?: GameSystem;
+}) {
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (characters.length === 0) {
+    return (
+      <div className="text-center py-6 text-muted-foreground">
+        <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+        <p className="font-medium">No characters available</p>
+        <p className="text-sm">
+          You don't have any {gameSystem ? gameSystemLabels[gameSystem] : ""} characters yet.
+        </p>
+        <p className="text-sm mt-2">
+          Visit the Characters page to create one, or skip to play without a character.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <ScrollArea className="h-48">
+      <div className="space-y-2">
+        {characters.map((char) => (
+          <div
+            key={char.id}
+            className={`flex items-center gap-3 p-3 rounded-md border cursor-pointer transition-colors ${
+              selectedId === char.id
+                ? "border-primary bg-primary/5"
+                : "hover-elevate"
+            }`}
+            onClick={() => onSelect(selectedId === char.id ? null : char.id)}
+            data-testid={`character-option-${char.id}`}
+          >
+            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-muted">
+              <User className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-medium truncate" data-testid={`text-character-name-${char.id}`}>
+                {char.characterName}
+              </div>
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                {char.race && <span>{char.race}</span>}
+                {char.class && <span>{char.class}</span>}
+                <Badge variant="outline" className="text-xs">
+                  Lvl {char.level}
+                </Badge>
+              </div>
+            </div>
+            {selectedId === char.id && (
+              <Badge variant="default" className="shrink-0">
+                Selected
+              </Badge>
+            )}
+          </div>
+        ))}
+      </div>
+    </ScrollArea>
   );
 }

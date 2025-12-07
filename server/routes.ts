@@ -453,7 +453,7 @@ export async function registerRoutes(
   app.post("/api/rooms/:code/join", async (req, res) => {
     try {
       const { code } = req.params;
-      const { playerName } = req.body;
+      const { playerName, savedCharacterId } = req.body;
 
       const room = await storage.getRoomByCode(code);
       if (!room || !room.isActive) {
@@ -476,6 +476,43 @@ export async function registerRoutes(
         isHost: existingPlayers.length === 0,
       });
 
+      // If savedCharacterId provided, create a room character instance
+      let roomCharacter = null;
+      if (savedCharacterId) {
+        // Validate authentication when using a saved character
+        if (!req.isAuthenticated()) {
+          return res.status(401).json({ error: "Authentication required for character selection" });
+        }
+        const userId = (req.user as any).claims?.sub;
+        
+        const savedCharacter = await storage.getSavedCharacter(savedCharacterId);
+        if (!savedCharacter) {
+          return res.status(404).json({ error: "Character not found" });
+        }
+        
+        // Validate ownership
+        if (savedCharacter.userId !== userId) {
+          return res.status(403).json({ error: "You do not own this character" });
+        }
+        
+        // Validate game system match
+        if (savedCharacter.gameSystem !== room.gameSystem) {
+          return res.status(400).json({ error: "Character game system does not match room" });
+        }
+        
+        roomCharacter = await storage.createRoomCharacter({
+          roomId: room.id,
+          savedCharacterId: savedCharacterId,
+          userId: savedCharacter.userId,
+          playerName: playerName,
+          currentHp: savedCharacter.maxHp,
+          isAlive: true,
+          experience: 0,
+          temporaryHp: 0,
+          gold: 0,
+        });
+      }
+
       await storage.updateRoomActivity(room.id);
 
       broadcastToRoom(code, {
@@ -483,9 +520,66 @@ export async function registerRoutes(
         content: `${playerName} has joined the adventure!`,
       });
 
-      res.json({ room, player });
+      res.json({ room, player, roomCharacter });
     } catch (error) {
+      console.error("Error joining room:", error);
       res.status(500).json({ error: "Failed to join room" });
+    }
+  });
+
+  // Join room with character (for host after room creation)
+  app.post("/api/rooms/:code/join-with-character", async (req, res) => {
+    try {
+      const { code } = req.params;
+      const { playerName, savedCharacterId, playerId } = req.body;
+
+      const room = await storage.getRoomByCode(code);
+      if (!room || !room.isActive) {
+        return res.status(404).json({ error: "Room not found or inactive" });
+      }
+
+      if (!savedCharacterId) {
+        return res.status(400).json({ error: "savedCharacterId is required" });
+      }
+
+      const savedCharacter = await storage.getSavedCharacter(savedCharacterId);
+      if (!savedCharacter) {
+        return res.status(404).json({ error: "Saved character not found" });
+      }
+
+      // Validate authentication
+      if (!req.isAuthenticated()) {
+        return res.status(401).json({ error: "Authentication required for character selection" });
+      }
+      const userId = (req.user as any).claims?.sub;
+      
+      // Validate ownership
+      if (savedCharacter.userId !== userId) {
+        return res.status(403).json({ error: "You do not own this character" });
+      }
+      
+      // Validate game system match
+      if (savedCharacter.gameSystem !== room.gameSystem) {
+        return res.status(400).json({ error: "Character game system does not match room" });
+      }
+
+      // Create room character instance
+      const roomCharacter = await storage.createRoomCharacter({
+        roomId: room.id,
+        savedCharacterId: savedCharacterId,
+        userId: savedCharacter.userId,
+        playerName: playerName,
+        currentHp: savedCharacter.maxHp,
+        isAlive: true,
+        experience: 0,
+        temporaryHp: 0,
+        gold: 0,
+      });
+
+      res.json({ roomCharacter });
+    } catch (error) {
+      console.error("Error joining room with character:", error);
+      res.status(500).json({ error: "Failed to join room with character" });
     }
   });
 
