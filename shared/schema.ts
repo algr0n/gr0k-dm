@@ -263,7 +263,7 @@ export const insertDiceRollSchema = createInsertSchema(diceRolls).omit({ id: tru
 export type InsertDiceRoll = z.infer<typeof insertDiceRollSchema>;
 export type DiceRollRecord = typeof diceRolls.$inferSelect;
 
-// Users table (for optional login later)
+// Users table (for Replit Auth)
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: varchar("email").unique(),
@@ -276,3 +276,68 @@ export const users = pgTable("users", {
 
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
+
+// Saved characters (linked to user accounts, separate from room-specific characters)
+export const savedCharacters = pgTable("saved_characters", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  characterName: text("character_name").notNull(),
+  race: text("race"),
+  class: text("class"),
+  level: integer("level").default(1),
+  background: text("background"),
+  alignment: text("alignment"),
+  stats: jsonb("stats").$type<{
+    strength?: number;
+    dexterity?: number;
+    constitution?: number;
+    intelligence?: number;
+    wisdom?: number;
+    charisma?: number;
+    [key: string]: unknown;
+  }>(),
+  skills: jsonb("skills").$type<string[]>().default([]),
+  spells: jsonb("spells").$type<string[]>().default([]),
+  maxHp: integer("max_hp").notNull().default(10),
+  ac: integer("ac").notNull().default(10),
+  speed: integer("speed").notNull().default(30),
+  initiativeModifier: integer("initiative_modifier").notNull().default(0),
+  backstory: text("backstory"),
+  gameSystem: text("game_system").notNull().default("dnd"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  index("idx_saved_characters_user").on(table.userId),
+]);
+
+export const insertSavedCharacterSchema = createInsertSchema(savedCharacters).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertSavedCharacter = z.infer<typeof insertSavedCharacterSchema>;
+export type SavedCharacter = typeof savedCharacters.$inferSelect;
+
+// Saved inventory (items owned by saved characters)
+export const savedInventoryItems = pgTable("saved_inventory_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  savedCharacterId: varchar("saved_character_id")
+    .notNull()
+    .references(() => savedCharacters.id, { onDelete: "cascade" }),
+  itemId: varchar("item_id", { length: 64 })
+    .notNull()
+    .references(() => items.id, { onDelete: "restrict" }),
+  quantity: integer("quantity").notNull().default(1),
+  equipped: boolean("equipped").notNull().default(false),
+  notes: text("notes"),
+  attunementSlot: boolean("attunement_slot").default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  index("idx_saved_inventory_character").on(table.savedCharacterId),
+]);
+
+export const insertSavedInventoryItemSchema = createInsertSchema(savedInventoryItems)
+  .omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertSavedInventoryItem = z.infer<typeof insertSavedInventoryItemSchema>;
+export type SavedInventoryItem = typeof savedInventoryItems.$inferSelect;

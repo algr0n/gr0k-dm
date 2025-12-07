@@ -5,7 +5,8 @@ import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { parseDiceExpression } from "./dice";
 import { generateDMResponse, generateBatchedDMResponse, generateStartingScene, generateCombatDMTurn, type CharacterInfo, type BatchedMessage, type DroppedItemInfo, getTokenUsage } from "./grok";
-import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, type Message, type Character, type InventoryItem } from "@shared/schema";
+import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, insertSavedCharacterSchema, type Message, type Character, type InventoryItem } from "@shared/schema";
+import { setupAuth, isAuthenticated } from "./replitAuth";
 
 const roomConnections = new Map<string, Set<WebSocket>>();
 
@@ -245,13 +246,92 @@ export async function registerRoutes(
     }
   }
 
-  // User routes (if auth enabled)
-  app.post("/api/users", async (req, res) => {
+  // Auth setup - uses Replit Auth
+  await setupAuth(app);
+
+  // Auth routes - get current user
+  app.get("/api/auth/user", async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
     try {
-      const user = await storage.upsertUser(req.body);
+      const userId = (req.user as any).claims?.sub;
+      if (!userId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      const user = await storage.getUser(userId);
       res.json(user);
     } catch (error) {
-      res.status(500).json({ error: "Failed to create/update user" });
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  // Saved characters routes (requires authentication)
+  app.get("/api/saved-characters", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).claims.sub;
+      const characters = await storage.getSavedCharactersByUser(userId);
+      res.json(characters);
+    } catch (error) {
+      console.error("Error fetching saved characters:", error);
+      res.status(500).json({ error: "Failed to fetch saved characters" });
+    }
+  });
+
+  app.post("/api/saved-characters", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as any).claims.sub;
+      const parsed = insertSavedCharacterSchema.parse({ ...req.body, userId });
+      const character = await storage.createSavedCharacter(parsed);
+      res.json(character);
+    } catch (error) {
+      console.error("Error creating saved character:", error);
+      res.status(400).json({ error: "Invalid character data" });
+    }
+  });
+
+  app.get("/api/saved-characters/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const userId = (req.user as any).claims.sub;
+      const character = await storage.getSavedCharacter(id);
+      if (!character || character.userId !== userId) {
+        return res.status(404).json({ error: "Character not found" });
+      }
+      res.json(character);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch character" });
+    }
+  });
+
+  app.patch("/api/saved-characters/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const userId = (req.user as any).claims.sub;
+      const existing = await storage.getSavedCharacter(id);
+      if (!existing || existing.userId !== userId) {
+        return res.status(404).json({ error: "Character not found" });
+      }
+      const character = await storage.updateSavedCharacter(id, req.body);
+      res.json(character);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update character" });
+    }
+  });
+
+  app.delete("/api/saved-characters/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const userId = (req.user as any).claims.sub;
+      const existing = await storage.getSavedCharacter(id);
+      if (!existing || existing.userId !== userId) {
+        return res.status(404).json({ error: "Character not found" });
+      }
+      await storage.deleteSavedCharacter(id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete character" });
     }
   });
 

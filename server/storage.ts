@@ -5,7 +5,10 @@ import {
   type User, type UpsertUser,
   type Character, type InsertCharacter,
   type InventoryItem, type InsertInventoryItem,
-  rooms, players, diceRolls, users, characters, inventoryItems
+  type SavedCharacter, type InsertSavedCharacter,
+  type SavedInventoryItem, type InsertSavedInventoryItem,
+  rooms, players, diceRolls, users, characters, inventoryItems,
+  savedCharacters, savedInventoryItems
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, lt, sql, count } from "drizzle-orm";
@@ -78,6 +81,19 @@ export interface IStorage {
   searchItems(query: string): Promise<Item[]>;
   getInventoryWithDetails(characterId: string): Promise<(InventoryItem & { item: Item })[]>;
   addToInventory(insert: InsertInventoryItem): Promise<InventoryItem>;
+
+  // Saved Characters (user-owned)
+  getSavedCharactersByUser(userId: string): Promise<SavedCharacter[]>;
+  getSavedCharacter(id: string): Promise<SavedCharacter | undefined>;
+  createSavedCharacter(character: InsertSavedCharacter): Promise<SavedCharacter>;
+  updateSavedCharacter(id: string, updates: Partial<SavedCharacter>): Promise<SavedCharacter | undefined>;
+  deleteSavedCharacter(id: string): Promise<boolean>;
+
+  // Saved Inventory
+  getSavedInventoryByCharacter(savedCharacterId: string): Promise<SavedInventoryItem[]>;
+  addToSavedInventory(insert: InsertSavedInventoryItem): Promise<SavedInventoryItem>;
+  updateSavedInventoryItem(id: string, updates: Partial<SavedInventoryItem>): Promise<SavedInventoryItem | undefined>;
+  deleteSavedInventoryItem(id: string): Promise<boolean>;
 }
 
 class DatabaseStorage implements IStorage {
@@ -85,12 +101,19 @@ class DatabaseStorage implements IStorage {
     return await db.query.users.findFirst({ where: eq(users.id, id) });
   }
 
-  async upsertUser(user: UpsertUser): Promise<User> {
-    const result = await db.upsert(users)
-      .set(user)
-      .where(eq(users.id, user.id))
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          ...userData,
+          updatedAt: new Date(),
+        },
+      })
       .returning();
-    return result[0];
+    return user;
   }
 
   async getRoom(id: string): Promise<Room | undefined> {
@@ -356,6 +379,80 @@ class DatabaseStorage implements IStorage {
       .values(insert)
       .returning()
       .then(rows => rows[0]);
+  }
+
+  // Saved Characters (user-owned)
+  async getSavedCharactersByUser(userId: string): Promise<SavedCharacter[]> {
+    return await db.select().from(savedCharacters)
+      .where(eq(savedCharacters.userId, userId))
+      .orderBy(desc(savedCharacters.updatedAt));
+  }
+
+  async getSavedCharacter(id: string): Promise<SavedCharacter | undefined> {
+    return await db.query.savedCharacters.findFirst({ 
+      where: eq(savedCharacters.id, id) 
+    });
+  }
+
+  async createSavedCharacter(character: InsertSavedCharacter): Promise<SavedCharacter> {
+    const result = await db.insert(savedCharacters)
+      .values(character)
+      .returning();
+    return result[0];
+  }
+
+  async updateSavedCharacter(id: string, updates: Partial<SavedCharacter>): Promise<SavedCharacter | undefined> {
+    const result = await db.update(savedCharacters)
+      .set(updates)
+      .where(eq(savedCharacters.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteSavedCharacter(id: string): Promise<boolean> {
+    await db.delete(savedCharacters).where(eq(savedCharacters.id, id));
+    return true;
+  }
+
+  // Saved Inventory
+  async getSavedInventoryByCharacter(savedCharacterId: string): Promise<SavedInventoryItem[]> {
+    return await db.select().from(savedInventoryItems)
+      .where(eq(savedInventoryItems.savedCharacterId, savedCharacterId));
+  }
+
+  async addToSavedInventory(insert: InsertSavedInventoryItem): Promise<SavedInventoryItem> {
+    const existing = await db.query.savedInventoryItems.findFirst({
+      where: and(
+        eq(savedInventoryItems.savedCharacterId, insert.savedCharacterId),
+        eq(savedInventoryItems.itemId, insert.itemId)
+      ),
+    });
+
+    if (existing) {
+      return await db.update(savedInventoryItems)
+        .set({ quantity: existing.quantity + (insert.quantity || 1) })
+        .where(eq(savedInventoryItems.id, existing.id))
+        .returning()
+        .then(rows => rows[0]);
+    }
+
+    return await db.insert(savedInventoryItems)
+      .values(insert)
+      .returning()
+      .then(rows => rows[0]);
+  }
+
+  async updateSavedInventoryItem(id: string, updates: Partial<SavedInventoryItem>): Promise<SavedInventoryItem | undefined> {
+    const result = await db.update(savedInventoryItems)
+      .set(updates)
+      .where(eq(savedInventoryItems.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteSavedInventoryItem(id: string): Promise<boolean> {
+    await db.delete(savedInventoryItems).where(eq(savedInventoryItems.id, id));
+    return true;
   }
 }
 
