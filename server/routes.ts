@@ -1440,27 +1440,37 @@ export async function registerRoutes(
       };
       
       const wrapText = (text: string, font: any, fontSize: number, maxW: number): string[] => {
-        const words = text.split(' ');
-        const lines: string[] = [];
-        let currentLine = '';
+        // First handle newlines by splitting into paragraphs, then wrap each
+        const paragraphs = text.replace(/\r\n/g, '\n').split('\n');
+        const allLines: string[] = [];
         
-        for (const word of words) {
-          const testLine = currentLine ? `${currentLine} ${word}` : word;
-          const width = font.widthOfTextAtSize(testLine, fontSize);
+        for (const paragraph of paragraphs) {
+          if (!paragraph.trim()) {
+            allLines.push(''); // Preserve empty lines as paragraph breaks
+            continue;
+          }
           
-          if (width > maxW && currentLine) {
-            lines.push(currentLine);
-            currentLine = word;
-          } else {
-            currentLine = testLine;
+          const words = paragraph.split(' ');
+          let currentLine = '';
+          
+          for (const word of words) {
+            const testLine = currentLine ? `${currentLine} ${word}` : word;
+            const width = font.widthOfTextAtSize(testLine, fontSize);
+            
+            if (width > maxW && currentLine) {
+              allLines.push(currentLine);
+              currentLine = word;
+            } else {
+              currentLine = testLine;
+            }
+          }
+          
+          if (currentLine) {
+            allLines.push(currentLine);
           }
         }
         
-        if (currentLine) {
-          lines.push(currentLine);
-        }
-        
-        return lines;
+        return allLines;
       };
       
       const drawText = (text: string, font: any, fontSize: number, color = rgb(0, 0, 0)) => {
@@ -1471,13 +1481,16 @@ export async function registerRoutes(
             addNewPage();
           }
           
-          currentPage.drawText(line, {
-            x: margin,
-            y: yPosition,
-            size: fontSize,
-            font,
-            color,
-          });
+          // Skip empty lines but still add spacing
+          if (line.trim()) {
+            currentPage.drawText(line, {
+              x: margin,
+              y: yPosition,
+              size: fontSize,
+              font,
+              color,
+            });
+          }
           
           yPosition -= lineHeight;
         }
