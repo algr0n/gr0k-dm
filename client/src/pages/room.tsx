@@ -609,7 +609,7 @@ export default function RoomPage() {
       if (isCleaningUp) return;
       
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/ws?room=${code}&player=${encodeURIComponent(playerName)}`;
+      const wsUrl = `${protocol}//${window.location.host}/ws?room=${code}`;
       
       console.log(`[WebSocket] Connecting to ${wsUrl} (attempt ${reconnectAttempts + 1})`);
       
@@ -1311,10 +1311,14 @@ export default function RoomPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 text-center">
+                    <div className="grid grid-cols-3 gap-4 text-center">
                       <div className="p-3 rounded-md bg-muted/50">
                         <div className="text-xl font-bold" data-testid="text-experience">{myCharacterData.roomCharacter.experience}</div>
-                        <div className="text-xs text-muted-foreground">Experience</div>
+                        <div className="text-xs text-muted-foreground">Session XP</div>
+                      </div>
+                      <div className="p-3 rounded-md bg-muted/50">
+                        <div className="text-xl font-bold" data-testid="text-total-xp">{myCharacterData.savedCharacter.xp || 0}</div>
+                        <div className="text-xs text-muted-foreground">Total XP</div>
                       </div>
                       <div className="p-3 rounded-md bg-muted/50">
                         <div className="text-xl font-bold" data-testid="text-level">{myCharacterData.savedCharacter.level || 1}</div>
@@ -1822,6 +1826,21 @@ export default function RoomPage() {
                 <div>
                   <span className="text-sm text-muted-foreground">Player</span>
                   <p className="font-medium">{viewingPlayer?.name}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4 text-center">
+                <div className="p-2 bg-muted rounded-md">
+                  <span className="text-xs text-muted-foreground">Level</span>
+                  <p className="font-mono font-bold text-lg" data-testid="text-viewed-level">{viewedCharacter.level || 1}</p>
+                </div>
+                <div className="p-2 bg-muted rounded-md">
+                  <span className="text-xs text-muted-foreground">XP</span>
+                  <p className="font-mono font-bold text-lg" data-testid="text-viewed-xp">{viewedCharacter.xp || 0}</p>
+                </div>
+                <div className="p-2 bg-muted rounded-md">
+                  <span className="text-xs text-muted-foreground">Max HP</span>
+                  <p className="font-mono font-bold text-lg" data-testid="text-viewed-hp">{viewedCharacter.maxHp}</p>
                 </div>
               </div>
 

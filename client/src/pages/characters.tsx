@@ -31,6 +31,7 @@ interface DnDFormData {
   ac: number;
   speed: number;
   initiativeModifier: number;
+  xp: number;
   backstory: string;
   stats: {
     strength: number;
@@ -54,6 +55,7 @@ interface CyberpunkFormData {
   valuedMost: string;
   feelingsAboutPeople: string;
   maxHp: number;
+  xp: number;
   backstory: string;
   stats: {
     int: number;
@@ -81,6 +83,7 @@ const defaultDnDForm: DnDFormData = {
   ac: 10,
   speed: 30,
   initiativeModifier: 0,
+  xp: 0,
   backstory: "",
   stats: {
     strength: 10,
@@ -104,6 +107,7 @@ const defaultCyberpunkForm: CyberpunkFormData = {
   valuedMost: "",
   feelingsAboutPeople: "",
   maxHp: 40,
+  xp: 0,
   backstory: "",
   stats: {
     int: 5,
@@ -216,6 +220,7 @@ export default function Characters() {
       ac: dndForm.ac,
       speed: dndForm.speed,
       initiativeModifier: dndForm.initiativeModifier,
+      xp: dndForm.xp,
       backstory: dndForm.backstory,
       stats: dndForm.stats,
       gameSystem: "dnd" as GameSystem,
@@ -253,6 +258,7 @@ export default function Characters() {
       background: lifepathDescription,
       alignment: "",
       maxHp: cyberpunkForm.maxHp,
+      xp: cyberpunkForm.xp,
       ac: 11,
       speed: cyberpunkForm.stats.move * 2,
       initiativeModifier: cyberpunkForm.stats.ref - 5,
@@ -288,6 +294,7 @@ export default function Characters() {
         ac: character.ac,
         speed: character.speed,
         initiativeModifier: character.initiativeModifier,
+        xp: character.xp || 0,
         backstory: character.backstory || "",
         stats: {
           strength: stats?.strength ?? 10,
@@ -312,6 +319,7 @@ export default function Characters() {
         valuedMost: "",
         feelingsAboutPeople: "",
         maxHp: character.maxHp,
+        xp: character.xp || 0,
         backstory: character.backstory || "",
         stats: {
           int: stats?.int ?? 5,
@@ -635,6 +643,18 @@ export default function Characters() {
                     </div>
 
                     <div className="space-y-2">
+                      <Label htmlFor="dnd-xp">Experience Points (XP)</Label>
+                      <Input
+                        id="dnd-xp"
+                        type="number"
+                        min={0}
+                        value={dndForm.xp}
+                        onChange={(e) => setDndForm({ ...dndForm, xp: parseInt(e.target.value) || 0 })}
+                        data-testid="input-dnd-xp"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
                       <Label htmlFor="dnd-backstory">Backstory</Label>
                       <Textarea
                         id="dnd-backstory"
@@ -889,16 +909,29 @@ export default function Characters() {
                       </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="cp-hp">Hit Points</Label>
-                      <Input
-                        id="cp-hp"
-                        type="number"
-                        min={1}
-                        value={cyberpunkForm.maxHp}
-                        onChange={(e) => setCyberpunkForm({ ...cyberpunkForm, maxHp: parseInt(e.target.value) || 40 })}
-                        data-testid="input-cp-hp"
-                      />
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="cp-hp">Hit Points</Label>
+                        <Input
+                          id="cp-hp"
+                          type="number"
+                          min={1}
+                          value={cyberpunkForm.maxHp}
+                          onChange={(e) => setCyberpunkForm({ ...cyberpunkForm, maxHp: parseInt(e.target.value) || 40 })}
+                          data-testid="input-cp-hp"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="cp-xp">Improvement Points (XP)</Label>
+                        <Input
+                          id="cp-xp"
+                          type="number"
+                          min={0}
+                          value={cyberpunkForm.xp}
+                          onChange={(e) => setCyberpunkForm({ ...cyberpunkForm, xp: parseInt(e.target.value) || 0 })}
+                          data-testid="input-cp-xp"
+                        />
+                      </div>
                     </div>
 
                     <div className="space-y-2">

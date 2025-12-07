@@ -55,7 +55,7 @@ export default function Landing() {
   const canRejoin = lastRoomCode && lastPlayerName;
 
   // Fetch current user for authentication check
-  const { data: currentUser } = useQuery<{ id: string } | null>({
+  const { data: currentUser } = useQuery<{ id: string; username: string } | null>({
     queryKey: ["/api/auth/user"],
     queryFn: async () => {
       try {
@@ -67,6 +67,33 @@ export default function Landing() {
       }
     },
   });
+
+  // Track previous user to detect user switches
+  const [prevUserId, setPrevUserId] = useState<string | null | undefined>(undefined);
+
+  // Clear stale session data when auth user changes (including switching between users)
+  useEffect(() => {
+    const currentId = currentUser?.id ?? null;
+    
+    // Skip initial render (when prevUserId is undefined)
+    if (prevUserId === undefined) {
+      setPrevUserId(currentId);
+      return;
+    }
+    
+    // If user changed (different id, including null -> id, id -> null, or id -> different id)
+    if (prevUserId !== currentId) {
+      // Clear all session data
+      sessionStorage.removeItem("playerName");
+      sessionStorage.removeItem("playerId");
+      sessionStorage.removeItem("lastRoomCode");
+      setLastRoomCode(null);
+      setLastPlayerName(null);
+      setPlayerName("");
+      setHostName("");
+      setPrevUserId(currentId);
+    }
+  }, [currentUser?.id, prevUserId]);
 
   // Fetch saved characters for the user
   const { data: savedCharacters, isLoading: isLoadingCharacters } = useQuery<SavedCharacter[]>({
@@ -125,19 +152,17 @@ export default function Landing() {
     },
   });
 
-  // Join without character (for unauthenticated users)
+  // Join room (requires authentication)
   const joinWithoutCharacterMutation = useMutation({
     mutationFn: async () => {
       const code = roomCode.toUpperCase();
-      const name = playerName;
-      const response = await apiRequest("POST", `/api/rooms/${code}/join`, {
-        playerName: name,
-      });
+      const response = await apiRequest("POST", `/api/rooms/${code}/join`, {});
       const data = await response.json();
-      return { ...data, code, name };
+      return { ...data, code };
     },
     onSuccess: (data) => {
-      sessionStorage.setItem("playerName", data.name);
+      const displayName = currentUser?.username || "Player";
+      sessionStorage.setItem("playerName", displayName);
       sessionStorage.setItem("playerId", data.player.id);
       sessionStorage.setItem("lastRoomCode", data.code);
       setJoinDialogOpen(false);
@@ -158,23 +183,15 @@ export default function Landing() {
       const response = await apiRequest("POST", "/api/rooms", {
         name: gameName,
         gameSystem,
-        hostName,
         isPublic,
       });
       return response.json() as Promise<Room & { hostPlayer: { id: string } }>;
     },
     onSuccess: (data) => {
       setCreatedRoom(data);
-      if (currentUser) {
-        // If logged in, show character selection
-        setHostStep("character");
-      } else {
-        // If not logged in, go directly to room
-        sessionStorage.setItem("playerName", hostName);
-        sessionStorage.setItem("playerId", data.hostPlayer.id);
-        setHostDialogOpen(false);
-        setLocation(`/room/${data.code}`);
-      }
+      const displayName = currentUser?.username || "Host";
+      setHostStep("character");
+      setHostName(displayName);
     },
     onError: () => {
       toast({
@@ -188,17 +205,16 @@ export default function Landing() {
   const joinRoomMutation = useMutation({
     mutationFn: async () => {
       const code = roomCode.toUpperCase();
-      const name = playerName;
       const charId = selectedCharacterId;
       const response = await apiRequest("POST", `/api/rooms/${code}/join`, {
-        playerName: name,
         savedCharacterId: charId,
       });
       const data = await response.json();
-      return { ...data, code, name };
+      return { ...data, code };
     },
     onSuccess: (data) => {
-      sessionStorage.setItem("playerName", data.name);
+      const displayName = currentUser?.username || "Player";
+      sessionStorage.setItem("playerName", displayName);
       sessionStorage.setItem("playerId", data.player.id);
       sessionStorage.setItem("lastRoomCode", data.code);
       setJoinDialogOpen(false);
@@ -221,15 +237,14 @@ export default function Landing() {
       // If character selected, create room character
       if (selectedCharacterId && currentUser) {
         await apiRequest("POST", `/api/rooms/${createdRoom.code}/join-with-character`, {
-          playerName: hostName,
           savedCharacterId: selectedCharacterId,
-          playerId: createdRoom.hostPlayer.id,
         });
       }
       return createdRoom;
     },
     onSuccess: (room) => {
-      sessionStorage.setItem("playerName", hostName);
+      const displayName = currentUser?.username || "Host";
+      sessionStorage.setItem("playerName", displayName);
       sessionStorage.setItem("playerId", room.hostPlayer.id);
       setHostDialogOpen(false);
       resetHostDialog();
@@ -243,7 +258,8 @@ export default function Landing() {
       });
       // Still navigate to room even if character assignment fails
       if (createdRoom) {
-        sessionStorage.setItem("playerName", hostName);
+        const displayName = currentUser?.username || "Host";
+        sessionStorage.setItem("playerName", displayName);
         sessionStorage.setItem("playerId", createdRoom.hostPlayer.id);
         setHostDialogOpen(false);
         resetHostDialog();
@@ -271,10 +287,10 @@ export default function Landing() {
 
   const handleHostGame = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!gameName.trim() || !hostName.trim()) {
+    if (!gameName.trim()) {
       toast({
         title: "Missing information",
-        description: "Please fill in all fields.",
+        description: "Please enter a game name.",
         variant: "destructive",
       });
       return;
@@ -284,22 +300,20 @@ export default function Landing() {
 
   const handleJoinStep1 = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!roomCode.trim() || !playerName.trim()) {
+    if (!roomCode.trim()) {
       toast({
         title: "Missing information",
-        description: "Please fill in all fields.",
+        description: "Please enter a room code.",
         variant: "destructive",
       });
       return;
     }
     
-    if (currentUser) {
-      // Fetch room info and proceed to character selection
-      fetchRoomMutation.mutate(roomCode.toUpperCase());
-    } else {
-      // Not logged in, join directly without character
-      joinWithoutCharacterMutation.mutate();
-    }
+    // User must be authenticated (join button is hidden otherwise)
+    // Fetch room info and proceed to character selection
+    const displayName = currentUser?.username || "Player";
+    setPlayerName(displayName);
+    fetchRoomMutation.mutate(roomCode.toUpperCase());
   };
 
   const handleJoinWithCharacter = () => {
@@ -347,6 +361,15 @@ export default function Landing() {
               </Button>
             )}
             
+            {!currentUser && (
+              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                <User className="h-6 w-6" />
+                <p className="text-sm">Sign in to host or join games</p>
+              </div>
+            )}
+            
+            {currentUser && (
+            <>
             <Dialog open={hostDialogOpen} onOpenChange={(open) => handleDialogClose(open, "host")}>
               <DialogTrigger asChild>
                 <Button size="lg" data-testid="button-host-game">
@@ -364,16 +387,6 @@ export default function Landing() {
                       </DialogDescription>
                     </DialogHeader>
                     <form onSubmit={handleHostGame} className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="host-name">Your Name</Label>
-                        <Input
-                          id="host-name"
-                          placeholder="Enter your display name"
-                          value={hostName}
-                          onChange={(e) => setHostName(e.target.value)}
-                          data-testid="input-host-name"
-                        />
-                      </div>
                       <div className="space-y-2">
                         <Label htmlFor="game-name">Game Name</Label>
                         <Input
@@ -455,35 +468,28 @@ export default function Landing() {
                         gameSystem={gameSystem}
                       />
                       
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          className="flex-1"
-                          onClick={() => {
-                            setSelectedCharacterId(null);
-                            handleHostComplete();
-                          }}
-                          disabled={completeHostMutation.isPending}
-                          data-testid="button-host-skip-character"
-                        >
-                          Skip (No Character)
-                        </Button>
-                        <Button
-                          className="flex-1"
-                          onClick={handleHostComplete}
-                          disabled={!selectedCharacterId || completeHostMutation.isPending}
-                          data-testid="button-host-with-character"
-                        >
-                          {completeHostMutation.isPending ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Joining...
-                            </>
-                          ) : (
-                            "Start Game"
-                          )}
-                        </Button>
-                      </div>
+                      <Button
+                        className="w-full"
+                        onClick={handleHostComplete}
+                        disabled={isLoadingCharacters || (availableCharacters.length > 0 && !selectedCharacterId) || completeHostMutation.isPending}
+                        data-testid="button-host-with-character"
+                      >
+                        {completeHostMutation.isPending ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Starting...
+                          </>
+                        ) : isLoadingCharacters ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Loading characters...
+                          </>
+                        ) : availableCharacters.length === 0 ? (
+                          "Start Game Without Character"
+                        ) : (
+                          "Start Game"
+                        )}
+                      </Button>
                     </div>
                   </>
                 )}
@@ -508,16 +514,6 @@ export default function Landing() {
                     </DialogHeader>
                     <form onSubmit={handleJoinStep1} className="space-y-4">
                       <div className="space-y-2">
-                        <Label htmlFor="player-name">Your Name</Label>
-                        <Input
-                          id="player-name"
-                          placeholder="Enter your display name"
-                          value={playerName}
-                          onChange={(e) => setPlayerName(e.target.value)}
-                          data-testid="input-player-name"
-                        />
-                      </div>
-                      <div className="space-y-2">
                         <Label htmlFor="room-code">Room Code</Label>
                         <Input
                           id="room-code"
@@ -532,18 +528,16 @@ export default function Landing() {
                       <Button 
                         type="submit" 
                         className="w-full" 
-                        disabled={joinWithoutCharacterMutation.isPending || fetchRoomMutation.isPending}
+                        disabled={fetchRoomMutation.isPending}
                         data-testid="button-submit-join"
                       >
-                        {(joinWithoutCharacterMutation.isPending || fetchRoomMutation.isPending) ? (
+                        {fetchRoomMutation.isPending ? (
                           <>
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            {fetchRoomMutation.isPending ? "Finding room..." : "Joining..."}
+                            Finding room...
                           </>
-                        ) : currentUser ? (
-                          "Next: Select Character"
                         ) : (
-                          "Join Game"
+                          "Next: Select Character"
                         )}
                       </Button>
                     </form>
@@ -576,42 +570,28 @@ export default function Landing() {
                         gameSystem={targetRoom?.gameSystem as GameSystem}
                       />
                       
-                      <div className="flex gap-2">
-                        <Button
-                          variant="outline"
-                          className="flex-1"
-                          onClick={() => {
-                            setSelectedCharacterId(null);
-                            joinWithoutCharacterMutation.mutate();
-                          }}
-                          disabled={joinRoomMutation.isPending || joinWithoutCharacterMutation.isPending}
-                          data-testid="button-join-skip-character"
-                        >
-                          {joinWithoutCharacterMutation.isPending ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Joining...
-                            </>
-                          ) : (
-                            "Skip (No Character)"
-                          )}
-                        </Button>
-                        <Button
-                          className="flex-1"
-                          onClick={handleJoinWithCharacter}
-                          disabled={!selectedCharacterId || joinRoomMutation.isPending || joinWithoutCharacterMutation.isPending}
-                          data-testid="button-join-with-character"
-                        >
-                          {joinRoomMutation.isPending ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Joining...
-                            </>
-                          ) : (
-                            "Join Game"
-                          )}
-                        </Button>
-                      </div>
+                      <Button
+                        className="w-full"
+                        onClick={availableCharacters.length > 0 ? handleJoinWithCharacter : () => joinWithoutCharacterMutation.mutate()}
+                        disabled={isLoadingCharacters || (availableCharacters.length > 0 && !selectedCharacterId) || joinRoomMutation.isPending || joinWithoutCharacterMutation.isPending}
+                        data-testid="button-join-with-character"
+                      >
+                        {(joinRoomMutation.isPending || joinWithoutCharacterMutation.isPending) ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Joining...
+                          </>
+                        ) : isLoadingCharacters ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Loading characters...
+                          </>
+                        ) : availableCharacters.length === 0 ? (
+                          "Join Game Without Character"
+                        ) : (
+                          "Join Game"
+                        )}
+                      </Button>
                     </div>
                   </>
                 )}
@@ -703,6 +683,8 @@ export default function Landing() {
                 </div>
               </DialogContent>
             </Dialog>
+            </>
+            )}
           </div>
         </div>
         

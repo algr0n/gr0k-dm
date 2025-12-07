@@ -111,6 +111,7 @@ export type Room = typeof rooms.$inferSelect;
 export const players = pgTable("players", {
   id: varchar("id").primaryKey(),
   roomId: varchar("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  userId: text("user_id"),
   name: text("name").notNull(),
   isHost: boolean("is_host").notNull().default(false),
   joinedAt: timestamp("joined_at").notNull().defaultNow(),

@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "crypto";
@@ -6,7 +6,13 @@ import { storage } from "./storage";
 import { parseDiceExpression } from "./dice";
 import { generateDMResponse, generateBatchedDMResponse, generateStartingScene, generateCombatDMTurn, type CharacterInfo, type BatchedMessage, type DroppedItemInfo, getTokenUsage } from "./grok";
 import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, insertSavedCharacterSchema, updateUserProfileSchema, type Message, type Character, type InventoryItem } from "@shared/schema";
-import { setupAuth, isAuthenticated } from "./replitAuth";
+import { setupAuth, isAuthenticated, getSession } from "./replitAuth";
+import passport from "passport";
+
+interface AuthenticatedWebSocket extends WebSocket {
+  userId?: string;
+  playerName?: string;
+}
 
 const roomConnections = new Map<string, Set<WebSocket>>();
 
@@ -57,6 +63,7 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   const wss = new WebSocketServer({ noServer: true });
+  const sessionMiddleware = getSession();
 
   // Handle WebSocket upgrade manually to avoid conflicts with Vite HMR
   httpServer.on("upgrade", (request, socket, head) => {
@@ -67,12 +74,69 @@ export async function registerRoutes(
       return; // Let Vite handle this
     }
     
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      wss.emit("connection", ws, request);
+    // Create mock request/response for session parsing
+    const mockReq = request as any;
+    const mockRes = { 
+      setHeader: () => {}, 
+      end: () => {},
+      getHeader: () => undefined 
+    } as any;
+    
+    // Parse session to get authenticated user
+    sessionMiddleware(mockReq, mockRes, () => {
+      passport.initialize()(mockReq, mockRes, () => {
+        passport.session()(mockReq, mockRes, async () => {
+          const user = mockReq.user as any;
+          
+          // Reject unauthenticated connections
+          if (!user?.claims?.sub) {
+            console.log("[WebSocket] Rejecting unauthenticated connection");
+            socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+            socket.destroy();
+            return;
+          }
+          
+          const userId = user.claims.sub;
+          const dbUser = await storage.getUser(userId);
+          
+          if (!dbUser) {
+            console.log("[WebSocket] User not found in database:", userId);
+            socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+            socket.destroy();
+            return;
+          }
+          
+          const playerName = dbUser.displayName || dbUser.email || "Player";
+          
+          // Verify user is a member of the room by userId
+          const urlParams = new URLSearchParams(request.url?.split("?")[1]);
+          const roomCode = urlParams.get("room") || urlParams.get("roomCode");
+          
+          if (roomCode) {
+            const room = await storage.getRoomByCode(roomCode);
+            if (room) {
+              const players = await storage.getPlayersByRoom(room.id);
+              const isRoomMember = players.some(p => p.userId === userId);
+              if (!isRoomMember) {
+                console.log("[WebSocket] User not a member of room:", roomCode, userId);
+                socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+                socket.destroy();
+                return;
+              }
+            }
+          }
+          
+          wss.handleUpgrade(request, socket, head, (ws) => {
+            (ws as AuthenticatedWebSocket).userId = userId;
+            (ws as AuthenticatedWebSocket).playerName = playerName;
+            wss.emit("connection", ws, request);
+          });
+        });
+      });
     });
   });
 
-  wss.on("connection", (ws: WebSocket, req) => {
+  wss.on("connection", (ws: AuthenticatedWebSocket, req) => {
     const urlParams = new URLSearchParams(req.url?.split("?")[1]);
     const roomCode = urlParams.get("room") || urlParams.get("roomCode");
 
@@ -86,7 +150,7 @@ export async function registerRoutes(
     }
     roomConnections.get(roomCode)!.add(ws);
 
-    const playerName = urlParams.get("player") || "Anonymous";
+    const playerName = ws.playerName || "Anonymous";
 
     ws.on("message", async (data) => {
       try {
@@ -431,15 +495,23 @@ export async function registerRoutes(
   });
 
   // Room creation
-  app.post("/api/rooms", async (req, res) => {
+  app.post("/api/rooms", isAuthenticated, async (req, res) => {
     try {
-      const parsed = insertRoomSchema.parse(req.body);
+      const userId = (req.user as any).claims.sub;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(401).json({ error: "User not found" });
+      }
+      const playerName = user.displayName || user.email || "Host";
+      
+      const parsed = insertRoomSchema.parse({ ...req.body, hostName: playerName });
       const room = await storage.createRoom(parsed);
       
       // Create host player
       const hostPlayer = await storage.createPlayer({
         roomId: room.id,
-        name: parsed.hostName,
+        userId: userId,
+        name: playerName,
         isHost: true,
       });
       
@@ -450,10 +522,17 @@ export async function registerRoutes(
   });
 
   // Join room
-  app.post("/api/rooms/:code/join", async (req, res) => {
+  app.post("/api/rooms/:code/join", isAuthenticated, async (req, res) => {
     try {
       const { code } = req.params;
-      const { playerName, savedCharacterId } = req.body;
+      const { savedCharacterId } = req.body;
+      
+      const userId = (req.user as any).claims.sub;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(401).json({ error: "User not found" });
+      }
+      const playerName = user.displayName || user.email || "Player";
 
       const room = await storage.getRoomByCode(code);
       if (!room || !room.isActive) {
@@ -465,13 +544,14 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Room is full" });
       }
 
-      const existingPlayer = existingPlayers.find((p) => p.name === playerName);
+      const existingPlayer = existingPlayers.find((p) => p.userId === userId);
       if (existingPlayer) {
-        return res.status(400).json({ error: "Name already taken" });
+        return res.status(400).json({ error: "You have already joined this room" });
       }
 
       const player = await storage.createPlayer({
         roomId: room.id,
+        userId: userId,
         name: playerName,
         isHost: existingPlayers.length === 0,
       });
@@ -479,12 +559,6 @@ export async function registerRoutes(
       // If savedCharacterId provided, create a room character instance
       let roomCharacter = null;
       if (savedCharacterId) {
-        // Validate authentication when using a saved character
-        if (!req.isAuthenticated()) {
-          return res.status(401).json({ error: "Authentication required for character selection" });
-        }
-        const userId = (req.user as any).claims?.sub;
-        
         const savedCharacter = await storage.getSavedCharacter(savedCharacterId);
         if (!savedCharacter) {
           return res.status(404).json({ error: "Character not found" });
@@ -528,10 +602,17 @@ export async function registerRoutes(
   });
 
   // Join room with character (for host after room creation)
-  app.post("/api/rooms/:code/join-with-character", async (req, res) => {
+  app.post("/api/rooms/:code/join-with-character", isAuthenticated, async (req, res) => {
     try {
       const { code } = req.params;
-      const { playerName, savedCharacterId, playerId } = req.body;
+      const { savedCharacterId } = req.body;
+      
+      const userId = (req.user as any).claims.sub;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(401).json({ error: "User not found" });
+      }
+      const playerName = user.displayName || user.email || "Player";
 
       const room = await storage.getRoomByCode(code);
       if (!room || !room.isActive) {
@@ -546,12 +627,6 @@ export async function registerRoutes(
       if (!savedCharacter) {
         return res.status(404).json({ error: "Saved character not found" });
       }
-
-      // Validate authentication
-      if (!req.isAuthenticated()) {
-        return res.status(401).json({ error: "Authentication required for character selection" });
-      }
-      const userId = (req.user as any).claims?.sub;
       
       // Validate ownership
       if (savedCharacter.userId !== userId) {
@@ -587,8 +662,14 @@ export async function registerRoutes(
   app.post("/api/rooms/:code/switch-character", isAuthenticated, async (req, res) => {
     try {
       const { code } = req.params;
-      const { savedCharacterId, playerName } = req.body;
+      const { savedCharacterId } = req.body;
       const userId = (req.user as any).claims?.sub;
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(401).json({ error: "User not found" });
+      }
+      const playerName = user.displayName || user.email || "Player";
 
       const room = await storage.getRoomByCode(code);
       if (!room || !room.isActive) {
