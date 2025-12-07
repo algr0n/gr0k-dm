@@ -602,9 +602,103 @@ export async function registerRoutes(
         }
       }
 
+      // Parse and handle [COMBAT_START] tag - auto-initiate combat
+      if (/\[COMBAT_START\]/i.test(dmResponse)) {
+        const existingCombat = roomCombatState.get(roomCode);
+        if (!existingCombat || !existingCombat.isActive) {
+          console.log(`[Combat] AI triggered COMBAT_START for room ${roomCode}`);
+          
+          const initiatives: InitiativeEntry[] = [];
+          
+          for (const player of players) {
+            const character = await storage.getCharacterByPlayer(player.id, room.id);
+            const characterName = character?.name || player.name;
+            const stats = (character?.stats || {}) as Record<string, unknown>;
+            const dexMod = typeof stats.dexterity === "number" 
+              ? Math.floor((stats.dexterity - 10) / 2) 
+              : 0;
+            
+            const roll = Math.floor(Math.random() * 20) + 1;
+            const total = roll + dexMod;
+            
+            initiatives.push({
+              playerId: player.id,
+              playerName: player.name,
+              characterName,
+              roll,
+              modifier: dexMod,
+              total,
+            });
+          }
+          
+          const dmRoll = Math.floor(Math.random() * 20) + 1;
+          const dmModifier = 2;
+          initiatives.push({
+            playerId: "DM",
+            playerName: "Grok DM",
+            characterName: "Enemies",
+            roll: dmRoll,
+            modifier: dmModifier,
+            total: dmRoll + dmModifier,
+          });
+          
+          initiatives.sort((a, b) => b.total - a.total || b.roll - a.roll);
+          
+          const combatState: CombatState = {
+            isActive: true,
+            currentTurnIndex: 0,
+            initiatives,
+          };
+          
+          roomCombatState.set(roomCode, combatState);
+          
+          const combatMessage: Message = {
+            id: randomUUID(),
+            roomId: room.id,
+            playerName: "System",
+            content: `Combat has begun! Initiative order: ${initiatives.map((i, idx) => `${idx + 1}. ${i.characterName} (${i.total})`).join(", ")}`,
+            type: "system",
+            timestamp: new Date().toISOString(),
+          };
+          
+          const combatHistory = [...(room.messageHistory || []), combatMessage].slice(-100);
+          await storage.updateRoom(room.id, { messageHistory: combatHistory, lastActivityAt: new Date() });
+          
+          broadcastToRoom(roomCode, { type: "message", message: combatMessage });
+          broadcastToRoom(roomCode, { type: "combat_update", combat: combatState });
+        }
+      }
+      
+      // Parse and handle [COMBAT_END] tag - auto-end combat
+      if (/\[COMBAT_END\]/i.test(dmResponse)) {
+        const existingCombat = roomCombatState.get(roomCode);
+        if (existingCombat && existingCombat.isActive) {
+          console.log(`[Combat] AI triggered COMBAT_END for room ${roomCode}`);
+          
+          roomCombatState.delete(roomCode);
+          
+          const endMessage: Message = {
+            id: randomUUID(),
+            roomId: room.id,
+            playerName: "System",
+            content: "Combat has ended.",
+            type: "system",
+            timestamp: new Date().toISOString(),
+          };
+          
+          const endHistory = [...(room.messageHistory || []), endMessage].slice(-100);
+          await storage.updateRoom(room.id, { messageHistory: endHistory, lastActivityAt: new Date() });
+          
+          broadcastToRoom(roomCode, { type: "message", message: endMessage });
+          broadcastToRoom(roomCode, { type: "combat_update", combat: null });
+        }
+      }
+
       const cleanedResponse = dmResponse
         .replace(/\[ITEM:\s*[^\]]+\]/gi, "")
         .replace(/\[REMOVE_ITEM:\s*[^\]]+\]/gi, "")
+        .replace(/\[COMBAT_START\]/gi, "")
+        .replace(/\[COMBAT_END\]/gi, "")
         .trim();
 
       const dmMessage: Message = {

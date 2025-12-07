@@ -170,6 +170,11 @@ Style:
 
 Dice results: 20=amazing, 15-19=success, 10-14=partial, 5-9=struggle, 1=disaster.
 
+COMBAT MANAGEMENT:
+- When combat begins (enemies attack, players initiate combat, hostile encounter starts): [COMBAT_START]
+- When combat ends (all enemies defeated, enemies flee, combat resolved peacefully): [COMBAT_END]
+Include these tags when the combat state changes. Combat mode helps players track turns.
+
 INVENTORY MANAGEMENT: 
 - When a player picks up or receives an item: [ITEM: PlayerName | ItemName | Quantity]
 - When a player uses, consumes, or loses an item: [REMOVE_ITEM: PlayerName | ItemName | Quantity]
@@ -188,6 +193,11 @@ Style:
 - End with clear action prompt
 
 Dice (d10): 10=crit, 7-9=success, 5-6=partial, 2-4=fail, 1=disaster.
+
+COMBAT MANAGEMENT:
+- When combat begins (shootout starts, enemies attack, firefight breaks out): [COMBAT_START]
+- When combat ends (enemies flatlined, situation de-escalated, combat resolved): [COMBAT_END]
+Include these tags when the combat state changes. Combat mode helps players track turns.
 
 INVENTORY MANAGEMENT:
 - When a player gets an item: [ITEM: PlayerName | ItemName | Quantity]
