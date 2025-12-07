@@ -7,8 +7,10 @@ import {
   type InventoryItem, type InsertInventoryItem,
   type SavedCharacter, type InsertSavedCharacter,
   type SavedInventoryItem, type InsertSavedInventoryItem,
+  type RoomCharacter, type InsertRoomCharacter, type UpdateRoomCharacter,
+  type CharacterStatusEffect, type InsertStatusEffect,
   rooms, players, diceRolls, users, characters, inventoryItems,
-  savedCharacters, savedInventoryItems
+  savedCharacters, savedInventoryItems, roomCharacters, characterStatusEffects
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, lt, sql, count } from "drizzle-orm";
@@ -95,6 +97,21 @@ export interface IStorage {
   addToSavedInventory(insert: InsertSavedInventoryItem): Promise<SavedInventoryItem>;
   updateSavedInventoryItem(id: string, updates: Partial<SavedInventoryItem>): Promise<SavedInventoryItem | undefined>;
   deleteSavedInventoryItem(id: string): Promise<boolean>;
+
+  // Room Characters (character instances in game rooms)
+  getRoomCharacter(id: string): Promise<RoomCharacter | undefined>;
+  getRoomCharactersByRoom(roomId: string): Promise<RoomCharacter[]>;
+  getRoomCharacterByUserInRoom(userId: string, roomId: string): Promise<RoomCharacter | undefined>;
+  createRoomCharacter(character: InsertRoomCharacter): Promise<RoomCharacter>;
+  updateRoomCharacter(id: string, updates: UpdateRoomCharacter): Promise<RoomCharacter | undefined>;
+  deleteRoomCharacter(id: string): Promise<boolean>;
+  deleteRoomCharactersByRoom(roomId: string): Promise<boolean>;
+
+  // Status Effects
+  getStatusEffectsByRoomCharacter(roomCharacterId: string): Promise<CharacterStatusEffect[]>;
+  createStatusEffect(effect: InsertStatusEffect): Promise<CharacterStatusEffect>;
+  deleteStatusEffect(id: string): Promise<boolean>;
+  deleteStatusEffectsByRoomCharacter(roomCharacterId: string): Promise<boolean>;
 }
 
 class DatabaseStorage implements IStorage {
@@ -464,6 +481,75 @@ class DatabaseStorage implements IStorage {
 
   async deleteSavedInventoryItem(id: string): Promise<boolean> {
     await db.delete(savedInventoryItems).where(eq(savedInventoryItems.id, id));
+    return true;
+  }
+
+  // Room Characters (character instances in game rooms)
+  async getRoomCharacter(id: string): Promise<RoomCharacter | undefined> {
+    return await db.query.roomCharacters.findFirst({ where: eq(roomCharacters.id, id) });
+  }
+
+  async getRoomCharactersByRoom(roomId: string): Promise<RoomCharacter[]> {
+    return await db.select().from(roomCharacters)
+      .where(eq(roomCharacters.roomId, roomId))
+      .orderBy(roomCharacters.joinedAt);
+  }
+
+  async getRoomCharacterByUserInRoom(userId: string, roomId: string): Promise<RoomCharacter | undefined> {
+    return await db.query.roomCharacters.findFirst({
+      where: and(
+        eq(roomCharacters.userId, userId),
+        eq(roomCharacters.roomId, roomId)
+      )
+    });
+  }
+
+  async createRoomCharacter(character: InsertRoomCharacter): Promise<RoomCharacter> {
+    const result = await db.insert(roomCharacters)
+      .values(character)
+      .returning();
+    return result[0];
+  }
+
+  async updateRoomCharacter(id: string, updates: UpdateRoomCharacter): Promise<RoomCharacter | undefined> {
+    const result = await db.update(roomCharacters)
+      .set(updates)
+      .where(eq(roomCharacters.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteRoomCharacter(id: string): Promise<boolean> {
+    await db.delete(roomCharacters).where(eq(roomCharacters.id, id));
+    return true;
+  }
+
+  async deleteRoomCharactersByRoom(roomId: string): Promise<boolean> {
+    await db.delete(roomCharacters).where(eq(roomCharacters.roomId, roomId));
+    return true;
+  }
+
+  // Status Effects
+  async getStatusEffectsByRoomCharacter(roomCharacterId: string): Promise<CharacterStatusEffect[]> {
+    return await db.select().from(characterStatusEffects)
+      .where(eq(characterStatusEffects.roomCharacterId, roomCharacterId))
+      .orderBy(characterStatusEffects.createdAt);
+  }
+
+  async createStatusEffect(effect: InsertStatusEffect): Promise<CharacterStatusEffect> {
+    const result = await db.insert(characterStatusEffects)
+      .values(effect)
+      .returning();
+    return result[0];
+  }
+
+  async deleteStatusEffect(id: string): Promise<boolean> {
+    await db.delete(characterStatusEffects).where(eq(characterStatusEffects.id, id));
+    return true;
+  }
+
+  async deleteStatusEffectsByRoomCharacter(roomCharacterId: string): Promise<boolean> {
+    await db.delete(characterStatusEffects).where(eq(characterStatusEffects.roomCharacterId, roomCharacterId));
     return true;
   }
 }

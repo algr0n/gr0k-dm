@@ -349,3 +349,148 @@ export const insertSavedInventoryItemSchema = createInsertSchema(savedInventoryI
   .omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertSavedInventoryItem = z.infer<typeof insertSavedInventoryItemSchema>;
 export type SavedInventoryItem = typeof savedInventoryItems.$inferSelect;
+
+// Room character instances - when a saved character joins a game room
+export const roomCharacters = pgTable("room_characters", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  roomId: varchar("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  savedCharacterId: varchar("saved_character_id").notNull().references(() => savedCharacters.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  playerName: text("player_name").notNull(),
+  currentHp: integer("current_hp").notNull(),
+  isAlive: boolean("is_alive").notNull().default(true),
+  experience: integer("experience").notNull().default(0),
+  temporaryHp: integer("temporary_hp").notNull().default(0),
+  gold: integer("gold").notNull().default(0),
+  notes: text("notes"),
+  joinedAt: timestamp("joined_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_room_characters_room").on(table.roomId),
+  index("idx_room_characters_user").on(table.userId),
+  index("idx_room_characters_saved").on(table.savedCharacterId),
+]);
+
+export const insertRoomCharacterSchema = createInsertSchema(roomCharacters).omit({
+  id: true,
+  joinedAt: true,
+});
+export type InsertRoomCharacter = z.infer<typeof insertRoomCharacterSchema>;
+export type RoomCharacter = typeof roomCharacters.$inferSelect;
+
+// Relations for room characters
+export const roomCharactersRelations = relations(roomCharacters, ({ one, many }) => ({
+  room: one(rooms, {
+    fields: [roomCharacters.roomId],
+    references: [rooms.id],
+  }),
+  savedCharacter: one(savedCharacters, {
+    fields: [roomCharacters.savedCharacterId],
+    references: [savedCharacters.id],
+  }),
+  user: one(users, {
+    fields: [roomCharacters.userId],
+    references: [users.id],
+  }),
+  statusEffects: many(characterStatusEffects),
+}));
+
+// Predefined status effects per game system
+export const statusEffectDefinitions: Record<GameSystem, Array<{name: string; description: string}>> = {
+  dnd: [
+    { name: "Blinded", description: "Can't see, auto-fail sight-based checks, attack rolls have disadvantage" },
+    { name: "Charmed", description: "Can't attack the charmer, charmer has advantage on social checks" },
+    { name: "Deafened", description: "Can't hear, auto-fail hearing-based checks" },
+    { name: "Frightened", description: "Disadvantage on ability checks and attacks while source is visible" },
+    { name: "Grappled", description: "Speed becomes 0, can't benefit from speed bonuses" },
+    { name: "Incapacitated", description: "Can't take actions or reactions" },
+    { name: "Invisible", description: "Can't be seen, attacks have advantage, attacks against have disadvantage" },
+    { name: "Paralyzed", description: "Incapacitated, can't move or speak, auto-fail STR/DEX saves" },
+    { name: "Petrified", description: "Transformed to stone, incapacitated, resistant to damage" },
+    { name: "Poisoned", description: "Disadvantage on attack rolls and ability checks" },
+    { name: "Prone", description: "Disadvantage on attacks, melee attacks against have advantage" },
+    { name: "Restrained", description: "Speed 0, attacks have disadvantage, DEX saves have disadvantage" },
+    { name: "Stunned", description: "Incapacitated, can't move, can only speak falteringly" },
+    { name: "Unconscious", description: "Incapacitated, can't move or speak, unaware of surroundings" },
+    { name: "Exhaustion", description: "Cumulative levels of fatigue with increasing penalties" },
+    { name: "Concentration", description: "Maintaining a spell, can be broken by damage" },
+  ],
+  cyberpunk: [
+    { name: "Stun", description: "Unable to act, -4 to all actions" },
+    { name: "Wounded", description: "Critical injury, reduced effectiveness" },
+    { name: "Mortally Wounded", description: "Dying, requires immediate medical attention" },
+    { name: "Burning", description: "Taking fire damage each turn" },
+    { name: "Prone", description: "On the ground, harder to hit at range, easier in melee" },
+    { name: "Grappled", description: "Held by another character" },
+    { name: "Blinded", description: "Cannot see, severe penalties to actions" },
+    { name: "Deafened", description: "Cannot hear, penalties to awareness" },
+    { name: "Drugged", description: "Under influence of drugs, various effects" },
+    { name: "Drunk", description: "Intoxicated, penalties to coordination" },
+    { name: "Humanity Loss", description: "Suffering cyberpsychosis effects" },
+    { name: "Suppressed", description: "Taking cover from autofire" },
+    { name: "EMP'd", description: "Cyberware temporarily disabled" },
+    { name: "Hacked", description: "Compromised by netrunner" },
+  ],
+};
+
+// Character status effects table (active effects on room characters)
+export const characterStatusEffects = pgTable("character_status_effects", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  roomCharacterId: varchar("room_character_id").notNull().references(() => roomCharacters.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  isPredefined: boolean("is_predefined").notNull().default(true),
+  duration: text("duration"),
+  appliedByDm: boolean("applied_by_dm").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => [
+  index("idx_status_effects_character").on(table.roomCharacterId),
+]);
+
+export const insertStatusEffectSchema = createInsertSchema(characterStatusEffects).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertStatusEffect = z.infer<typeof insertStatusEffectSchema>;
+export type CharacterStatusEffect = typeof characterStatusEffects.$inferSelect;
+
+// Relations for status effects
+export const characterStatusEffectsRelations = relations(characterStatusEffects, ({ one }) => ({
+  roomCharacter: one(roomCharacters, {
+    fields: [characterStatusEffects.roomCharacterId],
+    references: [roomCharacters.id],
+  }),
+}));
+
+// Relations for saved characters (defined after roomCharacters to avoid reference error)
+export const savedCharactersRelations = relations(savedCharacters, ({ one, many }) => ({
+  user: one(users, {
+    fields: [savedCharacters.userId],
+    references: [users.id],
+  }),
+  roomCharacters: many(roomCharacters),
+  inventoryItems: many(savedInventoryItems),
+}));
+
+// Schema for DM to update character stats
+export const updateRoomCharacterSchema = z.object({
+  currentHp: z.number().int().optional(),
+  temporaryHp: z.number().int().min(0).optional(),
+  isAlive: z.boolean().optional(),
+  experience: z.number().int().min(0).optional(),
+  gold: z.number().int().min(0).optional(),
+  notes: z.string().optional(),
+});
+export type UpdateRoomCharacter = z.infer<typeof updateRoomCharacterSchema>;
+
+// Schema for DM to update base character stats
+export const updateCharacterStatsSchema = z.object({
+  level: z.number().int().min(1).max(20).optional(),
+  maxHp: z.number().int().min(1).optional(),
+  ac: z.number().int().min(0).optional(),
+  speed: z.number().int().min(0).optional(),
+  initiativeModifier: z.number().int().optional(),
+  stats: z.record(z.unknown()).optional(),
+  skills: z.array(z.string()).optional(),
+  spells: z.array(z.string()).optional(),
+});
+export type UpdateCharacterStats = z.infer<typeof updateCharacterStatsSchema>;
