@@ -380,10 +380,10 @@ export default function Characters() {
 
         <Dialog open={createDialogOpen} onOpenChange={(open) => {
           if (!open) closeDialog();
-          else openCreateDialog();
+          else setCreateDialogOpen(true);
         }}>
           <DialogTrigger asChild>
-            <Button data-testid="button-create-character">
+            <Button onClick={openCreateDialog} data-testid="button-create-character">
               <Plus className="mr-2 h-4 w-4" />
               New Character
             </Button>
