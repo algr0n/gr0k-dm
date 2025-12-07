@@ -9,6 +9,23 @@ import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, typ
 
 const roomConnections = new Map<string, Set<WebSocket>>();
 
+interface InitiativeEntry {
+  playerId: string;
+  playerName: string;
+  characterName: string;
+  roll: number;
+  modifier: number;
+  total: number;
+}
+
+interface CombatState {
+  isActive: boolean;
+  currentTurnIndex: number;
+  initiatives: InitiativeEntry[];
+}
+
+const roomCombatState = new Map<string, CombatState>();
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -272,6 +289,135 @@ export async function registerRoutes(
           console.error("DM response error:", error);
         }
       }
+    }
+
+    // Combat/Initiative handlers
+    if (message.type === "start_combat") {
+      // Only host can start combat
+      if (room.hostName !== playerName) {
+        ws.send(JSON.stringify({ type: "error", content: "Only the host can start combat." }));
+        return;
+      }
+
+      // Get all players and their characters
+      const players = await storage.getPlayersByRoom(room.id);
+      const characters = await storage.getCharactersByRoom(room.id);
+      
+      const initiatives: InitiativeEntry[] = [];
+      
+      for (const player of players) {
+        const character = characters.find(c => c.playerId === player.id);
+        const characterName = character?.name || player.name;
+        const stats = character?.stats || {};
+        
+        // Get DEX modifier (default to 0 if not set)
+        const dexMod = typeof stats.dexterity === "number" 
+          ? Math.floor((stats.dexterity - 10) / 2) 
+          : 0;
+        
+        // Roll 1d20 for initiative
+        const roll = Math.floor(Math.random() * 20) + 1;
+        const total = roll + dexMod;
+        
+        initiatives.push({
+          playerId: player.id,
+          playerName: player.name,
+          characterName,
+          roll,
+          modifier: dexMod,
+          total,
+        });
+      }
+      
+      // Sort by total (highest first), then by roll for ties
+      initiatives.sort((a, b) => b.total - a.total || b.roll - a.roll);
+      
+      const combatState: CombatState = {
+        isActive: true,
+        currentTurnIndex: 0,
+        initiatives,
+      };
+      
+      roomCombatState.set(roomCode, combatState);
+      
+      // Create system message about combat starting
+      const combatMessage: Message = {
+        id: randomUUID(),
+        roomId: room.id,
+        playerName: "System",
+        content: `Combat has begun! Initiative order: ${initiatives.map((i, idx) => `${idx + 1}. ${i.characterName} (${i.total})`).join(", ")}`,
+        type: "system",
+        timestamp: new Date().toISOString(),
+      };
+      
+      const updatedHistory = [...(room.messageHistory || []), combatMessage].slice(-100);
+      await storage.updateRoom(room.id, { messageHistory: updatedHistory, lastActivityAt: new Date() });
+      
+      broadcastToRoom(roomCode, { type: "message", message: combatMessage });
+      broadcastToRoom(roomCode, { type: "combat_update", combat: combatState });
+    }
+
+    if (message.type === "next_turn") {
+      if (room.hostName !== playerName) {
+        ws.send(JSON.stringify({ type: "error", content: "Only the host can advance turns." }));
+        return;
+      }
+      
+      const combatState = roomCombatState.get(roomCode);
+      if (!combatState || !combatState.isActive) {
+        ws.send(JSON.stringify({ type: "error", content: "No active combat." }));
+        return;
+      }
+      
+      // Advance to next turn
+      combatState.currentTurnIndex = (combatState.currentTurnIndex + 1) % combatState.initiatives.length;
+      
+      const currentPlayer = combatState.initiatives[combatState.currentTurnIndex];
+      
+      // Broadcast turn change
+      const turnMessage: Message = {
+        id: randomUUID(),
+        roomId: room.id,
+        playerName: "System",
+        content: `It's ${currentPlayer.characterName}'s turn!`,
+        type: "system",
+        timestamp: new Date().toISOString(),
+      };
+      
+      const updatedHistory = [...(room.messageHistory || []), turnMessage].slice(-100);
+      await storage.updateRoom(room.id, { messageHistory: updatedHistory, lastActivityAt: new Date() });
+      
+      broadcastToRoom(roomCode, { type: "message", message: turnMessage });
+      broadcastToRoom(roomCode, { type: "combat_update", combat: combatState });
+    }
+
+    if (message.type === "end_combat") {
+      if (room.hostName !== playerName) {
+        ws.send(JSON.stringify({ type: "error", content: "Only the host can end combat." }));
+        return;
+      }
+      
+      roomCombatState.delete(roomCode);
+      
+      const endMessage: Message = {
+        id: randomUUID(),
+        roomId: room.id,
+        playerName: "System",
+        content: "Combat has ended.",
+        type: "system",
+        timestamp: new Date().toISOString(),
+      };
+      
+      const updatedHistory = [...(room.messageHistory || []), endMessage].slice(-100);
+      await storage.updateRoom(room.id, { messageHistory: updatedHistory, lastActivityAt: new Date() });
+      
+      broadcastToRoom(roomCode, { type: "message", message: endMessage });
+      broadcastToRoom(roomCode, { type: "combat_update", combat: null });
+    }
+
+    if (message.type === "get_combat_state") {
+      const combatState = roomCombatState.get(roomCode) || null;
+      ws.send(JSON.stringify({ type: "combat_update", combat: combatState }));
     }
   }
 

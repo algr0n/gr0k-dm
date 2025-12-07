@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX } from "lucide-react";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
@@ -19,6 +19,21 @@ import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { type Message, type Room, type Player, type Character, type InventoryItem, gameSystemLabels, type GameSystem } from "@shared/schema";
 import { SpellBrowser } from "@/components/spell-browser";
+
+interface InitiativeEntry {
+  playerId: string;
+  playerName: string;
+  characterName: string;
+  roll: number;
+  modifier: number;
+  total: number;
+}
+
+interface CombatState {
+  isActive: boolean;
+  currentTurnIndex: number;
+  initiatives: InitiativeEntry[];
+}
 
 export default function RoomPage() {
   const { code } = useParams<{ code: string }>();
@@ -33,6 +48,7 @@ export default function RoomPage() {
   const [activeTab, setActiveTab] = useState("chat");
   const [gameEnded, setGameEnded] = useState(false);
   const [isRoomPublic, setIsRoomPublic] = useState(false);
+  const [combatState, setCombatState] = useState<CombatState | null>(null);
   
   // View other player's character state
   const [viewingPlayerId, setViewingPlayerId] = useState<string | null>(null);
@@ -294,6 +310,7 @@ export default function RoomPage() {
 
     ws.onopen = () => {
       setIsConnected(true);
+      ws.send(JSON.stringify({ type: "get_combat_state" }));
     };
 
     ws.onmessage = (event) => {
@@ -310,8 +327,6 @@ export default function RoomPage() {
           description: "The host has ended this game session.",
         });
       } else if (data.type === "inventory_update") {
-        // Refetch inventory when items are granted to our character
-        // Check if the playerId in the update matches our playerId
         if (data.playerId === playerId && existingCharacter?.id) {
           queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter.id, "inventory"] });
         }
@@ -330,6 +345,8 @@ export default function RoomPage() {
           sessionStorage.removeItem("playerId");
           setLocation("/");
         }
+      } else if (data.type === "combat_update") {
+        setCombatState(data.combat);
       } else if (data.type === "error") {
         toast({
           title: "Error",
@@ -383,6 +400,24 @@ export default function RoomPage() {
       title: "Room code copied",
       description: "Share this code with your players!",
     });
+  };
+
+  const startCombat = () => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "start_combat" }));
+    }
+  };
+
+  const nextTurn = () => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "next_turn" }));
+    }
+  };
+
+  const endCombat = () => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: "end_combat" }));
+    }
   };
 
   if (isLoading) {
@@ -493,6 +528,79 @@ export default function RoomPage() {
               ))}
             </div>
           </ScrollArea>
+        </div>
+
+        <div className="p-4 border-t">
+          <div className="flex items-center gap-2 mb-3">
+            <Shield className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">Combat</span>
+          </div>
+          
+          {combatState?.isActive ? (
+            <div className="space-y-2">
+              <ScrollArea className="h-32">
+                <div className="space-y-1">
+                  {combatState.initiatives.map((entry, idx) => (
+                    <div
+                      key={entry.playerId}
+                      className={cn(
+                        "flex items-center justify-between text-sm px-2 py-1 rounded",
+                        idx === combatState.currentTurnIndex && "bg-primary/20 font-medium"
+                      )}
+                      data-testid={`initiative-${entry.playerId}`}
+                    >
+                      <span className="truncate flex-1">
+                        {idx + 1}. {entry.characterName}
+                      </span>
+                      <Badge variant="outline" className="ml-2">
+                        {entry.total}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+              
+              {isHost && !gameEnded && (
+                <div className="flex gap-2 mt-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={nextTurn}
+                    data-testid="button-next-turn"
+                  >
+                    <SkipForward className="h-4 w-4 mr-1" />
+                    Next
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={endCombat}
+                    data-testid="button-end-combat"
+                  >
+                    <StopCircle className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
+            </div>
+          ) : (
+            isHost && !gameEnded && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={startCombat}
+                data-testid="button-start-combat"
+              >
+                <Swords className="h-4 w-4 mr-2" />
+                Start Combat
+              </Button>
+            )
+          )}
+          
+          {!combatState?.isActive && !isHost && (
+            <p className="text-xs text-muted-foreground">No active combat</p>
+          )}
         </div>
 
         <div className="p-4 border-t space-y-3">
