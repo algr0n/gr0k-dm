@@ -17,7 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, gameSystemLabels, type GameSystem } from "@shared/schema";
+import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, type RoomCharacter, type CharacterStatusEffect, gameSystemLabels, type GameSystem, statusEffectDefinitions } from "@shared/schema";
 import { SpellBrowser } from "@/components/spell-browser";
 import { FloatingCharacterPanel } from "@/components/floating-character-panel";
 import { Heart } from "lucide-react";
@@ -229,6 +229,17 @@ export default function RoomPage() {
   const { data: savedCharacters, isLoading: isLoadingSavedCharacters } = useQuery<SavedCharacter[]>({
     queryKey: ["/api/saved-characters"],
     enabled: !!user && showLoadCharacterDialog,
+  });
+
+  // Fetch current player's room character data (new system)
+  interface MyCharacterData {
+    roomCharacter: RoomCharacter;
+    savedCharacter: SavedCharacter;
+    statusEffects: CharacterStatusEffect[];
+  }
+  const { data: myCharacterData, isLoading: isLoadingMyCharacter } = useQuery<MyCharacterData>({
+    queryKey: ["/api/rooms", code, "my-character"],
+    enabled: !!code && !!user,
   });
 
   // Build a map of item names (lowercase) to item data for quick lookup
@@ -1151,692 +1162,231 @@ export default function RoomPage() {
 
           <TabsContent value="character" className="flex-1 mt-0 overflow-auto data-[state=inactive]:hidden">
             <div className="max-w-2xl mx-auto space-y-4 p-4">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between gap-4">
-                  <div>
-                    <CardTitle className="font-serif">Character Sheet</CardTitle>
-                    <p className="text-sm text-muted-foreground">Your character data is saved to the server.</p>
-                  </div>
-                  <div className="flex gap-2 flex-wrap">
-                    {user && !existingCharacter && (
-                      <Button 
-                        variant="outline"
-                        onClick={() => setShowLoadCharacterDialog(true)}
-                        data-testid="button-load-saved-character"
-                      >
-                        <FolderOpen className="h-4 w-4 mr-2" />
-                        Load Saved
-                      </Button>
-                    )}
-                    <Button 
-                      onClick={() => saveCharacterMutation.mutate()}
-                      disabled={saveCharacterMutation.isPending || !characterName.trim()}
-                      data-testid="button-save-character"
-                    >
-                      {saveCharacterMutation.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      ) : (
-                        <Save className="h-4 w-4 mr-2" />
-                      )}
-                      Save
+              {isLoadingMyCharacter ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : !myCharacterData ? (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <User className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+                    <h3 className="font-serif text-xl mb-2">No Character in This Game</h3>
+                    <p className="text-muted-foreground mb-4">
+                      You need to select a character to join this game.
+                    </p>
+                    <Button onClick={() => setLocation("/characters")} data-testid="button-go-to-characters">
+                      Manage Characters
                     </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-sm text-muted-foreground">Character Name</label>
-                      <Input 
-                        placeholder="Enter character name" 
-                        value={characterName}
-                        onChange={(e) => setCharacterName(e.target.value)}
-                        data-testid="input-character-name" 
-                      />
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <CardTitle className="font-serif text-2xl" data-testid="text-character-name">
+                          {myCharacterData.savedCharacter.characterName}
+                        </CardTitle>
+                        <p className="text-muted-foreground" data-testid="text-character-class-race">
+                          Level {myCharacterData.savedCharacter.level || 1}{" "}
+                          {myCharacterData.savedCharacter.race && `${myCharacterData.savedCharacter.race} `}
+                          {myCharacterData.savedCharacter.class || "Adventurer"}
+                        </p>
+                      </div>
+                      {!myCharacterData.roomCharacter.isAlive && (
+                        <Badge variant="destructive" className="text-sm" data-testid="badge-dead">
+                          <XCircle className="h-3 w-3 mr-1" />
+                          Dead
+                        </Badge>
+                      )}
                     </div>
-                    <div>
-                      <label className="text-sm text-muted-foreground">Player</label>
-                      <Input value={playerName} disabled data-testid="input-player-name-display" />
-                    </div>
-                  </div>
-                  
-                  {roomData.gameSystem === "dnd" && (
-                    <>
-                      <Separator />
-                      <div className="grid grid-cols-3 gap-4">
-                        <div>
-                          <label className="text-sm text-muted-foreground">Class {existingCharacter && "(Locked)"}</label>
-                          <Select 
-                            value={characterStats.class || ""} 
-                            onValueChange={(value) => {
-                              const hitDiceByClass: Record<string, number> = {
-                                Barbarian: 12, Bard: 8, Cleric: 8, Druid: 8,
-                                Fighter: 10, Monk: 8, Paladin: 10, Ranger: 10,
-                                Rogue: 8, Sorcerer: 6, Warlock: 8, Wizard: 6,
-                              };
-                              const hitDie = hitDiceByClass[value] || 8;
-                              const conMod = Math.floor(((characterStats.con || 10) - 10) / 2);
-                              const startingHp = hitDie + conMod;
-                              setCharacterStats(prev => ({ 
-                                ...prev, 
-                                class: value,
-                                maxHp: startingHp,
-                                currentHp: startingHp,
-                              }));
-                              toast({
-                                title: `Class: ${value}`,
-                                description: `Starting HP set to ${startingHp} (d${hitDie} max + CON mod ${conMod >= 0 ? '+' : ''}${conMod})`,
-                              });
-                            }}
-                            disabled={!!existingCharacter}
-                          >
-                            <SelectTrigger data-testid="select-dnd-class">
-                              <SelectValue placeholder="Select class" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Barbarian">Barbarian</SelectItem>
-                              <SelectItem value="Bard">Bard</SelectItem>
-                              <SelectItem value="Cleric">Cleric</SelectItem>
-                              <SelectItem value="Druid">Druid</SelectItem>
-                              <SelectItem value="Fighter">Fighter</SelectItem>
-                              <SelectItem value="Monk">Monk</SelectItem>
-                              <SelectItem value="Paladin">Paladin</SelectItem>
-                              <SelectItem value="Ranger">Ranger</SelectItem>
-                              <SelectItem value="Rogue">Rogue</SelectItem>
-                              <SelectItem value="Sorcerer">Sorcerer</SelectItem>
-                              <SelectItem value="Warlock">Warlock</SelectItem>
-                              <SelectItem value="Wizard">Wizard</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <label className="text-sm text-muted-foreground">Race {existingCharacter && "(Locked)"}</label>
-                          <Select 
-                            value={characterStats.race || ""} 
-                            onValueChange={(value) => {
-                              const racialBonuses: Record<string, { stats: Record<string, number>; desc: string }> = {
-                                Dragonborn: { stats: { str: 2, cha: 1 }, desc: "+2 STR, +1 CHA" },
-                                Dwarf: { stats: { con: 2 }, desc: "+2 CON" },
-                                Elf: { stats: { dex: 2 }, desc: "+2 DEX" },
-                                Gnome: { stats: { int: 2 }, desc: "+2 INT" },
-                                "Half-Elf": { stats: { cha: 2 }, desc: "+2 CHA" },
-                                "Half-Orc": { stats: { str: 2, con: 1 }, desc: "+2 STR, +1 CON" },
-                                Halfling: { stats: { dex: 2 }, desc: "+2 DEX" },
-                                Human: { stats: { str: 1, dex: 1, con: 1, int: 1, wis: 1, cha: 1 }, desc: "+1 to all" },
-                                Tiefling: { stats: { cha: 2, int: 1 }, desc: "+2 CHA, +1 INT" },
-                              };
-                              const bonus = racialBonuses[value];
-                              const abilityStats = ["str", "dex", "con", "int", "wis", "cha"];
-                              const newStats: Record<string, any> = { ...characterStats, race: value };
-                              
-                              // Store base stats if not already stored (first time setting abilities)
-                              if (!characterStats.baseStats) {
-                                const baseStats: Record<string, number> = {};
-                                abilityStats.forEach(stat => {
-                                  baseStats[stat] = characterStats[stat] || 10;
-                                });
-                                newStats.baseStats = baseStats;
-                              }
-                              
-                              // Reset to base stats before applying new bonuses
-                              const baseStats = newStats.baseStats || {};
-                              abilityStats.forEach(stat => {
-                                newStats[stat] = baseStats[stat] || 10;
-                              });
-                              
-                              // Apply new racial bonuses
-                              if (bonus) {
-                                Object.entries(bonus.stats).forEach(([stat, mod]) => {
-                                  newStats[stat] = (newStats[stat] || 10) + mod;
-                                });
-                                setCharacterStats(newStats);
-                                toast({
-                                  title: `Race: ${value}`,
-                                  description: `Applied racial bonuses: ${bonus.desc}`,
-                                });
-                              } else {
-                                setCharacterStats(newStats);
-                              }
-                            }}
-                            disabled={!!existingCharacter}
-                          >
-                            <SelectTrigger data-testid="select-dnd-race">
-                              <SelectValue placeholder="Select race" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Dragonborn">Dragonborn</SelectItem>
-                              <SelectItem value="Dwarf">Dwarf</SelectItem>
-                              <SelectItem value="Elf">Elf</SelectItem>
-                              <SelectItem value="Gnome">Gnome</SelectItem>
-                              <SelectItem value="Half-Elf">Half-Elf</SelectItem>
-                              <SelectItem value="Half-Orc">Half-Orc</SelectItem>
-                              <SelectItem value="Halfling">Halfling</SelectItem>
-                              <SelectItem value="Human">Human</SelectItem>
-                              <SelectItem value="Tiefling">Tiefling</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <label className="text-sm text-muted-foreground">Level</label>
-                          <div className="flex gap-2 items-center">
-                            <Input 
-                              type="number" 
-                              value={characterStats.level || 1}
-                              onChange={(e) => setCharacterStats(prev => ({ ...prev, level: parseInt(e.target.value) || 1 }))}
-                              min={1} 
-                              max={20} 
-                              data-testid="input-dnd-level" 
-                            />
-                            {existingCharacter && (characterStats.level || 1) < 20 && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  const hitDiceByClass: Record<string, number> = {
-                                    Barbarian: 12, Bard: 8, Cleric: 8, Druid: 8,
-                                    Fighter: 10, Monk: 8, Paladin: 10, Ranger: 10,
-                                    Rogue: 8, Sorcerer: 6, Warlock: 8, Wizard: 6,
-                                  };
-                                  const hitDie = hitDiceByClass[characterStats.class] || 8;
-                                  const roll = Math.floor(Math.random() * hitDie) + 1;
-                                  const conMod = Math.floor(((characterStats.con || 10) - 10) / 2);
-                                  const hpIncrease = Math.max(1, roll + conMod);
-                                  const newLevel = (characterStats.level || 1) + 1;
-                                  const newMaxHp = (characterStats.maxHp || 0) + hpIncrease;
-                                  const newCurrentHp = (characterStats.currentHp || 0) + hpIncrease;
-                                  setCharacterStats(prev => ({
-                                    ...prev,
-                                    level: newLevel,
-                                    maxHp: newMaxHp,
-                                    currentHp: newCurrentHp,
-                                  }));
-                                  toast({
-                                    title: `Level Up! Now Level ${newLevel}`,
-                                    description: `Rolled 1d${hitDie} (${roll}) + CON mod (${conMod >= 0 ? '+' : ''}${conMod}) = +${hpIncrease} HP`,
-                                  });
-                                }}
-                                data-testid="button-level-up"
-                              >
-                                Level Up
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <Separator />
-                      <div>
-                        <label className="text-sm text-muted-foreground mb-2 block">Hit Points & Armor</label>
-                        <div className="grid grid-cols-4 gap-2">
-                          <div className="text-center">
-                            <label className="text-xs text-muted-foreground">Current HP</label>
-                            <Input 
-                              type="number" 
-                              value={characterStats.currentHp || 0}
-                              onChange={(e) => setCharacterStats(prev => ({ ...prev, currentHp: parseInt(e.target.value) || 0 }))}
-                              min={0}
-                              className="text-center"
-                              data-testid="input-dnd-current-hp"
-                            />
-                          </div>
-                          <div className="text-center">
-                            <label className="text-xs text-muted-foreground">Max HP</label>
-                            <Input 
-                              type="number" 
-                              value={characterStats.maxHp || 0}
-                              onChange={(e) => setCharacterStats(prev => ({ ...prev, maxHp: parseInt(e.target.value) || 0 }))}
-                              min={0}
-                              className="text-center"
-                              data-testid="input-dnd-max-hp"
-                            />
-                          </div>
-                          <div className="text-center">
-                            <label className="text-xs text-muted-foreground">Temp HP</label>
-                            <Input 
-                              type="number" 
-                              value={characterStats.tempHp || 0}
-                              onChange={(e) => setCharacterStats(prev => ({ ...prev, tempHp: parseInt(e.target.value) || 0 }))}
-                              min={0}
-                              className="text-center"
-                              data-testid="input-dnd-temp-hp"
-                            />
-                          </div>
-                          <div className="text-center">
-                            <label className="text-xs text-muted-foreground">AC</label>
-                            <Input 
-                              type="number" 
-                              value={characterStats.armorClass || 10}
-                              onChange={(e) => setCharacterStats(prev => ({ ...prev, armorClass: parseInt(e.target.value) || 10 }))}
-                              min={0}
-                              className="text-center"
-                              data-testid="input-dnd-ac"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                      <Separator />
-                      <div>
-                        <label className="text-sm text-muted-foreground mb-2 block">Spell Slots (Used / Total)</label>
-                        <div className="grid grid-cols-3 gap-2">
-                          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((level) => (
-                            <div key={level} className="flex items-center gap-1">
-                              <span className="text-xs text-muted-foreground w-8">Lvl {level}</span>
-                              <Input 
-                                type="number" 
-                                value={characterStats[`spellSlots${level}Used`] || 0}
-                                onChange={(e) => setCharacterStats(prev => ({ ...prev, [`spellSlots${level}Used`]: parseInt(e.target.value) || 0 }))}
-                                min={0}
-                                max={characterStats[`spellSlots${level}Total`] || 0}
-                                className="text-center w-12"
-                                data-testid={`input-dnd-spell-used-${level}`}
-                              />
-                              <span className="text-xs text-muted-foreground">/</span>
-                              <Input 
-                                type="number" 
-                                value={characterStats[`spellSlots${level}Total`] || 0}
-                                onChange={(e) => setCharacterStats(prev => ({ ...prev, [`spellSlots${level}Total`]: parseInt(e.target.value) || 0 }))}
-                                min={0}
-                                className="text-center w-12"
-                                data-testid={`input-dnd-spell-total-${level}`}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <Separator />
-                      <div>
-                        <div className="flex items-center justify-between gap-2 mb-2">
-                          <label className="text-sm text-muted-foreground">Ability Scores</label>
-                          {!existingCharacter && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                const rollStat = () => {
-                                  const rolls = [
-                                    Math.floor(Math.random() * 6) + 1,
-                                    Math.floor(Math.random() * 6) + 1,
-                                    Math.floor(Math.random() * 6) + 1,
-                                    Math.floor(Math.random() * 6) + 1,
-                                  ];
-                                  rolls.sort((a, b) => b - a);
-                                  return rolls[0] + rolls[1] + rolls[2];
-                                };
-                                const newStr = rollStat();
-                                const newDex = rollStat();
-                                const newCon = rollStat();
-                                const newInt = rollStat();
-                                const newWis = rollStat();
-                                const newCha = rollStat();
-                                setCharacterStats(prev => ({
-                                  ...prev,
-                                  str: newStr,
-                                  dex: newDex,
-                                  con: newCon,
-                                  int: newInt,
-                                  wis: newWis,
-                                  cha: newCha,
-                                  baseStats: { str: newStr, dex: newDex, con: newCon, int: newInt, wis: newWis, cha: newCha },
-                                }));
-                              }}
-                              data-testid="button-roll-stats"
-                            >
-                              <Dice6 className="h-4 w-4 mr-1" />
-                              Roll Stats (4d6 drop lowest)
-                            </Button>
+                  </CardHeader>
+                  <CardContent className="space-y-6">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium flex items-center gap-2">
+                          <Heart className="h-4 w-4 text-destructive" />
+                          Hit Points
+                        </span>
+                        <span className="text-sm font-mono" data-testid="text-hp-display">
+                          {myCharacterData.roomCharacter.currentHp} / {myCharacterData.savedCharacter.maxHp}
+                          {myCharacterData.roomCharacter.temporaryHp > 0 && (
+                            <span className="text-primary ml-1">
+                              (+{myCharacterData.roomCharacter.temporaryHp} temp)
+                            </span>
                           )}
-                        </div>
-                        <div className="grid grid-cols-6 gap-2">
-                          {["STR", "DEX", "CON", "INT", "WIS", "CHA"].map((stat) => (
-                            <div key={stat} className="text-center">
-                              <label className="text-xs text-muted-foreground">{stat}</label>
-                              <Input 
-                                type="number" 
-                                value={characterStats[stat.toLowerCase()] || 10}
-                                onChange={(e) => {
-                                  const newValue = parseInt(e.target.value) || 10;
-                                  setCharacterStats(prev => ({
-                                    ...prev,
-                                    [stat.toLowerCase()]: newValue,
-                                    baseStats: {
-                                      ...(prev.baseStats || {}),
-                                      [stat.toLowerCase()]: newValue,
-                                    },
-                                  }));
-                                }}
-                                min={1} 
-                                max={30} 
-                                className="text-center"
-                                disabled={!!existingCharacter}
-                                data-testid={`input-dnd-${stat.toLowerCase()}`}
-                              />
-                            </div>
-                          ))}
-                        </div>
+                        </span>
                       </div>
-                      <Separator />
-                      <div>
-                        <label className="text-sm text-muted-foreground mb-2 block">Currency</label>
-                        <div className="grid grid-cols-5 gap-2">
-                          {[
-                            { key: "pp", label: "PP", tooltip: "Platinum" },
-                            { key: "gp", label: "GP", tooltip: "Gold" },
-                            { key: "ep", label: "EP", tooltip: "Electrum" },
-                            { key: "sp", label: "SP", tooltip: "Silver" },
-                            { key: "cp", label: "CP", tooltip: "Copper" },
-                          ].map((coin) => (
-                            <div key={coin.key} className="text-center">
-                              <label className="text-xs text-muted-foreground" title={coin.tooltip}>{coin.label}</label>
-                              <Input 
-                                type="number" 
-                                value={characterStats[coin.key] || 0}
-                                onChange={(e) => setCharacterStats(prev => ({ ...prev, [coin.key]: parseInt(e.target.value) || 0 }))}
-                                min={0} 
-                                className="text-center"
-                                data-testid={`input-dnd-${coin.key}`}
-                              />
-                            </div>
-                          ))}
-                        </div>
+                      <div className="h-3 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-destructive transition-all duration-300"
+                          style={{
+                            width: `${Math.min(100, Math.max(0, (myCharacterData.roomCharacter.currentHp / myCharacterData.savedCharacter.maxHp) * 100))}%`,
+                          }}
+                          data-testid="progress-hp"
+                        />
                       </div>
-                    </>
-                  )}
+                    </div>
 
-                  {roomData.gameSystem === "cyberpunk" && (
-                    <>
-                      <Separator />
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-sm text-muted-foreground">Role {existingCharacter && "(Locked)"}</label>
-                          <Select 
-                            value={characterStats.role || ""} 
-                            onValueChange={(value) => setCharacterStats(prev => ({ ...prev, role: value }))}
-                            disabled={!!existingCharacter}
-                          >
-                            <SelectTrigger data-testid="select-cyberpunk-role">
-                              <SelectValue placeholder="Select role" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="Exec">Exec</SelectItem>
-                              <SelectItem value="Fixer">Fixer</SelectItem>
-                              <SelectItem value="Lawman">Lawman</SelectItem>
-                              <SelectItem value="Media">Media</SelectItem>
-                              <SelectItem value="Medtech">Medtech</SelectItem>
-                              <SelectItem value="Netrunner">Netrunner</SelectItem>
-                              <SelectItem value="Nomad">Nomad</SelectItem>
-                              <SelectItem value="Rockerboy">Rockerboy</SelectItem>
-                              <SelectItem value="Solo">Solo</SelectItem>
-                              <SelectItem value="Tech">Tech</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <label className="text-sm text-muted-foreground">Handle</label>
-                          <Input 
-                            placeholder="Street name" 
-                            value={characterStats.handle || ""}
-                            onChange={(e) => setCharacterStats(prev => ({ ...prev, handle: e.target.value }))}
-                            data-testid="input-cyberpunk-handle" 
-                          />
-                        </div>
-                      </div>
-                      <Separator />
+                    <Separator />
+
+                    <div className="grid grid-cols-4 gap-4 text-center">
                       <div>
-                        <label className="text-sm text-muted-foreground mb-2 block">Lifepath {existingCharacter && "(Locked)"}</label>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="text-xs text-muted-foreground">Cultural Origin</label>
-                            <Select 
-                              value={characterStats.culturalOrigin || ""} 
-                              onValueChange={(value) => setCharacterStats(prev => ({ ...prev, culturalOrigin: value }))}
-                              disabled={!!existingCharacter}
-                            >
-                              <SelectTrigger data-testid="select-cyberpunk-origin">
-                                <SelectValue placeholder="Select origin" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="North American">North American</SelectItem>
-                                <SelectItem value="South/Central American">South/Central American</SelectItem>
-                                <SelectItem value="Western European">Western European</SelectItem>
-                                <SelectItem value="Eastern European">Eastern European</SelectItem>
-                                <SelectItem value="Middle Eastern/North African">Middle Eastern/North African</SelectItem>
-                                <SelectItem value="Sub-Saharan African">Sub-Saharan African</SelectItem>
-                                <SelectItem value="South Asian">South Asian</SelectItem>
-                                <SelectItem value="Southeast Asian">Southeast Asian</SelectItem>
-                                <SelectItem value="East Asian">East Asian</SelectItem>
-                                <SelectItem value="Oceanian/Pacific Islander">Oceanian/Pacific Islander</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <label className="text-xs text-muted-foreground">Family Background</label>
-                            <Select 
-                              value={characterStats.familyBackground || ""} 
-                              onValueChange={(value) => setCharacterStats(prev => ({ ...prev, familyBackground: value }))}
-                              disabled={!!existingCharacter}
-                            >
-                              <SelectTrigger data-testid="select-cyberpunk-family">
-                                <SelectValue placeholder="Select background" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="Corporate Executive">Corporate Executive</SelectItem>
-                                <SelectItem value="Corporate Manager">Corporate Manager</SelectItem>
-                                <SelectItem value="Corporate Worker">Corporate Worker</SelectItem>
-                                <SelectItem value="Nomad Pack">Nomad Pack</SelectItem>
-                                <SelectItem value="Gang Family">Gang Family</SelectItem>
-                                <SelectItem value="Combat Zone Poor">Combat Zone Poor</SelectItem>
-                                <SelectItem value="Urban Homeless">Urban Homeless</SelectItem>
-                                <SelectItem value="Megastructure Warren">Megastructure Warren</SelectItem>
-                                <SelectItem value="Reclaimers/Edgerunners">Reclaimers/Edgerunners</SelectItem>
-                                <SelectItem value="Wealthy Family">Wealthy Family</SelectItem>
-                              </SelectContent>
-                            </Select>
+                        <div className="text-2xl font-bold" data-testid="text-ac">{myCharacterData.savedCharacter.ac}</div>
+                        <div className="text-xs text-muted-foreground">AC</div>
+                      </div>
+                      <div>
+                        <div className="text-2xl font-bold" data-testid="text-speed">{myCharacterData.savedCharacter.speed} ft</div>
+                        <div className="text-xs text-muted-foreground">Speed</div>
+                      </div>
+                      <div>
+                        <div className="text-2xl font-bold" data-testid="text-initiative">
+                          {myCharacterData.savedCharacter.initiativeModifier >= 0 ? "+" : ""}
+                          {myCharacterData.savedCharacter.initiativeModifier}
+                        </div>
+                        <div className="text-xs text-muted-foreground">Initiative</div>
+                      </div>
+                      <div>
+                        <div className="text-2xl font-bold" data-testid="text-gold">{myCharacterData.roomCharacter.gold}</div>
+                        <div className="text-xs text-muted-foreground">Gold</div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 text-center">
+                      <div className="p-3 rounded-md bg-muted/50">
+                        <div className="text-xl font-bold" data-testid="text-experience">{myCharacterData.roomCharacter.experience}</div>
+                        <div className="text-xs text-muted-foreground">Experience</div>
+                      </div>
+                      <div className="p-3 rounded-md bg-muted/50">
+                        <div className="text-xl font-bold" data-testid="text-level">{myCharacterData.savedCharacter.level || 1}</div>
+                        <div className="text-xs text-muted-foreground">Level</div>
+                      </div>
+                    </div>
+
+                    {myCharacterData.savedCharacter.stats && Object.keys(myCharacterData.savedCharacter.stats).length > 0 && (
+                      <>
+                        <Separator />
+                        <div>
+                          <h4 className="text-sm font-medium mb-3">Ability Scores</h4>
+                          <div className="grid grid-cols-6 gap-2">
+                            {[
+                              { key: "str", long: "strength", label: "STR" },
+                              { key: "dex", long: "dexterity", label: "DEX" },
+                              { key: "con", long: "constitution", label: "CON" },
+                              { key: "int", long: "intelligence", label: "INT" },
+                              { key: "wis", long: "wisdom", label: "WIS" },
+                              { key: "cha", long: "charisma", label: "CHA" },
+                            ].map((stat) => {
+                              const stats = myCharacterData.savedCharacter.stats as Record<string, number>;
+                              const value = stats?.[stat.key] ?? stats?.[stat.long] ?? 10;
+                              const modifier = Math.floor((value - 10) / 2);
+                              return (
+                                <div key={stat.key} className="text-center p-2 rounded-md bg-muted/50">
+                                  <div className="text-xs text-muted-foreground">{stat.label}</div>
+                                  <div className="text-lg font-bold" data-testid={`text-stat-${stat.key}`}>{value}</div>
+                                  <div className="text-xs text-muted-foreground">
+                                    ({modifier >= 0 ? "+" : ""}{modifier})
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
-                      </div>
-                      <Separator />
-                      <div>
-                        <label className="text-sm text-muted-foreground mb-2 block">Stats</label>
-                        <div className="grid grid-cols-5 gap-2">
-                          {["INT", "REF", "DEX", "TECH", "COOL", "WILL", "LUCK", "MOVE", "BODY", "EMP"].map((stat) => (
-                            <div key={stat} className="text-center">
-                              <label className="text-xs text-muted-foreground">{stat}</label>
-                              <Input 
-                                type="number" 
-                                value={characterStats[stat.toLowerCase()] || 5}
-                                onChange={(e) => setCharacterStats(prev => ({ ...prev, [stat.toLowerCase()]: parseInt(e.target.value) || 5 }))}
-                                min={1} 
-                                max={10} 
-                                className="text-center"
-                                data-testid={`input-cyberpunk-${stat.toLowerCase()}`}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <Separator />
-                      <div>
-                        <label className="text-sm text-muted-foreground mb-2 block">Currency & Advancement</label>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="text-xs text-muted-foreground">Eurobucks (eb)</label>
-                            <Input 
-                              type="number" 
-                              value={characterStats.eurobucks || 0}
-                              onChange={(e) => setCharacterStats(prev => ({ ...prev, eurobucks: parseInt(e.target.value) || 0 }))}
-                              min={0} 
-                              data-testid="input-cyberpunk-eurobucks"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-xs text-muted-foreground">Improvement Points (IP)</label>
-                            <Input 
-                              type="number" 
-                              value={characterStats.improvementPoints || 0}
-                              onChange={(e) => setCharacterStats(prev => ({ ...prev, improvementPoints: parseInt(e.target.value) || 0 }))}
-                              min={0} 
-                              data-testid="input-cyberpunk-ip"
-                            />
+                      </>
+                    )}
+
+                    {myCharacterData.statusEffects && myCharacterData.statusEffects.length > 0 && (
+                      <>
+                        <Separator />
+                        <div>
+                          <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                            <Sparkles className="h-4 w-4" />
+                            Active Status Effects
+                          </h4>
+                          <div className="space-y-2">
+                            {myCharacterData.statusEffects.map((effect) => (
+                              <div
+                                key={effect.id}
+                                className="flex items-start gap-3 p-3 rounded-md bg-muted/50"
+                                data-testid={`status-effect-${effect.id}`}
+                              >
+                                <Badge variant={effect.isPredefined ? "secondary" : "outline"} className="shrink-0">
+                                  {effect.name}
+                                </Badge>
+                                <div className="flex-1 text-sm text-muted-foreground">
+                                  {effect.description}
+                                  {effect.duration && (
+                                    <span className="ml-2 text-xs">({effect.duration})</span>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
-                      </div>
-                    </>
-                  )}
+                      </>
+                    )}
 
-                  {roomData.gameSystem === "coc" && (
-                    <>
-                      <Separator />
-                      <div className="grid grid-cols-2 gap-4">
+                    {myCharacterData.savedCharacter.skills && (myCharacterData.savedCharacter.skills as string[]).length > 0 && (
+                      <>
+                        <Separator />
                         <div>
-                          <label className="text-sm text-muted-foreground">Occupation</label>
-                          <Input 
-                            placeholder="e.g., Professor, Detective" 
-                            value={characterStats.occupation || ""}
-                            onChange={(e) => setCharacterStats(prev => ({ ...prev, occupation: e.target.value }))}
-                            data-testid="input-coc-occupation" 
-                          />
+                          <h4 className="text-sm font-medium mb-3">Skills</h4>
+                          <div className="flex flex-wrap gap-2">
+                            {(myCharacterData.savedCharacter.skills as string[]).map((skill, idx) => (
+                              <Badge key={idx} variant="outline" data-testid={`badge-skill-${idx}`}>
+                                {skill}
+                              </Badge>
+                            ))}
+                          </div>
                         </div>
-                        <div>
-                          <label className="text-sm text-muted-foreground">Age</label>
-                          <Input 
-                            type="number" 
-                            value={characterStats.age || 30}
-                            onChange={(e) => setCharacterStats(prev => ({ ...prev, age: parseInt(e.target.value) || 30 }))}
-                            data-testid="input-coc-age" 
-                          />
-                        </div>
-                      </div>
-                      <Separator />
-                      <div>
-                        <label className="text-sm text-muted-foreground mb-2 block">Characteristics</label>
-                        <div className="grid grid-cols-4 gap-2">
-                          {["STR", "CON", "SIZ", "DEX", "APP", "INT", "POW", "EDU"].map((stat) => (
-                            <div key={stat} className="text-center">
-                              <label className="text-xs text-muted-foreground">{stat}</label>
-                              <Input 
-                                type="number" 
-                                value={characterStats[stat.toLowerCase()] || 50}
-                                onChange={(e) => setCharacterStats(prev => ({ ...prev, [stat.toLowerCase()]: parseInt(e.target.value) || 50 }))}
-                                min={1} 
-                                max={100} 
-                                className="text-center"
-                                data-testid={`input-coc-${stat.toLowerCase()}`}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-3 gap-4">
-                        <div>
-                          <label className="text-sm text-muted-foreground">Sanity</label>
-                          <Input 
-                            type="number" 
-                            value={characterStats.sanity || 50}
-                            onChange={(e) => setCharacterStats(prev => ({ ...prev, sanity: parseInt(e.target.value) || 50 }))}
-                            data-testid="input-coc-sanity" 
-                          />
-                        </div>
-                        <div>
-                          <label className="text-sm text-muted-foreground">Luck</label>
-                          <Input 
-                            type="number" 
-                            value={characterStats.luck || 50}
-                            onChange={(e) => setCharacterStats(prev => ({ ...prev, luck: parseInt(e.target.value) || 50 }))}
-                            data-testid="input-coc-luck" 
-                          />
-                        </div>
-                        <div>
-                          <label className="text-sm text-muted-foreground">HP</label>
-                          <Input 
-                            type="number" 
-                            value={characterStats.hp || 10}
-                            onChange={(e) => setCharacterStats(prev => ({ ...prev, hp: parseInt(e.target.value) || 10 }))}
-                            data-testid="input-coc-hp" 
-                          />
-                        </div>
-                      </div>
-                    </>
-                  )}
+                      </>
+                    )}
 
-                  {roomData.gameSystem === "daggerheart" && (
-                    <>
-                      <Separator />
-                      <div className="grid grid-cols-2 gap-4">
+                    {myCharacterData.savedCharacter.spells && (myCharacterData.savedCharacter.spells as string[]).length > 0 && (
+                      <>
+                        <Separator />
                         <div>
-                          <label className="text-sm text-muted-foreground">Class</label>
-                          <Input 
-                            placeholder="e.g., Guardian, Bard" 
-                            value={characterStats.class || ""}
-                            onChange={(e) => setCharacterStats(prev => ({ ...prev, class: e.target.value }))}
-                            data-testid="input-daggerheart-class" 
-                          />
+                          <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                            <Sparkles className="h-4 w-4" />
+                            Spells
+                          </h4>
+                          <div className="flex flex-wrap gap-2">
+                            {(myCharacterData.savedCharacter.spells as string[]).map((spell, idx) => (
+                              <Badge key={idx} variant="secondary" data-testid={`badge-spell-${idx}`}>
+                                {spell}
+                              </Badge>
+                            ))}
+                          </div>
                         </div>
-                        <div>
-                          <label className="text-sm text-muted-foreground">Ancestry</label>
-                          <Input 
-                            placeholder="e.g., Human, Elf" 
-                            value={characterStats.ancestry || ""}
-                            onChange={(e) => setCharacterStats(prev => ({ ...prev, ancestry: e.target.value }))}
-                            data-testid="input-daggerheart-ancestry" 
-                          />
-                        </div>
-                      </div>
-                      <Separator />
-                      <div>
-                        <label className="text-sm text-muted-foreground mb-2 block">Traits</label>
-                        <div className="grid grid-cols-3 gap-2">
-                          {["Agility", "Strength", "Finesse", "Instinct", "Presence", "Knowledge"].map((trait) => (
-                            <div key={trait} className="text-center">
-                              <label className="text-xs text-muted-foreground">{trait}</label>
-                              <Input 
-                                type="number" 
-                                value={characterStats[trait.toLowerCase()] || 0}
-                                onChange={(e) => setCharacterStats(prev => ({ ...prev, [trait.toLowerCase()]: parseInt(e.target.value) || 0 }))}
-                                min={-2} 
-                                max={4} 
-                                className="text-center"
-                                data-testid={`input-daggerheart-${trait.toLowerCase()}`}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="text-sm text-muted-foreground">Hope</label>
-                          <Input 
-                            type="number" 
-                            value={characterStats.hope || 2}
-                            onChange={(e) => setCharacterStats(prev => ({ ...prev, hope: parseInt(e.target.value) || 2 }))}
-                            data-testid="input-daggerheart-hope" 
-                          />
-                        </div>
-                        <div>
-                          <label className="text-sm text-muted-foreground">HP</label>
-                          <Input 
-                            type="number" 
-                            value={characterStats.hp || 6}
-                            onChange={(e) => setCharacterStats(prev => ({ ...prev, hp: parseInt(e.target.value) || 6 }))}
-                            data-testid="input-daggerheart-hp" 
-                          />
-                        </div>
-                      </div>
-                    </>
-                  )}
+                      </>
+                    )}
 
-                  <Separator />
-                  <div>
-                    <label className="text-sm text-muted-foreground">Notes</label>
-                    <textarea
-                      className="w-full mt-1 p-2 border rounded-md bg-background min-h-[100px] text-sm"
-                      placeholder="Character background, inventory, abilities..."
-                      value={characterNotes}
-                      onChange={(e) => setCharacterNotes(e.target.value)}
-                      data-testid="textarea-notes"
-                    />
-                  </div>
-                </CardContent>
-              </Card>
+                    {myCharacterData.savedCharacter.backstory && (
+                      <>
+                        <Separator />
+                        <div>
+                          <h4 className="text-sm font-medium mb-2">Backstory</h4>
+                          <p className="text-sm text-muted-foreground whitespace-pre-wrap" data-testid="text-backstory">
+                            {myCharacterData.savedCharacter.backstory}
+                          </p>
+                        </div>
+                      </>
+                    )}
+
+                    {myCharacterData.roomCharacter.notes && (
+                      <>
+                        <Separator />
+                        <div>
+                          <h4 className="text-sm font-medium mb-2">Session Notes</h4>
+                          <p className="text-sm text-muted-foreground whitespace-pre-wrap" data-testid="text-session-notes">
+                            {myCharacterData.roomCharacter.notes}
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </TabsContent>
 

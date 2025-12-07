@@ -583,6 +583,72 @@ export async function registerRoutes(
     }
   });
 
+  // Get current player's room character with saved character data
+  app.get("/api/rooms/:code/my-character", isAuthenticated, async (req, res) => {
+    try {
+      const { code } = req.params;
+      const userId = (req.user as any).claims?.sub;
+
+      const room = await storage.getRoomByCode(code);
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+
+      const roomCharacter = await storage.getRoomCharacterByUserInRoom(userId, room.id);
+      if (!roomCharacter) {
+        return res.status(404).json({ error: "No character in this room" });
+      }
+
+      const savedCharacter = await storage.getSavedCharacter(roomCharacter.savedCharacterId);
+      if (!savedCharacter) {
+        return res.status(404).json({ error: "Saved character not found" });
+      }
+
+      const statusEffects = await storage.getStatusEffectsByRoomCharacter(roomCharacter.id);
+
+      res.json({
+        roomCharacter,
+        savedCharacter,
+        statusEffects,
+      });
+    } catch (error) {
+      console.error("Error fetching my character:", error);
+      res.status(500).json({ error: "Failed to fetch character" });
+    }
+  });
+
+  // Get all room characters in a room (for DM and player views)
+  app.get("/api/rooms/:code/room-characters", async (req, res) => {
+    try {
+      const { code } = req.params;
+      
+      const room = await storage.getRoomByCode(code);
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+
+      const roomCharacters = await storage.getRoomCharactersByRoom(room.id);
+      
+      // Fetch saved character data for each room character
+      const charactersWithData = await Promise.all(
+        roomCharacters.map(async (rc) => {
+          const savedCharacter = await storage.getSavedCharacter(rc.savedCharacterId);
+          const statusEffects = await storage.getStatusEffectsByRoomCharacter(rc.id);
+          return {
+            roomCharacter: rc,
+            savedCharacter,
+            statusEffects,
+          };
+        })
+      );
+
+      res.json(charactersWithData);
+    } catch (error) {
+      console.error("Error fetching room characters:", error);
+      res.status(500).json({ error: "Failed to fetch room characters" });
+    }
+  });
+
   // Get room info
   app.get("/api/rooms/:code", async (req, res) => {
     try {
