@@ -19,6 +19,8 @@ import {
 import { cn } from "@/lib/utils";
 import { type Character, type InventoryItem, type Item } from "@shared/schema";
 
+type InventoryWithItem = InventoryItem & { item: Item };
+
 interface FloatingCharacterPanelProps {
   characterId: string | undefined;
   playerId: string;
@@ -27,7 +29,7 @@ interface FloatingCharacterPanelProps {
   onClose: () => void;
   currentHp?: number;
   maxHp?: number;
-  onDropItem?: (item: InventoryItem) => void;
+  onDropItem?: (item: InventoryWithItem) => void;
   isDropping?: boolean;
 }
 
@@ -237,7 +239,7 @@ export function FloatingCharacterPanel({
                 <div className="flex items-center gap-2">
                   <Package className="h-4 w-4" />
                   <span className="text-sm">Inventory</span>
-                  {inventoryWithDetails?.length > 0 && (
+                  {inventoryWithDetails && inventoryWithDetails.length > 0 && (
                     <Badge variant="secondary" className="h-5 px-1.5 text-xs">
                       {inventoryWithDetails.length}
                     </Badge>
@@ -248,7 +250,7 @@ export function FloatingCharacterPanel({
             </CollapsibleTrigger>
             <CollapsibleContent>
               <div className="pl-6 pr-2 py-2 space-y-1">
-                {inventoryWithDetails?.length > 0 ? (
+                {inventoryWithDetails && inventoryWithDetails.length > 0 ? (
                   inventoryWithDetails.map(({ id, quantity, equipped, item }) => (
                     <div key={id} className="text-sm py-1 flex justify-between items-center">
                       <span>{item.name} {quantity > 1 && `x${quantity}`}</span>

@@ -9,18 +9,19 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download } from "lucide-react";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download, FolderOpen } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, gameSystemLabels, type GameSystem } from "@shared/schema";
+import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, gameSystemLabels, type GameSystem } from "@shared/schema";
 import { SpellBrowser } from "@/components/spell-browser";
 import { FloatingCharacterPanel } from "@/components/floating-character-panel";
 import { Heart } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 
 interface InitiativeEntry {
   playerId: string;
@@ -140,6 +141,7 @@ export default function RoomPage() {
   const { code } = useParams<{ code: string }>();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user, isLoading: isAuthLoading } = useAuth();
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -158,6 +160,9 @@ export default function RoomPage() {
   
   // View other player's character state
   const [viewingPlayerId, setViewingPlayerId] = useState<string | null>(null);
+  
+  // Load saved character dialog state
+  const [showLoadCharacterDialog, setShowLoadCharacterDialog] = useState(false);
   
   // Character form state
   const [characterName, setCharacterName] = useState("");
@@ -207,8 +212,9 @@ export default function RoomPage() {
     enabled: !!code && !!viewingPlayerId,
   });
 
-  // Fetch inventory for current character
-  const { data: inventory, isLoading: isLoadingInventory, refetch: refetchInventory } = useQuery<InventoryItem[]>({
+  // Fetch inventory for current character (with joined item details)
+  type InventoryWithItem = InventoryItem & { item: Item };
+  const { data: inventory, isLoading: isLoadingInventory, refetch: refetchInventory } = useQuery<InventoryWithItem[]>({
     queryKey: ["/api/characters", existingCharacter?.id, "inventory"],
     enabled: !!existingCharacter?.id,
   });
@@ -219,18 +225,48 @@ export default function RoomPage() {
     staleTime: 1000 * 60 * 10,
   });
 
+  // Fetch saved characters for authenticated user
+  const { data: savedCharacters, isLoading: isLoadingSavedCharacters } = useQuery<SavedCharacter[]>({
+    queryKey: ["/api/saved-characters"],
+    enabled: !!user && showLoadCharacterDialog,
+  });
+
   // Build a map of item names (lowercase) to item data for quick lookup
   const itemNameMap = allItems?.reduce((acc, item) => {
     acc.set(item.name.toLowerCase(), item);
     return acc;
   }, new Map<string, Item>()) ?? new Map<string, Item>();
 
+  // Function to load a saved character into the form
+  const loadSavedCharacter = (savedChar: SavedCharacter) => {
+    setCharacterName(savedChar.characterName);
+    setCharacterStats({
+      ...savedChar.stats,
+      maxHp: savedChar.maxHp,
+      currentHp: savedChar.maxHp,
+      ac: savedChar.ac,
+      speed: savedChar.speed,
+      initiativeModifier: savedChar.initiativeModifier,
+      class: savedChar.class,
+      race: savedChar.race,
+      level: savedChar.level,
+      background: savedChar.background,
+      alignment: savedChar.alignment,
+    });
+    setCharacterNotes(savedChar.backstory || "");
+    setShowLoadCharacterDialog(false);
+    toast({
+      title: "Character loaded",
+      description: `${savedChar.characterName} has been loaded into the form. Remember to save!`,
+    });
+  };
+
   // Load character data when it exists
   useEffect(() => {
     if (existingCharacter) {
-      setCharacterName(existingCharacter.name);
+      setCharacterName(existingCharacter.characterName);
       setCharacterStats(existingCharacter.stats || {});
-      setCharacterNotes(existingCharacter.notes || "");
+      setCharacterNotes(existingCharacter.backstory || "");
     }
   }, [existingCharacter]);
 
@@ -304,7 +340,7 @@ export default function RoomPage() {
   });
 
   const dropInventoryItemMutation = useMutation({
-    mutationFn: async (item: InventoryItem) => {
+    mutationFn: async (item: InventoryItem & { item: Item }) => {
       const response = await apiRequest("DELETE", `/api/inventory/${item.id}`);
       await response.json();
       return item;
@@ -315,7 +351,7 @@ export default function RoomPage() {
         wsRef.current.send(JSON.stringify({
           type: "drop_item",
           itemId: item.id,
-          itemName: item.name,
+          itemName: item.item.name,
           quantity: item.quantity,
         }));
       }
@@ -779,9 +815,9 @@ export default function RoomPage() {
                     <Eye className="h-3 w-3 mr-1 flex-shrink-0" />
                     <span className="truncate">
                       {player.name}
-                      {allCharacters?.find(c => c.playerId === player.id)?.name && (
+                      {allCharacters?.find(c => c.playerId === player.id)?.characterName && (
                         <span className="text-muted-foreground ml-1">
-                          ({allCharacters.find(c => c.playerId === player.id)!.name})
+                          ({allCharacters.find(c => c.playerId === player.id)!.characterName})
                         </span>
                       )}
                     </span>
@@ -1121,18 +1157,30 @@ export default function RoomPage() {
                     <CardTitle className="font-serif">Character Sheet</CardTitle>
                     <p className="text-sm text-muted-foreground">Your character data is saved to the server.</p>
                   </div>
-                  <Button 
-                    onClick={() => saveCharacterMutation.mutate()}
-                    disabled={saveCharacterMutation.isPending || !characterName.trim()}
-                    data-testid="button-save-character"
-                  >
-                    {saveCharacterMutation.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    ) : (
-                      <Save className="h-4 w-4 mr-2" />
+                  <div className="flex gap-2 flex-wrap">
+                    {user && !existingCharacter && (
+                      <Button 
+                        variant="outline"
+                        onClick={() => setShowLoadCharacterDialog(true)}
+                        data-testid="button-load-saved-character"
+                      >
+                        <FolderOpen className="h-4 w-4 mr-2" />
+                        Load Saved
+                      </Button>
                     )}
-                    Save
-                  </Button>
+                    <Button 
+                      onClick={() => saveCharacterMutation.mutate()}
+                      disabled={saveCharacterMutation.isPending || !characterName.trim()}
+                      data-testid="button-save-character"
+                    >
+                      {saveCharacterMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : (
+                        <Save className="h-4 w-4 mr-2" />
+                      )}
+                      Save
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
@@ -1871,19 +1919,19 @@ export default function RoomPage() {
                         >
                           <div className="flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-medium" data-testid={`text-item-name-${item.id}`}>{item.name}</span>
+                              <span className="font-medium" data-testid={`text-item-name-${item.id}`}>{item.item.name}</span>
                               {item.quantity > 1 && (
                                 <Badge variant="secondary" data-testid={`badge-quantity-${item.id}`}>
                                   x{item.quantity}
                                 </Badge>
                               )}
                             </div>
-                            {item.description && (
-                              <p className="text-sm text-muted-foreground mt-1">{item.description}</p>
+                            {item.item.description && (
+                              <p className="text-sm text-muted-foreground mt-1">{item.item.description}</p>
                             )}
-                            {item.grantedBy && (
+                            {item.notes && (
                               <p className="text-xs text-muted-foreground mt-1">
-                                Granted by: {item.grantedBy}
+                                Note: {item.notes}
                               </p>
                             )}
                           </div>
@@ -2148,7 +2196,7 @@ export default function RoomPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <span className="text-sm text-muted-foreground">Character Name</span>
-                  <p className="font-medium" data-testid="text-viewed-character-name">{viewedCharacter.name}</p>
+                  <p className="font-medium" data-testid="text-viewed-character-name">{viewedCharacter.characterName}</p>
                 </div>
                 <div>
                   <span className="text-sm text-muted-foreground">Player</span>
@@ -2161,7 +2209,7 @@ export default function RoomPage() {
                   <Separator />
                   <div>
                     <span className="text-sm text-muted-foreground mb-2 block">
-                      {viewedCharacter.gameSystem === "dnd" ? "Ability Scores" : "Stats"}
+                      {roomData?.gameSystem === "dnd" ? "Ability Scores" : "Stats"}
                     </span>
                     <div className="grid grid-cols-3 gap-2">
                       {Object.entries(viewedCharacter.stats).map(([key, value]) => {
@@ -2174,7 +2222,7 @@ export default function RoomPage() {
                           cool: "COOL", will: "WILL", luck: "LUCK", move: "MOVE",
                           body: "BODY", emp: "EMP"
                         };
-                        const label = viewedCharacter.gameSystem === "dnd" 
+                        const label = roomData?.gameSystem === "dnd" 
                           ? dndLabels[key] || key.toUpperCase()
                           : cyberpunkLabels[key] || key.toUpperCase();
                         return (
@@ -2189,13 +2237,13 @@ export default function RoomPage() {
                 </>
               )}
 
-              {viewedCharacter.notes && (
+              {viewedCharacter.backstory && (
                 <>
                   <Separator />
                   <div>
-                    <span className="text-sm text-muted-foreground">Notes</span>
+                    <span className="text-sm text-muted-foreground">Backstory</span>
                     <p className="text-sm mt-1 whitespace-pre-wrap" data-testid="text-viewed-character-notes">
-                      {viewedCharacter.notes}
+                      {viewedCharacter.backstory}
                     </p>
                   </div>
                 </>
@@ -2220,6 +2268,73 @@ export default function RoomPage() {
         onDropItem={(item) => dropInventoryItemMutation.mutate(item)}
         isDropping={dropInventoryItemMutation.isPending}
       />
+
+      <Dialog open={showLoadCharacterDialog} onOpenChange={setShowLoadCharacterDialog}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="font-serif flex items-center gap-2">
+              <FolderOpen className="h-5 w-5" />
+              Load Saved Character
+            </DialogTitle>
+            <DialogDescription>
+              Select a character from your saved collection to use in this game.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {isLoadingSavedCharacters ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : savedCharacters && savedCharacters.length > 0 ? (
+            <div className="space-y-3">
+              {savedCharacters
+                .filter(char => char.gameSystem === roomData?.gameSystem)
+                .map((char) => (
+                  <Card 
+                    key={char.id} 
+                    className="hover-elevate cursor-pointer"
+                    onClick={() => loadSavedCharacter(char)}
+                    data-testid={`card-saved-character-${char.id}`}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0 flex-1">
+                          <h4 className="font-medium truncate" data-testid={`text-character-name-${char.id}`}>
+                            {char.characterName}
+                          </h4>
+                          <p className="text-sm text-muted-foreground">
+                            {char.race && char.class ? `${char.race} ${char.class}` : ""}
+                            {char.level ? ` (Level ${char.level})` : ""}
+                          </p>
+                        </div>
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            loadSavedCharacter(char);
+                          }}
+                          data-testid={`button-load-character-${char.id}`}
+                        >
+                          Load
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              {savedCharacters.filter(char => char.gameSystem === roomData?.gameSystem).length === 0 && (
+                <p className="text-center text-muted-foreground py-4" data-testid="text-no-matching-characters">
+                  No saved characters match this game system ({gameSystemLabels[roomData?.gameSystem as GameSystem] || roomData?.gameSystem}).
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-center text-muted-foreground py-8" data-testid="text-no-saved-characters">
+              You don't have any saved characters yet. Create characters from the Characters page in your account menu.
+            </p>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
