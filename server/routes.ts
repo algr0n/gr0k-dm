@@ -537,6 +537,55 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/rooms/:code/kick", async (req, res) => {
+    try {
+      const { hostName, playerId } = req.body;
+      const room = await storage.getRoomByCode(req.params.code.toUpperCase());
+      
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+
+      if (room.hostName !== hostName) {
+        return res.status(403).json({ error: "Only the host can kick players" });
+      }
+
+      // Verify player belongs to this room
+      const roomPlayers = await storage.getPlayersByRoom(room.id);
+      const playerToKick = roomPlayers.find(p => p.id === playerId);
+      
+      if (!playerToKick) {
+        return res.status(404).json({ error: "Player not found in this room" });
+      }
+
+      if (playerToKick.isHost) {
+        return res.status(400).json({ error: "Cannot kick the host" });
+      }
+
+      await storage.deletePlayer(playerId);
+
+      const kickMessage: Message = {
+        id: randomUUID(),
+        roomId: room.id,
+        playerName: "System",
+        content: `${playerToKick.name} was kicked from the game.`,
+        type: "system",
+        timestamp: new Date().toISOString(),
+      };
+
+      const updatedHistory = [...(room.messageHistory || []), kickMessage].slice(-100);
+      await storage.updateRoom(room.id, { messageHistory: updatedHistory, lastActivityAt: new Date() });
+
+      broadcastToRoom(req.params.code.toUpperCase(), { type: "message", message: kickMessage });
+      broadcastToRoom(req.params.code.toUpperCase(), { type: "player_kicked", playerId, playerName: playerToKick.name });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Kick player error:", error);
+      res.status(500).json({ error: "Failed to kick player" });
+    }
+  });
+
   app.post("/api/dice/roll", async (req, res) => {
     try {
       const { expression } = req.body;

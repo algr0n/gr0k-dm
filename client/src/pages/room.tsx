@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe } from "lucide-react";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
@@ -222,6 +222,30 @@ export default function RoomPage() {
     },
   });
 
+  const kickPlayerMutation = useMutation({
+    mutationFn: async (data: { playerId: string; playerName: string }) => {
+      const response = await apiRequest("POST", `/api/rooms/${code}/kick`, {
+        hostName: playerName,
+        playerId: data.playerId,
+        playerName: data.playerName,
+      });
+      return response.json();
+    },
+    onSuccess: (_, data) => {
+      toast({
+        title: "Player kicked",
+        description: `${data.playerName} has been removed from the game.`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Failed to kick player",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const toggleVisibilityMutation = useMutation({
     mutationFn: async (newValue: boolean) => {
       const response = await apiRequest("POST", `/api/rooms/${code}/visibility`, {
@@ -293,6 +317,19 @@ export default function RoomPage() {
         }
       } else if (data.type === "player_left") {
         setPlayers((prev) => prev.filter((p) => p.id !== data.playerId));
+      } else if (data.type === "player_kicked") {
+        setPlayers((prev) => prev.filter((p) => p.id !== data.playerId));
+        if (data.playerId === playerId) {
+          toast({
+            title: "You were kicked",
+            description: "The host has removed you from the game.",
+            variant: "destructive",
+          });
+          sessionStorage.removeItem("lastRoomCode");
+          sessionStorage.removeItem("playerName");
+          sessionStorage.removeItem("playerId");
+          setLocation("/");
+        }
       } else if (data.type === "error") {
         toast({
           title: "Error",
@@ -432,7 +469,7 @@ export default function RoomPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className={cn("px-2 py-1 h-auto", player.name === playerName && "font-medium")}
+                    className={cn("px-2 py-1 h-auto flex-1", player.name === playerName && "font-medium")}
                     onClick={() => setViewingPlayerId(player.id)}
                     data-testid={`button-view-player-${player.id}`}
                   >
@@ -440,6 +477,18 @@ export default function RoomPage() {
                     {player.name}
                   </Button>
                   {player.isHost && <Badge variant="outline">Host</Badge>}
+                  {isHost && !player.isHost && !gameEnded && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={() => kickPlayerMutation.mutate({ playerId: player.id, playerName: player.name })}
+                      disabled={kickPlayerMutation.isPending}
+                      data-testid={`button-kick-player-${player.id}`}
+                    >
+                      <UserX className="h-3 w-3 text-destructive" />
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>
