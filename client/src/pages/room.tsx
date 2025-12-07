@@ -135,6 +135,7 @@ export default function RoomPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "characters", playerId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "characters"] });
       toast({
         title: "Character saved",
         description: "Your character has been saved successfully.",
