@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Trash2, Edit2, Loader2, Shield, Heart, Zap, LogIn, Sword, User } from "lucide-react";
+import { Plus, Trash2, Edit2, Loader2, Shield, Heart, Zap, LogIn, Sword, User, Dices } from "lucide-react";
 import { gameSystems, gameSystemLabels, type GameSystem, type SavedCharacter } from "@shared/schema";
 import { dnd5eData, cyberpunkRedData } from "@/lib/gameData";
 
@@ -152,6 +152,54 @@ export default function Characters() {
   const closeDialog = () => {
     setCreateDialogOpen(false);
     resetForm();
+  };
+
+  // Roll 4d6 drop lowest for D&D ability scores
+  const rollDnDStats = () => {
+    const roll4d6DropLowest = () => {
+      const rolls = Array.from({ length: 4 }, () => Math.floor(Math.random() * 6) + 1);
+      rolls.sort((a, b) => b - a);
+      return rolls.slice(0, 3).reduce((a, b) => a + b, 0);
+    };
+    setDndForm((prev) => ({
+      ...prev,
+      stats: {
+        strength: roll4d6DropLowest(),
+        dexterity: roll4d6DropLowest(),
+        constitution: roll4d6DropLowest(),
+        intelligence: roll4d6DropLowest(),
+        wisdom: roll4d6DropLowest(),
+        charisma: roll4d6DropLowest(),
+      },
+    }));
+    toast({
+      title: "Dice rolled!",
+      description: "Your ability scores have been randomly generated using 4d6 drop lowest.",
+    });
+  };
+
+  // Roll 1d10 for Cyberpunk stats
+  const rollCyberpunkStats = () => {
+    const rollD10 = () => Math.floor(Math.random() * 10) + 1;
+    setCyberpunkForm((prev) => ({
+      ...prev,
+      stats: {
+        int: rollD10(),
+        ref: rollD10(),
+        dex: rollD10(),
+        tech: rollD10(),
+        cool: rollD10(),
+        will: rollD10(),
+        luck: rollD10(),
+        move: rollD10(),
+        body: rollD10(),
+        emp: rollD10(),
+      },
+    }));
+    toast({
+      title: "Dice rolled!",
+      description: "Your stats have been randomly generated using 1d10 for each.",
+    });
   };
 
   const { data: characters, isLoading } = useQuery<SavedCharacter[]>({
@@ -571,7 +619,19 @@ export default function Characters() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label>Ability Scores</Label>
+                      <div className="flex items-center justify-between gap-2">
+                        <Label>Ability Scores</Label>
+                        <Button 
+                          type="button"
+                          variant="outline" 
+                          size="sm" 
+                          onClick={rollDnDStats}
+                          data-testid="button-roll-dnd-stats"
+                        >
+                          <Dices className="h-4 w-4 mr-1" />
+                          Roll Stats
+                        </Button>
+                      </div>
                       <div className="grid grid-cols-3 gap-2">
                         {dnd5eData.stats.map((stat, idx) => (
                           <div key={stat} className="space-y-1">
@@ -882,7 +942,19 @@ export default function Characters() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label>Stats (1-10)</Label>
+                      <div className="flex items-center justify-between gap-2">
+                        <Label>Stats (1-10)</Label>
+                        <Button 
+                          type="button"
+                          variant="outline" 
+                          size="sm" 
+                          onClick={rollCyberpunkStats}
+                          data-testid="button-roll-cp-stats"
+                        >
+                          <Dices className="h-4 w-4 mr-1" />
+                          Roll Stats
+                        </Button>
+                      </div>
                       <div className="grid grid-cols-5 gap-2">
                         {cyberpunkRedData.stats.map((stat, idx) => (
                           <div key={stat} className="space-y-1">
