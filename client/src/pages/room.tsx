@@ -20,6 +20,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, type RoomCharacter, type CharacterStatusEffect, gameSystemLabels, type GameSystem, statusEffectDefinitions } from "@shared/schema";
 import { SpellBrowser } from "@/components/spell-browser";
 import { FloatingCharacterPanel } from "@/components/floating-character-panel";
+import { DMControlsPanel } from "@/components/dm-controls-panel";
 import { Heart } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -319,7 +320,8 @@ export default function RoomPage() {
     },
   });
 
-  const isHost = roomData?.hostName === playerName;
+  const currentPlayer = players.find(p => p.id === playerId);
+  const isHost = currentPlayer?.isHost || roomData?.hostName === playerName;
   
   // Combat turn check - determine if current player can send messages
   const currentTurnEntry = combatState?.isActive 
@@ -1026,6 +1028,12 @@ export default function RoomPage() {
                   Skills & Spells
                 </TabsTrigger>
               )}
+              {isHost && (
+                <TabsTrigger value="dm" className="gap-2" data-testid="tab-dm-controls">
+                  <Shield className="h-4 w-4" />
+                  DM
+                </TabsTrigger>
+              )}
             </TabsList>
             <Button
               variant={showCharacterPanel ? "default" : "outline"}
@@ -1722,6 +1730,18 @@ export default function RoomPage() {
                     />
                   </CardContent>
                 </Card>
+              </div>
+            </TabsContent>
+          )}
+
+          {isHost && (
+            <TabsContent value="dm" className="flex-1 mt-0 overflow-auto data-[state=inactive]:hidden">
+              <div className="p-4 max-w-2xl mx-auto">
+                <DMControlsPanel 
+                  roomCode={code!} 
+                  hostName={playerName} 
+                  gameSystem={(roomData?.gameSystem || "dnd") as GameSystem} 
+                />
               </div>
             </TabsContent>
           )}

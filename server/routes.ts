@@ -1018,6 +1018,115 @@ export async function registerRoutes(
     }
   });
 
+  // DM Controls API - Update room character stats
+  app.patch("/api/room-characters/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { hostName, roomCode, ...updates } = req.body;
+
+      // Verify the room exists and requester is host
+      const room = await storage.getRoomByCode(roomCode);
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+      if (room.hostName !== hostName) {
+        return res.status(403).json({ error: "Only the DM can modify character stats" });
+      }
+
+      const roomCharacter = await storage.getRoomCharacter(id);
+      if (!roomCharacter || roomCharacter.roomId !== room.id) {
+        return res.status(404).json({ error: "Character not found in this room" });
+      }
+
+      const updatedCharacter = await storage.updateRoomCharacter(id, updates);
+      
+      // Broadcast update to room
+      broadcastToRoom(roomCode, {
+        type: "character_update",
+        roomCharacterId: id,
+        updates,
+      });
+
+      res.json(updatedCharacter);
+    } catch (error) {
+      console.error("Error updating room character:", error);
+      res.status(500).json({ error: "Failed to update character" });
+    }
+  });
+
+  // DM Controls API - Add status effect
+  app.post("/api/room-characters/:id/status-effects", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { hostName, roomCode, name, description, duration, isPredefined = true } = req.body;
+
+      // Verify the room exists and requester is host
+      const room = await storage.getRoomByCode(roomCode);
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+      if (room.hostName !== hostName) {
+        return res.status(403).json({ error: "Only the DM can apply status effects" });
+      }
+
+      const roomCharacter = await storage.getRoomCharacter(id);
+      if (!roomCharacter || roomCharacter.roomId !== room.id) {
+        return res.status(404).json({ error: "Character not found in this room" });
+      }
+
+      const effect = await storage.createStatusEffect({
+        roomCharacterId: id,
+        name,
+        description,
+        duration,
+        isPredefined,
+        appliedByDm: true,
+      });
+
+      // Broadcast update to room
+      broadcastToRoom(roomCode, {
+        type: "status_effect_added",
+        roomCharacterId: id,
+        effect,
+      });
+
+      res.json(effect);
+    } catch (error) {
+      console.error("Error adding status effect:", error);
+      res.status(500).json({ error: "Failed to add status effect" });
+    }
+  });
+
+  // DM Controls API - Remove status effect
+  app.delete("/api/status-effects/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { hostName, roomCode } = req.body;
+
+      // Verify the room exists and requester is host
+      const room = await storage.getRoomByCode(roomCode);
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+      if (room.hostName !== hostName) {
+        return res.status(403).json({ error: "Only the DM can remove status effects" });
+      }
+
+      await storage.deleteStatusEffect(id);
+
+      // Broadcast update to room
+      broadcastToRoom(roomCode, {
+        type: "status_effect_removed",
+        effectId: id,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing status effect:", error);
+      res.status(500).json({ error: "Failed to remove status effect" });
+    }
+  });
+
   // Periodic cleanup job: Delete stale inactive rooms (older than 24 hours)
   const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // Run every hour
   const STALE_ROOM_HOURS = 24; // Delete rooms inactive for 24+ hours
