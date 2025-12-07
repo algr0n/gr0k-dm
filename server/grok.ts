@@ -17,6 +17,112 @@ interface TokenUsage {
 
 const roomTokenUsage = new Map<string, TokenUsage>();
 
+// LRU Response Cache for deterministic requests (rules, status queries)
+interface CacheEntry {
+  response: string;
+  createdAt: number;
+  lastAccess: number;
+  isRulesQuery: boolean;
+}
+
+const responseCache = new Map<string, CacheEntry>();
+const CACHE_MAX_SIZE = 100;
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes default
+const RULES_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour for rules
+
+// Patterns that indicate cacheable rule queries
+const RULES_PATTERNS = [
+  /^(what|how|explain|describe)\s+(is|are|does|do|can)\s+/i,
+  /^(what'?s?|how)\s+(the\s+)?(rule|mechanic|system)/i,
+  /\b(rule|mechanic|spell|ability|feat|skill)\s+(for|about|called)\b/i,
+  /^remind\s+me\s+(how|what|about)/i,
+];
+
+// Patterns that indicate non-cacheable dynamic content
+const DYNAMIC_PATTERNS = [
+  /^i\s+(attack|move|cast|use|go|say|look|search|open|try)/i,
+  /^(attack|move|cast|use|go|say|look|search|open|try)\b/i,
+  /\broll\b/i,
+  /^let'?s?\s+/i,
+  /^we\s+(should|could|will|go|attack)/i,
+];
+
+function isCacheableQuery(message: string): { cacheable: boolean; isRulesQuery: boolean } {
+  const lowerMessage = message.toLowerCase().trim();
+  
+  // Never cache dynamic/action content
+  for (const pattern of DYNAMIC_PATTERNS) {
+    if (pattern.test(lowerMessage)) {
+      return { cacheable: false, isRulesQuery: false };
+    }
+  }
+  
+  // Check if it's a rules query (longer cache TTL)
+  for (const pattern of RULES_PATTERNS) {
+    if (pattern.test(lowerMessage)) {
+      return { cacheable: true, isRulesQuery: true };
+    }
+  }
+  
+  return { cacheable: false, isRulesQuery: false };
+}
+
+function getCacheKey(message: string, gameSystem: string): string {
+  const normalized = message.toLowerCase().trim().replace(/\s+/g, ' ');
+  return `${gameSystem}:${normalized}`;
+}
+
+function getFromCache(key: string, isRulesQuery: boolean): string | null {
+  const entry = responseCache.get(key);
+  if (!entry) return null;
+  
+  const now = Date.now();
+  const ttl = entry.isRulesQuery ? RULES_CACHE_TTL_MS : CACHE_TTL_MS;
+  
+  if (now - entry.createdAt > ttl) {
+    responseCache.delete(key);
+    return null;
+  }
+  
+  // Update last access time for true LRU
+  entry.lastAccess = now;
+  return entry.response;
+}
+
+function addToCache(key: string, response: string, isRulesQuery: boolean): void {
+  // Evict least recently accessed entry if at max size
+  if (responseCache.size >= CACHE_MAX_SIZE) {
+    let lruKey: string | null = null;
+    let oldestAccess = Infinity;
+    
+    for (const [k, v] of responseCache) {
+      if (v.lastAccess < oldestAccess) {
+        oldestAccess = v.lastAccess;
+        lruKey = k;
+      }
+    }
+    
+    if (lruKey) {
+      responseCache.delete(lruKey);
+    }
+  }
+  
+  const now = Date.now();
+  responseCache.set(key, {
+    response,
+    createdAt: now,
+    lastAccess: now,
+    isRulesQuery,
+  });
+}
+
+export function getCacheStats(): { size: number; entries: string[] } {
+  return {
+    size: responseCache.size,
+    entries: Array.from(responseCache.keys())
+  };
+}
+
 export function getTokenUsage(roomId: string): TokenUsage | undefined {
   return roomTokenUsage.get(roomId);
 }
@@ -104,6 +210,17 @@ export async function generateDMResponse(
   const gameSystem = room.gameSystem || "dnd";
   const systemPrompt = SYSTEM_PROMPTS[gameSystem] || SYSTEM_PROMPTS.dnd;
   
+  // Check cache for deterministic queries (rules, status)
+  const { cacheable, isRulesQuery } = isCacheableQuery(userMessage);
+  if (cacheable && !diceResult) {
+    const cacheKey = getCacheKey(userMessage, gameSystem);
+    const cached = getFromCache(cacheKey, isRulesQuery);
+    if (cached) {
+      console.log(`[Cache Hit] Returning cached response for: "${userMessage.slice(0, 50)}..." (rules: ${isRulesQuery})`);
+      return cached;
+    }
+  }
+  
   const messages: OpenAI.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
   ];
@@ -166,11 +283,20 @@ export async function generateDMResponse(
       model: "grok-2-1212",
       messages,
       max_tokens: 1000,
-      temperature: 0.8,
+      temperature: cacheable ? 0.3 : 0.8, // Lower temperature for cacheable queries for consistency
     });
 
     trackTokenUsage(room.id, response.usage);
-    return response.choices[0]?.message?.content || "The DM ponders silently...";
+    const result = response.choices[0]?.message?.content || "The DM ponders silently...";
+    
+    // Cache the response if it was a cacheable query
+    if (cacheable && !diceResult) {
+      const cacheKey = getCacheKey(userMessage, gameSystem);
+      addToCache(cacheKey, result, isRulesQuery);
+      console.log(`[Cache Store] Cached response for: "${userMessage.slice(0, 50)}..." (rules: ${isRulesQuery}, TTL: ${isRulesQuery ? '1hr' : '5min'})`);
+    }
+    
+    return result;
   } catch (error) {
     console.error("Grok API error:", error);
     throw new Error("Failed to get response from Grok DM");

@@ -1756,13 +1756,40 @@ export default function RoomPage() {
                       }}
                       onCastSpell={(spell) => {
                         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !gameEnded) {
+                          // Check spell slot availability for non-cantrips
+                          if (spell.level > 0) {
+                            const usedKey = `spellSlots${spell.level}Used`;
+                            const totalKey = `spellSlots${spell.level}Total`;
+                            const used = characterStats[usedKey] || 0;
+                            const total = characterStats[totalKey] || 0;
+                            
+                            if (used >= total) {
+                              toast({
+                                title: "No Spell Slots",
+                                description: `You have no level ${spell.level} spell slots remaining.`,
+                                variant: "destructive",
+                              });
+                              return;
+                            }
+                            
+                            // Consume spell slot
+                            setCharacterStats(prev => ({
+                              ...prev,
+                              [usedKey]: (prev[usedKey] || 0) + 1,
+                            }));
+                          }
+                          
                           wsRef.current.send(JSON.stringify({
                             type: "action",
                             content: `*${characterName || playerName} casts ${spell.name}!* (${spell.level === 0 ? "Cantrip" : `Level ${spell.level}`} ${spell.school} - ${spell.castingTime}, Range: ${spell.range})`,
                           }));
+                          
+                          const slotInfo = spell.level > 0 
+                            ? ` (Used 1 level ${spell.level} slot)` 
+                            : "";
                           toast({
                             title: "Spell Cast",
-                            description: `You cast ${spell.name}!`,
+                            description: `You cast ${spell.name}!${slotInfo}`,
                           });
                           setActiveTab("chat");
                         }
