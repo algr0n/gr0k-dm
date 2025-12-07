@@ -585,6 +585,45 @@ export default function RoomPage() {
 
             <Separator />
 
+            {roomData?.gameSystem === "dnd" && existingCharacter && characterStats.str && (
+              <div className="px-4 pt-3 pb-1">
+                <div className="flex items-center gap-1 flex-wrap">
+                  <span className="text-xs text-muted-foreground mr-2">Quick Roll:</span>
+                  {[
+                    { stat: "str", label: "STR" },
+                    { stat: "dex", label: "DEX" },
+                    { stat: "con", label: "CON" },
+                    { stat: "int", label: "INT" },
+                    { stat: "wis", label: "WIS" },
+                    { stat: "cha", label: "CHA" },
+                  ].map(({ stat, label }) => {
+                    const value = characterStats[stat] || 10;
+                    const modifier = Math.floor((value - 10) / 2);
+                    const modifierStr = modifier >= 0 ? `+${modifier}` : `${modifier}`;
+                    return (
+                      <Button
+                        key={stat}
+                        variant="outline"
+                        size="sm"
+                        disabled={!isConnected || gameEnded}
+                        onClick={() => {
+                          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                            wsRef.current.send(JSON.stringify({
+                              type: "chat",
+                              content: `/roll 1d20${modifierStr}`,
+                            }));
+                          }
+                        }}
+                        data-testid={`button-quick-roll-${stat}`}
+                      >
+                        {label} ({modifierStr})
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <form onSubmit={sendMessage} className="p-4 flex gap-2">
               <Input
                 value={inputValue}
