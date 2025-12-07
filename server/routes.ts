@@ -47,7 +47,14 @@ export async function registerRoutes(
   
   const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
 
+  console.log("[WebSocket] WebSocket server initialized on path /ws");
+
+  wss.on("error", (error) => {
+    console.error("[WebSocket] Server error:", error);
+  });
+
   wss.on("connection", (ws, req) => {
+    console.log(`[WebSocket] New connection from ${req.socket.remoteAddress}`);
     const url = new URL(req.url || "", `http://${req.headers.host}`);
     const roomCode = url.searchParams.get("room");
     const playerName = url.searchParams.get("player") || "Anonymous";
@@ -877,6 +884,16 @@ export async function registerRoutes(
       });
     }
   }
+
+  // Health check endpoint - helps wake up server before WebSocket connection
+  app.get("/api/health", (req, res) => {
+    console.log("[Health] Server health check requested");
+    res.json({ 
+      status: "ok", 
+      timestamp: new Date().toISOString(),
+      wsReady: true 
+    });
+  });
 
   app.get("/api/rooms/public", async (req, res) => {
     try {

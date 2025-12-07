@@ -352,10 +352,26 @@ export default function RoomPage() {
       return Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
     };
 
-    const connectWebSocket = () => {
+    const connectWebSocket = async () => {
       if (isCleaningUp) return;
       
       setIsConnecting(true);
+      
+      // First, ping health endpoint to ensure server is awake (helps with cold starts)
+      try {
+        console.log("[WebSocket] Pinging server health endpoint...");
+        const healthResponse = await fetch("/api/health");
+        if (!healthResponse.ok) {
+          console.warn("[WebSocket] Health check failed, attempting WebSocket anyway");
+        } else {
+          const health = await healthResponse.json();
+          console.log("[WebSocket] Server health:", health);
+        }
+      } catch (error) {
+        console.warn("[WebSocket] Health check error:", error);
+      }
+      
+      if (isCleaningUp) return;
       
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/ws?room=${code}&player=${encodeURIComponent(playerName)}`;
