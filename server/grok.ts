@@ -271,8 +271,13 @@ export async function generateDMResponse(
   for (const msg of recentHistory) {
     if (msg.type === "dm") {
       messages.push({ role: "assistant", content: msg.content });
-    } else if (msg.type === "chat" || msg.type === "action") {
-      messages.push({ role: "user", content: `${msg.playerName}: ${msg.content}` });
+    } else if (msg.type === "chat" || msg.type === "action" || msg.type === "roll") {
+      let content = `${msg.playerName}: ${msg.content}`;
+      // Include dice roll results so the AI can see them
+      if (msg.diceResult) {
+        content += ` [Rolled: ${msg.diceResult.expression} = [${msg.diceResult.rolls.join(", ")}] = ${msg.diceResult.total}]`;
+      }
+      messages.push({ role: "user", content });
     }
   }
 
@@ -359,8 +364,13 @@ export async function generateBatchedDMResponse(
   for (const msg of recentHistory) {
     if (msg.type === "dm") {
       messages.push({ role: "assistant", content: msg.content });
-    } else if (msg.type === "chat" || msg.type === "action") {
-      messages.push({ role: "user", content: `${msg.playerName}: ${msg.content}` });
+    } else if (msg.type === "chat" || msg.type === "action" || msg.type === "roll") {
+      let content = `${msg.playerName}: ${msg.content}`;
+      // Include dice roll results so the AI can see them
+      if (msg.diceResult) {
+        content += ` [Rolled: ${msg.diceResult.expression} = [${msg.diceResult.rolls.join(", ")}] = ${msg.diceResult.total}]`;
+      }
+      messages.push({ role: "user", content });
     }
   }
 
@@ -480,7 +490,12 @@ export async function generateCombatDMTurn(
     if (msg.type === "dm") {
       messages.push({ role: "assistant", content: msg.content });
     } else if (msg.type === "chat" || msg.type === "action" || msg.type === "roll") {
-      messages.push({ role: "user", content: `${msg.playerName}: ${msg.content}` });
+      let content = `${msg.playerName}: ${msg.content}`;
+      // Include dice roll results so the AI can see them
+      if (msg.diceResult) {
+        content += ` [Rolled: ${msg.diceResult.expression} = [${msg.diceResult.rolls.join(", ")}] = ${msg.diceResult.total}]`;
+      }
+      messages.push({ role: "user", content });
     }
   }
 
