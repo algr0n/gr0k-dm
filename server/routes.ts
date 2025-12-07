@@ -6,7 +6,7 @@ import { storage } from "./storage";
 import { parseDiceExpression } from "./dice";
 import { generateDMResponse, generateBatchedDMResponse, generateStartingScene, generateCombatDMTurn, type CharacterInfo, type BatchedMessage, type DroppedItemInfo, getTokenUsage } from "./grok";
 import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, insertSavedCharacterSchema, updateUserProfileSchema, type Message, type Character, type InventoryItem } from "@shared/schema";
-import { setupAuth, isAuthenticated, getSession } from "./replitAuth";
+import { setupAuth, isAuthenticated, getSession } from "./auth";
 import passport from "passport";
 
 interface AuthenticatedWebSocket extends WebSocket {
@@ -86,27 +86,18 @@ export async function registerRoutes(
     sessionMiddleware(mockReq, mockRes, () => {
       passport.initialize()(mockReq, mockRes, () => {
         passport.session()(mockReq, mockRes, async () => {
-          const user = mockReq.user as any;
+          const user = mockReq.user as Express.User | undefined;
           
           // Reject unauthenticated connections
-          if (!user?.claims?.sub) {
+          if (!user?.id) {
             console.log("[WebSocket] Rejecting unauthenticated connection");
             socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
             socket.destroy();
             return;
           }
           
-          const userId = user.claims.sub;
-          const dbUser = await storage.getUser(userId);
-          
-          if (!dbUser) {
-            console.log("[WebSocket] User not found in database:", userId);
-            socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-            socket.destroy();
-            return;
-          }
-          
-          const playerName = dbUser.displayName || dbUser.email || "Player";
+          const userId = user.id;
+          const playerName = user.username || user.email || "Player";
           
           // Verify user is a member of the room by userId
           const urlParams = new URLSearchParams(request.url?.split("?")[1]);
@@ -319,7 +310,7 @@ export async function registerRoutes(
       return res.status(401).json({ message: "Unauthorized" });
     }
     try {
-      const userId = (req.user as any).claims?.sub;
+      const userId = req.user!.id;
       if (!userId) {
         return res.status(401).json({ message: "Unauthorized" });
       }
@@ -334,7 +325,7 @@ export async function registerRoutes(
   // Profile update route
   app.patch("/api/profile", isAuthenticated, async (req, res) => {
     try {
-      const userId = (req.user as any).claims.sub;
+      const userId = req.user!.id;
       
       const parseResult = updateUserProfileSchema.safeParse(req.body);
       if (!parseResult.success) {
@@ -384,7 +375,7 @@ export async function registerRoutes(
   // Profile image update (after upload completes)
   app.put("/api/profile/image", isAuthenticated, async (req, res) => {
     try {
-      const userId = (req.user as any).claims.sub;
+      const userId = req.user!.id;
       const { imageUrl } = req.body;
       
       if (!imageUrl) {
@@ -429,7 +420,7 @@ export async function registerRoutes(
   // Saved characters routes (requires authentication)
   app.get("/api/saved-characters", isAuthenticated, async (req, res) => {
     try {
-      const userId = (req.user as any).claims.sub;
+      const userId = req.user!.id;
       const characters = await storage.getSavedCharactersByUser(userId);
       res.json(characters);
     } catch (error) {
@@ -440,7 +431,7 @@ export async function registerRoutes(
 
   app.post("/api/saved-characters", isAuthenticated, async (req, res) => {
     try {
-      const userId = (req.user as any).claims.sub;
+      const userId = req.user!.id;
       const parsed = insertSavedCharacterSchema.parse({ ...req.body, userId });
       const character = await storage.createSavedCharacter(parsed);
       res.json(character);
@@ -453,7 +444,7 @@ export async function registerRoutes(
   app.get("/api/saved-characters/:id", isAuthenticated, async (req, res) => {
     try {
       const { id } = req.params;
-      const userId = (req.user as any).claims.sub;
+      const userId = req.user!.id;
       const character = await storage.getSavedCharacter(id);
       if (!character || character.userId !== userId) {
         return res.status(404).json({ error: "Character not found" });
@@ -467,7 +458,7 @@ export async function registerRoutes(
   app.patch("/api/saved-characters/:id", isAuthenticated, async (req, res) => {
     try {
       const { id } = req.params;
-      const userId = (req.user as any).claims.sub;
+      const userId = req.user!.id;
       const existing = await storage.getSavedCharacter(id);
       if (!existing || existing.userId !== userId) {
         return res.status(404).json({ error: "Character not found" });
@@ -482,7 +473,7 @@ export async function registerRoutes(
   app.delete("/api/saved-characters/:id", isAuthenticated, async (req, res) => {
     try {
       const { id } = req.params;
-      const userId = (req.user as any).claims.sub;
+      const userId = req.user!.id;
       const existing = await storage.getSavedCharacter(id);
       if (!existing || existing.userId !== userId) {
         return res.status(404).json({ error: "Character not found" });
@@ -497,12 +488,12 @@ export async function registerRoutes(
   // Room creation
   app.post("/api/rooms", isAuthenticated, async (req, res) => {
     try {
-      const userId = (req.user as any).claims.sub;
+      const userId = req.user!.id;
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(401).json({ error: "User not found" });
       }
-      const playerName = user.displayName || user.email || "Host";
+      const playerName = user.username || user.email || "Host";
       
       const parsed = insertRoomSchema.parse({ ...req.body, hostName: playerName });
       const room = await storage.createRoom(parsed);
@@ -527,12 +518,12 @@ export async function registerRoutes(
       const { code } = req.params;
       const { savedCharacterId } = req.body;
       
-      const userId = (req.user as any).claims.sub;
+      const userId = req.user!.id;
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(401).json({ error: "User not found" });
       }
-      const playerName = user.displayName || user.email || "Player";
+      const playerName = user.username || user.email || "Player";
 
       const room = await storage.getRoomByCode(code);
       if (!room || !room.isActive) {
@@ -607,12 +598,12 @@ export async function registerRoutes(
       const { code } = req.params;
       const { savedCharacterId } = req.body;
       
-      const userId = (req.user as any).claims.sub;
+      const userId = req.user!.id;
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(401).json({ error: "User not found" });
       }
-      const playerName = user.displayName || user.email || "Player";
+      const playerName = user.username || user.email || "Player";
 
       const room = await storage.getRoomByCode(code);
       if (!room || !room.isActive) {
@@ -663,13 +654,13 @@ export async function registerRoutes(
     try {
       const { code } = req.params;
       const { savedCharacterId } = req.body;
-      const userId = (req.user as any).claims?.sub;
+      const userId = req.user!.id;
       
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(401).json({ error: "User not found" });
       }
-      const playerName = user.displayName || user.email || "Player";
+      const playerName = user.username || user.email || "Player";
 
       const room = await storage.getRoomByCode(code);
       if (!room || !room.isActive) {
@@ -729,7 +720,7 @@ export async function registerRoutes(
   app.get("/api/rooms/:code/my-character", isAuthenticated, async (req, res) => {
     try {
       const { code } = req.params;
-      const userId = (req.user as any).claims?.sub;
+      const userId = req.user!.id;
 
       const room = await storage.getRoomByCode(code);
       if (!room) {

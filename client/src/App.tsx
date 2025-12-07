@@ -1,6 +1,6 @@
-import { Switch, Route, Link } from "wouter";
-import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { Switch, Route, Link, useLocation } from "wouter";
+import { QueryClientProvider, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -14,12 +14,14 @@ import Landing from "@/pages/landing";
 import RoomPage from "@/pages/room";
 import Characters from "@/pages/characters";
 import ProfileSettings from "@/pages/profile";
+import AuthPage from "@/pages/auth-page";
 import NotFound from "@/pages/not-found";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Landing} />
+      <Route path="/auth" component={AuthPage} />
       <Route path="/room/:code" component={RoomPage} />
       <Route path="/characters" component={Characters} />
       <Route path="/profile" component={ProfileSettings} />
@@ -30,6 +32,17 @@ function Router() {
 
 function Header() {
   const { user, isLoading, isAuthenticated } = useAuth();
+  const [, setLocation] = useLocation();
+
+  const logoutMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", "/api/logout");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      setLocation("/");
+    },
+  });
 
   const getInitials = (name: string) => {
     return name
@@ -38,6 +51,10 @@ function Header() {
       .join("")
       .toUpperCase()
       .slice(0, 2);
+  };
+
+  const handleLogout = () => {
+    logoutMutation.mutate();
   };
 
   return (
@@ -89,21 +106,19 @@ function Header() {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
-                  <a href="/api/logout" data-testid="button-logout">
-                    <LogOut className="mr-2 h-4 w-4" />
-                    Log out
-                  </a>
+                <DropdownMenuItem onClick={handleLogout} data-testid="button-logout">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Log out
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <Button variant="outline" size="sm" asChild data-testid="button-login">
-              <a href="/api/login">
+            <Link href="/auth">
+              <Button variant="outline" size="sm" data-testid="button-login">
                 <LogIn className="mr-2 h-4 w-4" />
                 Log in
-              </a>
-            </Button>
+              </Button>
+            </Link>
           )}
         </div>
       </div>
