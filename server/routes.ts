@@ -233,7 +233,15 @@ export async function registerRoutes(
     try {
       const parsed = insertRoomSchema.parse(req.body);
       const room = await storage.createRoom(parsed);
-      res.json(room);
+      
+      // Create host player
+      const hostPlayer = await storage.createPlayer({
+        roomId: room.id,
+        name: parsed.hostName,
+        isHost: true,
+      });
+      
+      res.json({ ...room, hostPlayer });
     } catch (error) {
       res.status(400).json({ error: "Invalid room data" });
     }
@@ -243,7 +251,7 @@ export async function registerRoutes(
   app.post("/api/rooms/:code/join", async (req, res) => {
     try {
       const { code } = req.params;
-      const { name } = req.body;
+      const { playerName } = req.body;
 
       const room = await storage.getRoomByCode(code);
       if (!room || !room.isActive) {
@@ -255,14 +263,14 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Room is full" });
       }
 
-      const existingPlayer = existingPlayers.find((p) => p.name === name);
+      const existingPlayer = existingPlayers.find((p) => p.name === playerName);
       if (existingPlayer) {
         return res.status(400).json({ error: "Name already taken" });
       }
 
       const player = await storage.createPlayer({
         roomId: room.id,
-        name,
+        name: playerName,
         isHost: existingPlayers.length === 0,
       });
 
@@ -270,7 +278,7 @@ export async function registerRoutes(
 
       broadcastToRoom(code, {
         type: "system",
-        content: `${name} has joined the adventure!`,
+        content: `${playerName} has joined the adventure!`,
       });
 
       res.json({ room, player });
@@ -291,8 +299,10 @@ export async function registerRoutes(
       const players = await storage.getPlayersByRoom(room.id);
       const characters = await storage.getCharactersByRoom(room.id);
 
-      res.json({ room, players, characters });
+      // Return room data merged with players and characters for frontend compatibility
+      res.json({ ...room, players, characters });
     } catch (error) {
+      console.error("Error getting room info:", error);
       res.status(500).json({ error: "Failed to get room info" });
     }
   });
