@@ -6,6 +6,47 @@ const openai = new OpenAI({
   apiKey: process.env.XAI_API_KEY 
 });
 
+// Token usage tracking per room
+interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  callCount: number;
+  lastUpdated: Date;
+}
+
+const roomTokenUsage = new Map<string, TokenUsage>();
+
+export function getTokenUsage(roomId: string): TokenUsage | undefined {
+  return roomTokenUsage.get(roomId);
+}
+
+export function getAllTokenUsage(): Map<string, TokenUsage> {
+  return new Map(roomTokenUsage);
+}
+
+function trackTokenUsage(roomId: string, usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined) {
+  if (!usage) return;
+  
+  const existing = roomTokenUsage.get(roomId) || {
+    promptTokens: 0,
+    completionTokens: 0,
+    totalTokens: 0,
+    callCount: 0,
+    lastUpdated: new Date()
+  };
+  
+  existing.promptTokens += usage.prompt_tokens || 0;
+  existing.completionTokens += usage.completion_tokens || 0;
+  existing.totalTokens += usage.total_tokens || 0;
+  existing.callCount += 1;
+  existing.lastUpdated = new Date();
+  
+  roomTokenUsage.set(roomId, existing);
+  
+  console.log(`[Token Usage] Room ${roomId}: +${usage.total_tokens || 0} tokens (total: ${existing.totalTokens}, calls: ${existing.callCount})`);
+}
+
 const SYSTEM_PROMPTS: Record<string, string> = {
   dnd: `You are Grok, a Dungeon Master for D&D 5e. Be concise and direct.
 
@@ -128,6 +169,95 @@ export async function generateDMResponse(
       temperature: 0.8,
     });
 
+    trackTokenUsage(room.id, response.usage);
+    return response.choices[0]?.message?.content || "The DM ponders silently...";
+  } catch (error) {
+    console.error("Grok API error:", error);
+    throw new Error("Failed to get response from Grok DM");
+  }
+}
+
+// Batched message type for multi-player responses
+export interface BatchedMessage {
+  playerName: string;
+  content: string;
+  type: "chat" | "action";
+  diceResult?: { expression: string; total: number; rolls: number[] };
+}
+
+export async function generateBatchedDMResponse(
+  batchedMessages: BatchedMessage[],
+  room: Room,
+  playerCount?: number,
+  partyCharacters?: CharacterInfo[]
+): Promise<string> {
+  const gameSystem = room.gameSystem || "dnd";
+  const systemPrompt = SYSTEM_PROMPTS[gameSystem] || SYSTEM_PROMPTS.dnd;
+  
+  const messages: OpenAI.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt },
+  ];
+
+  if (room.currentScene) {
+    messages.push({ 
+      role: "system", 
+      content: `Current Scene: ${room.currentScene}` 
+    });
+  }
+
+  if (partyCharacters && partyCharacters.length > 0) {
+    const charDescriptions = partyCharacters.map(c => {
+      const statsStr = Object.entries(c.stats)
+        .filter(([_, v]) => v !== undefined && v !== null && v !== "")
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(", ");
+      const desc = `${c.playerName}'s character: ${c.characterName}`;
+      return statsStr ? `${desc} (${statsStr})` : desc;
+    }).join("\n");
+    messages.push({
+      role: "system",
+      content: `THE PARTY:\n${charDescriptions}`
+    });
+  } else if (playerCount !== undefined && playerCount > 0) {
+    messages.push({
+      role: "system",
+      content: `Party size: ${playerCount} player${playerCount > 1 ? "s" : ""} in this session.`
+    });
+  }
+
+  const recentHistory = (room.messageHistory || []).slice(-15);
+  for (const msg of recentHistory) {
+    if (msg.type === "dm") {
+      messages.push({ role: "assistant", content: msg.content });
+    } else if (msg.type === "chat" || msg.type === "action") {
+      messages.push({ role: "user", content: `${msg.playerName}: ${msg.content}` });
+    }
+  }
+
+  // Format batched messages as a single user message
+  const batchContent = batchedMessages.map(m => {
+    let content = `${m.playerName}: ${m.content}`;
+    if (m.diceResult) {
+      content += ` [Rolled: ${m.diceResult.expression} = ${m.diceResult.total}]`;
+    }
+    return content;
+  }).join("\n");
+
+  messages.push({ 
+    role: "user", 
+    content: `[Multiple player actions this round]\n${batchContent}\n\n[Respond to all actions in one cohesive narrative response]` 
+  });
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "grok-2-1212",
+      messages,
+      max_tokens: 1200,
+      temperature: 0.8,
+    });
+
+    trackTokenUsage(room.id, response.usage);
+    console.log(`[Batched Response] Handled ${batchedMessages.length} messages in one API call`);
     return response.choices[0]?.message?.content || "The DM ponders silently...";
   } catch (error) {
     console.error("Grok API error:", error);

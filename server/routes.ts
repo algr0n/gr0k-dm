@@ -4,10 +4,24 @@ import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { parseDiceExpression } from "./dice";
-import { generateDMResponse, generateStartingScene, type CharacterInfo } from "./grok";
+import { generateDMResponse, generateBatchedDMResponse, generateStartingScene, type CharacterInfo, type BatchedMessage, getTokenUsage } from "./grok";
 import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, type Message, type Character, type InventoryItem } from "@shared/schema";
 
 const roomConnections = new Map<string, Set<WebSocket>>();
+
+// Message batching queue per room
+interface QueuedMessage {
+  playerName: string;
+  content: string;
+  type: "chat" | "action";
+  diceResult?: { expression: string; total: number; rolls: number[] };
+  timestamp: number;
+}
+
+const messageQueue = new Map<string, QueuedMessage[]>();
+const batchTimers = new Map<string, NodeJS.Timeout>();
+const BATCH_DELAY_MS = 1500; // 1.5 second debounce window
+const MAX_BATCH_SIZE = 5;
 
 interface InitiativeEntry {
   playerId: string;
@@ -191,115 +205,66 @@ export async function registerRoutes(
 
       broadcastToRoom(roomCode, { type: "message", message: chatMessage });
 
+      // Check if this is a pure dice roll (just "/roll XdY" with no other content)
+      const isPureDiceRoll = diceMatch && message.content.trim().toLowerCase().startsWith("/roll");
+      
+      if (isPureDiceRoll && !message.content.includes(" ") || (diceMatch && message.content.replace(diceMatch[0], "").trim() === "")) {
+        // Pure dice roll - skip AI response, just show the roll result
+        console.log(`[Token Saving] Skipping AI for pure dice roll: ${message.content}`);
+        return;
+      }
+
       if (!message.content.startsWith("/") || diceMatch) {
-        try {
-          // Get player count, characters, and current player's inventory for AI context
-          const players = await storage.getPlayersByRoom(room.id);
-          const playerCount = players.length;
-          
-          // Get all characters in the room
-          const allCharacters = await storage.getCharactersByRoom(room.id);
-          const partyCharacters: CharacterInfo[] = allCharacters.map(char => {
-            const player = players.find(p => p.id === char.playerId);
-            return {
-              playerName: player?.name || "Unknown",
-              characterName: char.name,
-              stats: char.stats || {},
-              notes: char.notes
-            };
-          });
-          
-          // Find current player and get their inventory
-          const currentPlayer = players.find(p => p.name === playerName);
-          let playerInventory: { name: string; quantity: number }[] = [];
-          if (currentPlayer) {
-            const character = await storage.getCharacterByPlayer(currentPlayer.id, room.id);
-            if (character) {
-              const items = await storage.getInventoryByCharacter(character.id);
-              playerInventory = items.map(item => ({ name: item.name, quantity: item.quantity }));
+        // Queue message for batching instead of immediate AI response
+        const queuedMsg: QueuedMessage = {
+          playerName,
+          content: message.content,
+          type: message.type as "chat" | "action",
+          diceResult: diceResult ? {
+            expression: diceResult.expression,
+            total: diceResult.total,
+            rolls: diceResult.rolls
+          } : undefined,
+          timestamp: Date.now()
+        };
+        
+        if (!messageQueue.has(roomCode)) {
+          messageQueue.set(roomCode, []);
+        }
+        messageQueue.get(roomCode)!.push(queuedMsg);
+        
+        // Clear existing timer and set new one
+        const existingTimer = batchTimers.get(roomCode);
+        if (existingTimer) {
+          clearTimeout(existingTimer);
+        }
+        
+        const queue = messageQueue.get(roomCode)!;
+        
+        // Process immediately if batch is full, otherwise wait
+        if (queue.length >= MAX_BATCH_SIZE) {
+          console.log(`[Batching] Batch full (${queue.length} messages), processing immediately`);
+          await processBatch(roomCode, { ...room, messageHistory: updatedHistory });
+        } else {
+          // Set timer to process after delay
+          const timer = setTimeout(async () => {
+            const currentRoom = await storage.getRoomByCode(roomCode);
+            if (currentRoom) {
+              await processBatch(roomCode, currentRoom);
             }
-          }
-
-          let dmResponse = await generateDMResponse(
-            message.content,
-            { ...room, messageHistory: updatedHistory },
-            playerName,
-            diceResult,
-            playerCount,
-            playerInventory,
-            partyCharacters
-          );
-
-          // Parse and handle [ITEM: PlayerName | ItemName | Quantity] tags
-          const itemMatches = dmResponse.matchAll(/\[ITEM:\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*(\d+)\s*\]/gi);
-          for (const match of itemMatches) {
-            const targetPlayerName = match[1].trim();
-            const itemName = match[2].trim();
-            const quantity = parseInt(match[3]) || 1;
-
-            // Find the target player
-            const players = await storage.getPlayersByRoom(room.id);
-            const targetPlayer = players.find(p => p.name.toLowerCase() === targetPlayerName.toLowerCase());
-            
-            if (targetPlayer) {
-              // Get or create character for target player
-              let character = await storage.getCharacterByPlayer(targetPlayer.id, room.id);
-              if (!character) {
-                character = await storage.createCharacter({
-                  playerId: targetPlayer.id,
-                  roomId: room.id,
-                  name: targetPlayer.name,
-                  gameSystem: room.gameSystem,
-                  stats: {},
-                  notes: null,
-                });
-              }
-
-              // Add item to inventory
-              await storage.createInventoryItem({
-                characterId: character.id,
-                name: itemName,
-                description: null,
-                quantity,
-                grantedBy: "Grok DM",
-              });
-
-              // Notify player of inventory update
-              broadcastToRoom(roomCode, { type: "inventory_update", playerId: targetPlayer.id });
-            }
-          }
-
-          // Remove the [ITEM:...] tags from the displayed message
-          const cleanedResponse = dmResponse.replace(/\[ITEM:\s*[^\]]+\]/gi, "").trim();
-
-          const dmMessage: Message = {
-            id: randomUUID(),
-            roomId: room.id,
-            playerName: "Grok DM",
-            content: cleanedResponse,
-            type: "dm",
-            timestamp: new Date().toISOString(),
-          };
-
-          const finalHistory = [...updatedHistory, dmMessage].slice(-100);
-          await storage.updateRoom(room.id, { messageHistory: finalHistory, lastActivityAt: new Date() });
-
-          broadcastToRoom(roomCode, { type: "message", message: dmMessage });
-        } catch (error) {
-          console.error("DM response error:", error);
+          }, BATCH_DELAY_MS);
+          batchTimers.set(roomCode, timer);
         }
       }
     }
 
     // Combat/Initiative handlers
     if (message.type === "start_combat") {
-      // Only host can start combat
       if (room.hostName !== playerName) {
         ws.send(JSON.stringify({ type: "error", content: "Only the host can start combat." }));
         return;
       }
 
-      // Get all players and their characters
       const players = await storage.getPlayersByRoom(room.id);
       const characters = await storage.getCharactersByRoom(room.id);
       
@@ -310,12 +275,10 @@ export async function registerRoutes(
         const characterName = character?.name || player.name;
         const stats = character?.stats || {};
         
-        // Get DEX modifier (default to 0 if not set)
         const dexMod = typeof stats.dexterity === "number" 
           ? Math.floor((stats.dexterity - 10) / 2) 
           : 0;
         
-        // Roll 1d20 for initiative
         const roll = Math.floor(Math.random() * 20) + 1;
         const total = roll + dexMod;
         
@@ -329,7 +292,6 @@ export async function registerRoutes(
         });
       }
       
-      // Sort by total (highest first), then by roll for ties
       initiatives.sort((a, b) => b.total - a.total || b.roll - a.roll);
       
       const combatState: CombatState = {
@@ -340,7 +302,6 @@ export async function registerRoutes(
       
       roomCombatState.set(roomCode, combatState);
       
-      // Create system message about combat starting
       const combatMessage: Message = {
         id: randomUUID(),
         roomId: room.id,
@@ -369,12 +330,10 @@ export async function registerRoutes(
         return;
       }
       
-      // Advance to next turn
       combatState.currentTurnIndex = (combatState.currentTurnIndex + 1) % combatState.initiatives.length;
       
       const currentPlayer = combatState.initiatives[combatState.currentTurnIndex];
       
-      // Broadcast turn change
       const turnMessage: Message = {
         id: randomUUID(),
         roomId: room.id,
@@ -418,6 +377,130 @@ export async function registerRoutes(
     if (message.type === "get_combat_state") {
       const combatState = roomCombatState.get(roomCode) || null;
       ws.send(JSON.stringify({ type: "combat_update", combat: combatState }));
+    }
+  }
+
+  // Process queued messages as a batch
+  async function processBatch(roomCode: string, room: any) {
+    const queue = messageQueue.get(roomCode);
+    if (!queue || queue.length === 0) return;
+    
+    // Clear the queue and timer
+    messageQueue.set(roomCode, []);
+    const timer = batchTimers.get(roomCode);
+    if (timer) {
+      clearTimeout(timer);
+      batchTimers.delete(roomCode);
+    }
+    
+    try {
+      const players = await storage.getPlayersByRoom(room.id);
+      const playerCount = players.length;
+      
+      const allCharacters = await storage.getCharactersByRoom(room.id);
+      const partyCharacters: CharacterInfo[] = allCharacters.map(char => {
+        const player = players.find(p => p.id === char.playerId);
+        return {
+          playerName: player?.name || "Unknown",
+          characterName: char.name,
+          stats: char.stats || {},
+          notes: char.notes
+        };
+      });
+      
+      let dmResponse: string;
+      
+      if (queue.length === 1) {
+        // Single message - use original function for better context
+        const msg = queue[0];
+        const currentPlayer = players.find(p => p.name === msg.playerName);
+        let playerInventory: { name: string; quantity: number }[] = [];
+        if (currentPlayer) {
+          const character = await storage.getCharacterByPlayer(currentPlayer.id, room.id);
+          if (character) {
+            const items = await storage.getInventoryByCharacter(character.id);
+            playerInventory = items.map(item => ({ name: item.name, quantity: item.quantity }));
+          }
+        }
+        
+        dmResponse = await generateDMResponse(
+          msg.content,
+          room,
+          msg.playerName,
+          msg.diceResult,
+          playerCount,
+          playerInventory,
+          partyCharacters
+        );
+      } else {
+        // Multiple messages - use batched response
+        console.log(`[Batching] Processing ${queue.length} messages in one API call`);
+        const batchedMessages: BatchedMessage[] = queue.map(q => ({
+          playerName: q.playerName,
+          content: q.content,
+          type: q.type,
+          diceResult: q.diceResult
+        }));
+        
+        dmResponse = await generateBatchedDMResponse(
+          batchedMessages,
+          room,
+          playerCount,
+          partyCharacters
+        );
+      }
+
+      // Parse and handle [ITEM: PlayerName | ItemName | Quantity] tags
+      const itemMatches = dmResponse.matchAll(/\[ITEM:\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*(\d+)\s*\]/gi);
+      for (const match of itemMatches) {
+        const targetPlayerName = match[1].trim();
+        const itemName = match[2].trim();
+        const quantity = parseInt(match[3]) || 1;
+
+        const targetPlayer = players.find(p => p.name.toLowerCase() === targetPlayerName.toLowerCase());
+        
+        if (targetPlayer) {
+          let character = await storage.getCharacterByPlayer(targetPlayer.id, room.id);
+          if (!character) {
+            character = await storage.createCharacter({
+              playerId: targetPlayer.id,
+              roomId: room.id,
+              name: targetPlayer.name,
+              gameSystem: room.gameSystem,
+              stats: {},
+              notes: null,
+            });
+          }
+
+          await storage.createInventoryItem({
+            characterId: character.id,
+            name: itemName,
+            description: null,
+            quantity,
+            grantedBy: "Grok DM",
+          });
+
+          broadcastToRoom(roomCode, { type: "inventory_update", playerId: targetPlayer.id });
+        }
+      }
+
+      const cleanedResponse = dmResponse.replace(/\[ITEM:\s*[^\]]+\]/gi, "").trim();
+
+      const dmMessage: Message = {
+        id: randomUUID(),
+        roomId: room.id,
+        playerName: "Grok DM",
+        content: cleanedResponse,
+        type: "dm",
+        timestamp: new Date().toISOString(),
+      };
+
+      const finalHistory = [...(room.messageHistory || []), dmMessage].slice(-100);
+      await storage.updateRoom(room.id, { messageHistory: finalHistory, lastActivityAt: new Date() });
+
+      broadcastToRoom(roomCode, { type: "message", message: dmMessage });
+    } catch (error) {
+      console.error("Batch DM response error:", error);
     }
   }
 
