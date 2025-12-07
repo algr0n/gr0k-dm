@@ -83,6 +83,7 @@ export const characters = pgTable("characters", {
   roomId: varchar("room_id").notNull(),
   name: text("name").notNull(),
   gameSystem: text("game_system").notNull(),
+  level: integer("level").notNull().default(1),
   stats: jsonb("stats").$type<Record<string, unknown>>().notNull().default({}),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
