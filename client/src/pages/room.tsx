@@ -342,80 +342,115 @@ export default function RoomPage() {
   useEffect(() => {
     if (!code || !playerName) return;
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws?room=${code}&player=${encodeURIComponent(playerName)}`;
-    
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+    let isCleaningUp = false;
 
-    ws.onopen = () => {
-      setIsConnected(true);
-      ws.send(JSON.stringify({ type: "get_combat_state" }));
+    const getReconnectDelay = () => {
+      return Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
     };
 
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
+    const connectWebSocket = () => {
+      if (isCleaningUp) return;
       
-      if (data.type === "message") {
-        setMessages((prev) => [...prev, data.message]);
-      } else if (data.type === "player_joined") {
-        setPlayers((prev) => [...prev, data.player]);
-      } else if (data.type === "game_ended") {
-        setGameEnded(true);
-        toast({
-          title: "Game ended",
-          description: "The host has ended this game session.",
-        });
-      } else if (data.type === "inventory_update") {
-        if (data.playerId === playerId && existingCharacter?.id) {
-          queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter.id, "inventory"] });
-        }
-      } else if (data.type === "player_left") {
-        setPlayers((prev) => prev.filter((p) => p.id !== data.playerId));
-      } else if (data.type === "player_kicked") {
-        setPlayers((prev) => prev.filter((p) => p.id !== data.playerId));
-        if (data.playerId === playerId) {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${protocol}//${window.location.host}/ws?room=${code}&player=${encodeURIComponent(playerName)}`;
+      
+      console.log(`[WebSocket] Connecting to ${wsUrl} (attempt ${reconnectAttempts + 1})`);
+      
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log("[WebSocket] Connected successfully");
+        reconnectAttempts = 0;
+        setIsConnected(true);
+        ws.send(JSON.stringify({ type: "get_combat_state" }));
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === "message") {
+          setMessages((prev) => [...prev, data.message]);
+        } else if (data.type === "player_joined") {
+          setPlayers((prev) => [...prev, data.player]);
+        } else if (data.type === "game_ended") {
+          setGameEnded(true);
           toast({
-            title: "You were kicked",
-            description: "The host has removed you from the game.",
+            title: "Game ended",
+            description: "The host has ended this game session.",
+          });
+        } else if (data.type === "inventory_update") {
+          if (data.playerId === playerId && existingCharacter?.id) {
+            queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter.id, "inventory"] });
+          }
+        } else if (data.type === "player_left") {
+          setPlayers((prev) => prev.filter((p) => p.id !== data.playerId));
+        } else if (data.type === "player_kicked") {
+          setPlayers((prev) => prev.filter((p) => p.id !== data.playerId));
+          if (data.playerId === playerId) {
+            toast({
+              title: "You were kicked",
+              description: "The host has removed you from the game.",
+              variant: "destructive",
+            });
+            sessionStorage.removeItem("lastRoomCode");
+            sessionStorage.removeItem("playerName");
+            sessionStorage.removeItem("playerId");
+            setLocation("/");
+          }
+        } else if (data.type === "combat_update") {
+          setCombatState(data.combat);
+        } else if (data.type === "character_update") {
+          if (data.playerId === playerId) {
+            setLiveHp({ current: data.currentHp, max: data.maxHp });
+            queryClient.invalidateQueries({ queryKey: ["/api/characters", data.characterId] });
+          }
+        } else if (data.type === "error") {
+          toast({
+            title: "Error",
+            description: data.content,
             variant: "destructive",
           });
-          sessionStorage.removeItem("lastRoomCode");
-          sessionStorage.removeItem("playerName");
-          sessionStorage.removeItem("playerId");
-          setLocation("/");
         }
-      } else if (data.type === "combat_update") {
-        setCombatState(data.combat);
-      } else if (data.type === "character_update") {
-        if (data.playerId === playerId) {
-          setLiveHp({ current: data.currentHp, max: data.maxHp });
-          queryClient.invalidateQueries({ queryKey: ["/api/characters", data.characterId] });
+      };
+
+      ws.onclose = (event) => {
+        console.log(`[WebSocket] Connection closed: code=${event.code}, reason=${event.reason}`);
+        setIsConnected(false);
+        
+        if (!isCleaningUp && reconnectAttempts < maxReconnectAttempts) {
+          const delay = getReconnectDelay();
+          console.log(`[WebSocket] Reconnecting in ${delay}ms...`);
+          reconnectAttempts++;
+          reconnectTimeout = setTimeout(connectWebSocket, delay);
+        } else if (reconnectAttempts >= maxReconnectAttempts) {
+          toast({
+            title: "Connection lost",
+            description: "Unable to reconnect to the game room. Please refresh the page.",
+            variant: "destructive",
+          });
         }
-      } else if (data.type === "error") {
-        toast({
-          title: "Error",
-          description: data.content,
-          variant: "destructive",
-        });
-      }
+      };
+
+      ws.onerror = (error) => {
+        console.error("[WebSocket] Error:", error);
+        setIsConnected(false);
+      };
     };
 
-    ws.onclose = () => {
-      setIsConnected(false);
-    };
-
-    ws.onerror = () => {
-      setIsConnected(false);
-      toast({
-        title: "Connection error",
-        description: "Failed to connect to the game room.",
-        variant: "destructive",
-      });
-    };
+    connectWebSocket();
 
     return () => {
-      ws.close();
+      isCleaningUp = true;
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
     };
   }, [code, playerName, toast]);
 
