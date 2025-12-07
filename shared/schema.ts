@@ -53,6 +53,8 @@ export const rooms = pgTable("rooms", {
   currentScene: text("current_scene"),
   messageHistory: jsonb("message_history").$type<Message[]>().notNull().default([]),
   isActive: boolean("is_active").notNull().default(true),
+  isPublic: boolean("is_public").notNull().default(false),
+  maxPlayers: integer("max_players").notNull().default(8),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   lastActivityAt: timestamp("last_activity_at").notNull().defaultNow(),
 });

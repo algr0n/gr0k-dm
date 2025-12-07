@@ -287,9 +287,32 @@ export async function registerRoutes(
     }
   }
 
+  app.get("/api/rooms/public", async (req, res) => {
+    try {
+      const gameSystem = req.query.gameSystem as string | undefined;
+      const publicRooms = await storage.getPublicRooms(gameSystem);
+      
+      const safeRooms = publicRooms.map(room => ({
+        id: room.id,
+        code: room.code,
+        name: room.name,
+        gameSystem: room.gameSystem,
+        hostName: room.hostName,
+        playerCount: room.playerCount,
+        maxPlayers: room.maxPlayers,
+        lastActivityAt: room.lastActivityAt,
+      }));
+      
+      res.json(safeRooms);
+    } catch (error) {
+      console.error("Error fetching public rooms:", error);
+      res.status(500).json({ error: "Failed to fetch public rooms" });
+    }
+  });
+
   app.post("/api/rooms", async (req, res) => {
     try {
-      const { name, gameSystem, hostName } = req.body;
+      const { name, gameSystem, hostName, isPublic, maxPlayers } = req.body;
       
       if (!name || !hostName) {
         return res.status(400).json({ error: "Name and host name are required" });
@@ -300,6 +323,8 @@ export async function registerRoutes(
         gameSystem: gameSystem || "dnd",
         hostName,
         code: "",
+        isPublic: isPublic || false,
+        maxPlayers: maxPlayers || 8,
       });
 
       const hostPlayer = await storage.createPlayer({
@@ -363,10 +388,11 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Room is no longer active" });
       }
 
-      // Check player limit (max 8 players per room)
+      // Check player limit
       const existingPlayers = await storage.getPlayersByRoom(room.id);
-      if (existingPlayers.length >= 8) {
-        return res.status(400).json({ error: "Room is full (maximum 8 players)" });
+      const maxPlayers = room.maxPlayers || 8;
+      if (existingPlayers.length >= maxPlayers) {
+        return res.status(400).json({ error: `Room is full (maximum ${maxPlayers} players)` });
       }
 
       const player = await storage.createPlayer({
@@ -443,6 +469,28 @@ export async function registerRoutes(
     } catch (error) {
       console.error("End game error:", error);
       res.status(500).json({ error: "Failed to end game" });
+    }
+  });
+
+  app.post("/api/rooms/:code/visibility", async (req, res) => {
+    try {
+      const { hostName, isPublic } = req.body;
+      const room = await storage.getRoomByCode(req.params.code.toUpperCase());
+      
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+
+      if (room.hostName !== hostName) {
+        return res.status(403).json({ error: "Only the host can change visibility" });
+      }
+
+      await storage.updateRoom(room.id, { isPublic: isPublic ?? false });
+      
+      res.json({ success: true, isPublic: isPublic ?? false });
+    } catch (error) {
+      console.error("Visibility toggle error:", error);
+      res.status(500).json({ error: "Failed to update visibility" });
     }
   });
 

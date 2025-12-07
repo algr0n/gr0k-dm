@@ -8,7 +8,7 @@ import {
   rooms, players, diceRolls, users, characters, inventoryItems
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, lt } from "drizzle-orm";
+import { eq, desc, and, lt, sql, count } from "drizzle-orm";
 import { randomUUID } from "crypto";
 
 function generateRoomCode(): string {
@@ -69,6 +69,9 @@ export interface IStorage {
   deleteRoomWithAllData(roomId: string): Promise<boolean>;
   getStaleInactiveRooms(hoursOld: number): Promise<Room[]>;
   updateRoomActivity(id: string): Promise<Room | undefined>;
+  
+  // Public room browsing
+  getPublicRooms(gameSystem?: string): Promise<Array<Room & { playerCount: number }>>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -126,6 +129,8 @@ export class DatabaseStorage implements IStorage {
       currentScene: insertRoom.currentScene ?? null,
       messageHistory: insertRoom.messageHistory ?? [],
       isActive: insertRoom.isActive ?? true,
+      isPublic: insertRoom.isPublic ?? false,
+      maxPlayers: insertRoom.maxPlayers ?? 8,
     };
     const result = await db.insert(rooms).values(values as any).returning();
     return result[0];
@@ -338,6 +343,33 @@ export class DatabaseStorage implements IStorage {
       .where(eq(rooms.id, id))
       .returning();
     return result[0];
+  }
+
+  async getPublicRooms(gameSystem?: string): Promise<Array<Room & { playerCount: number }>> {
+    const baseConditions = [
+      eq(rooms.isActive, true),
+      eq(rooms.isPublic, true)
+    ];
+    
+    if (gameSystem) {
+      baseConditions.push(eq(rooms.gameSystem, gameSystem));
+    }
+
+    const publicRooms = await db.select().from(rooms)
+      .where(and(...baseConditions))
+      .orderBy(desc(rooms.lastActivityAt));
+
+    const roomsWithCounts = await Promise.all(
+      publicRooms.map(async (room) => {
+        const playerList = await this.getPlayersByRoom(room.id);
+        return {
+          ...room,
+          playerCount: playerList.length
+        };
+      })
+    );
+
+    return roomsWithCounts.filter(room => room.playerCount < room.maxPlayers);
   }
 }
 
