@@ -95,12 +95,12 @@ function addToCache(key: string, response: string, isRulesQuery: boolean): void 
     let lruKey: string | null = null;
     let oldestAccess = Infinity;
     
-    for (const [k, v] of responseCache) {
+    responseCache.forEach((v, k) => {
       if (v.lastAccess < oldestAccess) {
         oldestAccess = v.lastAccess;
         lruKey = k;
       }
-    }
+    });
     
     if (lruKey) {
       responseCache.delete(lruKey);

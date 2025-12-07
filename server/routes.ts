@@ -361,24 +361,11 @@ export async function registerRoutes(
       
       combatState.currentTurnIndex = (combatState.currentTurnIndex + 1) % combatState.initiatives.length;
       
-      const currentPlayer = combatState.initiatives[combatState.currentTurnIndex];
+      let currentPlayer = combatState.initiatives[combatState.currentTurnIndex];
+      let updatedHistory = room.messageHistory || [];
       
-      const turnMessage: Message = {
-        id: randomUUID(),
-        roomId: room.id,
-        playerName: "System",
-        content: `It's ${currentPlayer.characterName}'s turn!`,
-        type: "system",
-        timestamp: new Date().toISOString(),
-      };
-      
-      let updatedHistory = [...(room.messageHistory || []), turnMessage].slice(-100);
-      await storage.updateRoom(room.id, { messageHistory: updatedHistory, lastActivityAt: new Date() });
-      
-      broadcastToRoom(roomCode, { type: "message", message: turnMessage });
-      broadcastToRoom(roomCode, { type: "combat_update", combat: combatState });
-      
-      // If it's the DM's turn, auto-generate enemy actions
+      // If it's the DM's turn, process DM actions BEFORE broadcasting
+      // This ensures clients never get stuck waiting for the DM
       if (currentPlayer.playerId === "DM") {
         try {
           const players = await storage.getPlayersByRoom(room.id);
@@ -393,7 +380,6 @@ export async function registerRoutes(
             };
           });
           
-          // Get fresh room data with updated history
           const freshRoom = await storage.getRoomByCode(roomCode);
           if (freshRoom) {
             const dmResponse = await generateCombatDMTurn(freshRoom, partyCharacters);
@@ -412,29 +398,33 @@ export async function registerRoutes(
             
             broadcastToRoom(roomCode, { type: "message", message: dmMessage });
             
-            // Auto-advance to next player's turn after DM actions
+            // Advance past DM to next player
             combatState.currentTurnIndex = (combatState.currentTurnIndex + 1) % combatState.initiatives.length;
-            const nextPlayer = combatState.initiatives[combatState.currentTurnIndex];
-            
-            const nextTurnMessage: Message = {
-              id: randomUUID(),
-              roomId: room.id,
-              playerName: "System",
-              content: `It's ${nextPlayer.characterName}'s turn!`,
-              type: "system",
-              timestamp: new Date().toISOString(),
-            };
-            
-            const finalHistory = [...updatedHistory, nextTurnMessage].slice(-100);
-            await storage.updateRoom(room.id, { messageHistory: finalHistory, lastActivityAt: new Date() });
-            
-            broadcastToRoom(roomCode, { type: "message", message: nextTurnMessage });
-            broadcastToRoom(roomCode, { type: "combat_update", combat: combatState });
+            currentPlayer = combatState.initiatives[combatState.currentTurnIndex];
           }
         } catch (error) {
           console.error("DM combat turn error:", error);
+          // On error, still advance past DM to prevent lockout
+          combatState.currentTurnIndex = (combatState.currentTurnIndex + 1) % combatState.initiatives.length;
+          currentPlayer = combatState.initiatives[combatState.currentTurnIndex];
         }
       }
+      
+      // Now broadcast the turn message for the actual player (not DM)
+      const turnMessage: Message = {
+        id: randomUUID(),
+        roomId: room.id,
+        playerName: "System",
+        content: `It's ${currentPlayer.characterName}'s turn!`,
+        type: "system",
+        timestamp: new Date().toISOString(),
+      };
+      
+      const finalHistory = [...updatedHistory, turnMessage].slice(-100);
+      await storage.updateRoom(room.id, { messageHistory: finalHistory, lastActivityAt: new Date() });
+      
+      broadcastToRoom(roomCode, { type: "message", message: turnMessage });
+      broadcastToRoom(roomCode, { type: "combat_update", combat: combatState });
     }
 
     if (message.type === "end_combat") {
@@ -538,11 +528,12 @@ export async function registerRoutes(
       }
 
       // Parse and handle [ITEM: PlayerName | ItemName | Quantity] tags
-      const itemMatches = dmResponse.matchAll(/\[ITEM:\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*(\d+)\s*\]/gi);
-      for (const match of itemMatches) {
-        const targetPlayerName = match[1].trim();
-        const itemName = match[2].trim();
-        const quantity = parseInt(match[3]) || 1;
+      const itemRegex = /\[ITEM:\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*(\d+)\s*\]/gi;
+      let itemMatch;
+      while ((itemMatch = itemRegex.exec(dmResponse)) !== null) {
+        const targetPlayerName = itemMatch[1].trim();
+        const itemName = itemMatch[2].trim();
+        const quantity = parseInt(itemMatch[3]) || 1;
 
         const targetPlayer = players.find(p => p.name.toLowerCase() === targetPlayerName.toLowerCase());
         
@@ -572,11 +563,12 @@ export async function registerRoutes(
       }
 
       // Parse and handle [REMOVE_ITEM: PlayerName | ItemName | Quantity] tags
-      const removeItemMatches = dmResponse.matchAll(/\[REMOVE_ITEM:\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*(\d+)\s*\]/gi);
-      for (const match of removeItemMatches) {
-        const targetPlayerName = match[1].trim();
-        const itemName = match[2].trim();
-        const quantityToRemove = parseInt(match[3]) || 1;
+      const removeItemRegex = /\[REMOVE_ITEM:\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*(\d+)\s*\]/gi;
+      let removeMatch;
+      while ((removeMatch = removeItemRegex.exec(dmResponse)) !== null) {
+        const targetPlayerName = removeMatch[1].trim();
+        const itemName = removeMatch[2].trim();
+        const quantityToRemove = parseInt(removeMatch[3]) || 1;
 
         const targetPlayer = players.find(p => p.name.toLowerCase() === targetPlayerName.toLowerCase());
         
@@ -594,6 +586,17 @@ export async function registerRoutes(
                 await storage.updateInventoryItem(item.id, { quantity: newQuantity });
               }
               broadcastToRoom(roomCode, { type: "inventory_update", playerId: targetPlayer.id });
+            } else {
+              // Item not found - notify the room
+              const errorMessage: Message = {
+                id: randomUUID(),
+                roomId: room.id,
+                playerName: "System",
+                content: `Could not remove "${itemName}" from ${targetPlayerName}'s inventory - item not found.`,
+                type: "system",
+                timestamp: new Date().toISOString(),
+              };
+              broadcastToRoom(roomCode, { type: "message", message: errorMessage });
             }
           }
         }
