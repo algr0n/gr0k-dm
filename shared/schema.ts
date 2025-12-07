@@ -1,5 +1,9 @@
-import { pgTable, text, varchar, integer, jsonb, boolean, timestamp, index } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
+import { 
+  pgTable, text, varchar, integer, jsonb, boolean, timestamp, index, 
+  pgEnum, decimal 
+} from "drizzle-orm/pg-core";
+import { relations } from "drizzle-orm";
+import { createInsertSchema } from "drizzle-zod";  // ← Changed this line
 import { z } from "zod";
 import { sql } from "drizzle-orm";
 
@@ -23,6 +27,36 @@ export const gameSystemLabels: Record<GameSystem, string> = {
   dnd: "D&D 5th Edition",
   cyberpunk: "Cyberpunk RED",
 };
+
+// Item enums for D&D
+export const itemCategoryEnum = pgEnum("item_category", [
+  "weapon",
+  "armor",
+  "potion",
+  "scroll",
+  "wondrous_item",
+  "ring",
+  "rod",
+  "staff",
+  "wand",
+  "ammunition",
+  "tool",
+  "adventuring_gear",
+  "container",
+  "mount",
+  "vehicle",
+  "other",
+]);
+
+export const itemRarityEnum = pgEnum("item_rarity", [
+  "common",
+  "uncommon",
+  "rare",
+  "very_rare",
+  "legendary",
+  "artifact",
+  "varies",
+]);
 
 // Message type for chat
 export const messageSchema = z.object({
@@ -54,64 +88,147 @@ export const rooms = pgTable("rooms", {
   messageHistory: jsonb("message_history").$type<Message[]>().notNull().default([]),
   isActive: boolean("is_active").notNull().default(true),
   isPublic: boolean("is_public").notNull().default(false),
-  maxPlayers: integer("max_players").notNull().default(8),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  maxPlayers: integer("max_players").notNull().default(6),
   lastActivityAt: timestamp("last_activity_at").notNull().defaultNow(),
-});
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => sql`now()`),
+}, (table) => [
+  index("idx_rooms_code").on(table.code),
+  index("idx_rooms_active").on(table.isActive),
+]);
 
-export const insertRoomSchema = createInsertSchema(rooms).omit({ id: true, createdAt: true, lastActivityAt: true });
+export const insertRoomSchema = createInsertSchema(rooms).omit({
+  id: true,
+  code: true,
+  lastActivityAt: true,
+  createdAt: true,
+  updatedAt: true,
+});
 export type InsertRoom = z.infer<typeof insertRoomSchema>;
 export type Room = typeof rooms.$inferSelect;
 
-// Players in a room
+// Players in rooms
 export const players = pgTable("players", {
   id: varchar("id").primaryKey(),
-  roomId: varchar("room_id").notNull(),
+  roomId: varchar("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   isHost: boolean("is_host").notNull().default(false),
   joinedAt: timestamp("joined_at").notNull().defaultNow(),
 });
 
-export const insertPlayerSchema = createInsertSchema(players).omit({ id: true, joinedAt: true });
+export const insertPlayerSchema = createInsertSchema(players).omit({ id: true });
 export type InsertPlayer = z.infer<typeof insertPlayerSchema>;
 export type Player = typeof players.$inferSelect;
 
-// Character sheet for each player in a room
+// Characters for players
 export const characters = pgTable("characters", {
-  id: varchar("id").primaryKey(),
-  playerId: varchar("player_id").notNull(),
-  roomId: varchar("room_id").notNull(),
-  name: text("name").notNull(),
-  gameSystem: text("game_system").notNull(),
-  level: integer("level").notNull().default(1),
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  roomId: varchar("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  playerId: varchar("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
+  playerName: text("player_name").notNull(),
+  characterName: text("character_name").notNull(),
+  race: text("race"),
+  class: text("class"),
+  level: integer("level").default(1),
+  background: text("background"),
+  alignment: text("alignment"),
+  stats: jsonb("stats").$type<{
+    strength?: number;
+    dexterity?: number;
+    constitution?: number;
+    intelligence?: number;
+    wisdom?: number;
+    charisma?: number;
+    [key: string]: unknown;
+  }>(),
+  skills: jsonb("skills").$type<string[]>().default([]),
+  spells: jsonb("spells").$type<string[]>().default([]),
   currentHp: integer("current_hp").notNull().default(10),
   maxHp: integer("max_hp").notNull().default(10),
-  isDead: boolean("is_dead").notNull().default(false),
-  deathSaveSuccesses: integer("death_save_successes").notNull().default(0),
-  deathSaveFailures: integer("death_save_failures").notNull().default(0),
-  stats: jsonb("stats").$type<Record<string, unknown>>().notNull().default({}),
-  skills: jsonb("skills").$type<string[]>().notNull().default([]),
-  spells: jsonb("spells").$type<string[]>().notNull().default([]),
-  notes: text("notes"),
+  ac: integer("ac").notNull().default(10),
+  speed: integer("speed").notNull().default(30),
+  initiativeModifier: integer("initiative_modifier").notNull().default(0),
+  backstory: text("backstory"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+  updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => sql`now()`),
+}, (table) => [
+  index("idx_characters_room").on(table.roomId),
+  index("idx_characters_player").on(table.playerId),
+]);
 
-export const insertCharacterSchema = createInsertSchema(characters).omit({ id: true, createdAt: true });
+export const insertCharacterSchema = createInsertSchema(characters).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
 export type InsertCharacter = z.infer<typeof insertCharacterSchema>;
 export type Character = typeof characters.$inferSelect;
 
-// Inventory items for characters
-export const inventoryItems = pgTable("inventory_items", {
-  id: varchar("id").primaryKey(),
-  characterId: varchar("character_id").notNull(),
+// Master items table (D&D compendium reference)
+export const items = pgTable("items", {
+  id: varchar("id", { length: 64 }).primaryKey(),
   name: text("name").notNull(),
-  description: text("description"),
-  quantity: integer("quantity").notNull().default(1),
-  grantedBy: text("granted_by"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+  category: itemCategoryEnum("category").notNull(),
+  type: text("type").notNull(),
+  subtype: text("subtype"),
+  rarity: itemRarityEnum("rarity").default("common"),
+  cost: integer("cost"),
+  weight: decimal("weight", { precision: 5, scale: 2 }),
+  description: text("description").notNull(),
+  properties: jsonb("properties").$type<Record<string, unknown>>(),
+  requiresAttunement: boolean("requires_attunement").default(false),
+  gameSystem: text("game_system").notNull().default("dnd"),
+  source: text("source").default("SRD"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_items_name").on(table.name),
+  index("idx_items_category").on(table.category),
+  index("idx_items_rarity").on(table.rarity),
+]);
 
-export const insertInventoryItemSchema = createInsertSchema(inventoryItems).omit({ id: true, createdAt: true });
+export const itemsRelations = relations(items, ({ many }) => ({
+  inventoryItems: many(inventoryItems),
+}));
+
+export type Item = typeof items.$inferSelect;
+export type InsertItem = typeof items.$inferInsert;
+
+// Character inventory (references master items)
+export const inventoryItems = pgTable("inventory_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  characterId: varchar("character_id")
+    .notNull()
+    .references(() => characters.id, { onDelete: "cascade" }),
+  itemId: varchar("item_id", { length: 64 })
+    .notNull()
+    .references(() => items.id, { onDelete: "restrict" }),
+  quantity: integer("quantity").notNull().default(1),
+  equipped: boolean("equipped").notNull().default(false),
+  notes: text("notes"),
+  attunementSlot: boolean("attunement_slot").default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => sql`now()`),
+}, (table) => [
+  index("idx_inventory_character").on(table.characterId),
+  index("idx_inventory_item").on(table.itemId),
+]);
+
+export const inventoryItemsRelations = relations(inventoryItems, ({ one }) => ({
+  character: one(characters, {
+    fields: [inventoryItems.characterId],
+    references: [characters.id],
+  }),
+  item: one(items, {
+    fields: [inventoryItems.itemId],
+    references: [items.id],
+  }),
+}));
+
+export const insertInventoryItemSchema = createInsertSchema(inventoryItems)
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .extend({
+    quantity: z.coerce.number().min(1),
+  });
 export type InsertInventoryItem = z.infer<typeof insertInventoryItemSchema>;
 export type InventoryItem = typeof inventoryItems.$inferSelect;
 

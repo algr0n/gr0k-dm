@@ -17,7 +17,7 @@ import {
   Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { type Character, type InventoryItem } from "@shared/schema";
+import { type Character, type InventoryItem, type Item } from "@shared/schema";
 
 interface FloatingCharacterPanelProps {
   characterId: string | undefined;
@@ -45,136 +45,106 @@ export function FloatingCharacterPanel({
   const [inventoryOpen, setInventoryOpen] = useState(true);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [spellsOpen, setSpellsOpen] = useState(false);
-  
+
   const { data: character } = useQuery<Character>({
     queryKey: ["/api/characters", characterId],
     enabled: !!characterId,
   });
 
-  const { data: inventory } = useQuery<InventoryItem[]>({
-    queryKey: ["/api/characters", characterId, "inventory"],
+  const { data: inventoryWithDetails } = useQuery<(InventoryItem & { item: Item })[]>({
+    queryKey: ["inventory", characterId],
+    queryFn: async () => {
+      const res = await fetch(`/api/characters/${characterId}/inventory`);
+      if (!res.ok) throw new Error("Failed to fetch inventory");
+      return res.json();
+    },
     enabled: !!characterId,
   });
 
-  const currentHp = propCurrentHp ?? character?.currentHp ?? 10;
-  const maxHp = propMaxHp ?? character?.maxHp ?? 10;
-  const hpPercentage = maxHp > 0 ? (currentHp / maxHp) * 100 : 0;
-  const skills = (character?.skills as string[]) || [];
-  const spells = (character?.spells as string[]) || [];
+  const currentHp = propCurrentHp ?? character?.currentHp ?? 0;
+  const maxHp = propMaxHp ?? character?.maxHp ?? 1;
+  const hpPercentage = Math.max(0, Math.min(100, (currentHp / maxHp) * 100));
 
-  const getHpColor = () => {
-    if (hpPercentage > 66) return "bg-green-500";
-    if (hpPercentage > 33) return "bg-yellow-500";
-    return "bg-red-500";
-  };
+  const stats = character?.stats as Record<string, number> | undefined;
+  const skills = character?.skills as string[] ?? [];
+  const spells = character?.spells as string[] ?? [];
+
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "unset";
+    }
+    return () => {
+      document.body.style.overflow = "unset";
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
   return (
     <div 
-      className="fixed right-4 top-20 w-72 bg-card border rounded-md shadow-lg z-50 max-h-[calc(100vh-6rem)] flex flex-col"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm"
       data-testid="floating-character-panel"
     >
-      <div className="flex items-center justify-between gap-2 p-3 border-b bg-muted/50">
-        <div className="flex items-center gap-2 min-w-0">
-          <User className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-          <span className="font-medium truncate" data-testid="text-character-name">
-            {character?.name || playerName}
-          </span>
+      <div className="w-full max-w-md bg-card rounded-lg shadow-xl border border-card-border overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-card-border">
+          <div className="flex items-center gap-2">
+            <User className="h-5 w-5" />
+            <h2 className="text-lg font-semibold">{character?.characterName || "Character"}</h2>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-5 w-5" />
+          </Button>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 flex-shrink-0"
-          onClick={onClose}
-          data-testid="button-close-character-panel"
-        >
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
-
-      <ScrollArea className="flex-1">
-        <div className="p-3 space-y-3">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Heart className="h-4 w-4 text-red-500" />
-                <span className="text-sm font-medium">HP</span>
-              </div>
-              <span className="text-sm font-mono" data-testid="text-hp-value">
-                {currentHp}/{maxHp}
-              </span>
+        <ScrollArea className="h-[60vh] px-4 py-4">
+          {/* HP Bar */}
+          <div className="mb-4">
+            <div className="flex justify-between text-sm mb-1">
+              <span>HP: {currentHp}/{maxHp}</span>
+              <span>{hpPercentage.toFixed(0)}%</span>
             </div>
-            <div className="h-2 bg-muted rounded-full overflow-hidden">
-              <div
-                className={cn("h-full transition-all duration-300", getHpColor())}
-                style={{ width: `${Math.max(0, Math.min(100, hpPercentage))}%` }}
-                data-testid="hp-bar"
-              />
+            <Progress value={hpPercentage} className="h-2" />
+          </div>
+
+          {/* Basic Info */}
+          <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
+            <div>
+              <span className="font-medium">Race:</span> {character?.race || "Unknown"}
+            </div>
+            <div>
+              <span className="font-medium">Class:</span> {character?.class || "Unknown"}
+            </div>
+            <div>
+              <span className="font-medium">Level:</span> {character?.level || 1}
+            </div>
+            <div>
+              <span className="font-medium">AC:</span> {character?.ac || 10}
+            </div>
+            <div>
+              <span className="font-medium">Speed:</span> {character?.speed || 30} ft
+            </div>
+            <div>
+              <span className="font-medium">Initiative:</span> +{character?.initiativeModifier || 0}
             </div>
           </div>
 
-          <Collapsible open={inventoryOpen} onOpenChange={setInventoryOpen}>
-            <CollapsibleTrigger asChild>
-              <Button
-                variant="ghost"
-                className="w-full justify-between px-2 h-8"
-                data-testid="button-toggle-inventory"
-              >
-                <div className="flex items-center gap-2">
-                  <Package className="h-4 w-4" />
-                  <span className="text-sm">Inventory</span>
-                  {inventory && inventory.length > 0 && (
-                    <Badge variant="secondary" className="h-5 px-1.5 text-xs">
-                      {inventory.length}
-                    </Badge>
-                  )}
-                </div>
-                {inventoryOpen ? (
-                  <ChevronDown className="h-4 w-4" />
-                ) : (
-                  <ChevronRight className="h-4 w-4" />
-                )}
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <div className="pl-6 pr-2 py-2 space-y-1">
-                {inventory && inventory.length > 0 ? (
-                  inventory.map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center justify-between text-sm py-1 group"
-                      data-testid={`inventory-item-${item.id}`}
-                    >
-                      <span className="truncate flex-1">{item.name}</span>
-                      <div className="flex items-center gap-1">
-                        {item.quantity > 1 && (
-                          <Badge variant="outline" className="h-5 px-1.5 text-xs">
-                            x{item.quantity}
-                          </Badge>
-                        )}
-                        {onDropItem && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={() => onDropItem(item)}
-                            disabled={isDropping}
-                            data-testid={`button-drop-item-${item.id}`}
-                          >
-                            <Trash2 className="h-3 w-3 text-muted-foreground" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-xs text-muted-foreground py-1">No items</p>
-                )}
+          {/* Stats */}
+          {stats && (
+            <div className="mb-4">
+              <h3 className="text-sm font-medium mb-2">Stats</h3>
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                {Object.entries(stats).map(([stat, value]) => (
+                  <div key={stat} className="flex justify-between">
+                    <span className="capitalize">{stat}:</span>
+                    <span>{value} ({Math.floor((value - 10) / 2)})</span>
+                  </div>
+                ))}
               </div>
-            </CollapsibleContent>
-          </Collapsible>
+            </div>
+          )}
 
+          {/* Skills */}
           <Collapsible open={skillsOpen} onOpenChange={setSkillsOpen}>
             <CollapsibleTrigger asChild>
               <Button
@@ -217,6 +187,7 @@ export function FloatingCharacterPanel({
             </CollapsibleContent>
           </Collapsible>
 
+          {/* Spells */}
           <Collapsible open={spellsOpen} onOpenChange={setSpellsOpen}>
             <CollapsibleTrigger asChild>
               <Button
@@ -258,8 +229,43 @@ export function FloatingCharacterPanel({
               </div>
             </CollapsibleContent>
           </Collapsible>
-        </div>
-      </ScrollArea>
+
+          {/* Inventory */}
+          <Collapsible open={inventoryOpen} onOpenChange={setInventoryOpen}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" className="w-full justify-between px-2 h-8">
+                <div className="flex items-center gap-2">
+                  <Package className="h-4 w-4" />
+                  <span className="text-sm">Inventory</span>
+                  {inventoryWithDetails?.length > 0 && (
+                    <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                      {inventoryWithDetails.length}
+                    </Badge>
+                  )}
+                </div>
+                {inventoryOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="pl-6 pr-2 py-2 space-y-1">
+                {inventoryWithDetails?.length > 0 ? (
+                  inventoryWithDetails.map(({ id, quantity, equipped, item }) => (
+                    <div key={id} className="text-sm py-1 flex justify-between items-center">
+                      <span>{item.name} {quantity > 1 && `x${quantity}`}</span>
+                      <div className="flex gap-2">
+                        {equipped && <Badge variant="outline">Equipped</Badge>}
+                        {item.rarity !== "common" && <Badge variant="secondary">{item.rarity}</Badge>}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-muted-foreground py-1">No items</p>
+                )}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
+        </ScrollArea>
+      </div>
     </div>
   );
 }
