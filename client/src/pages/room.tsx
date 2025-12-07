@@ -95,6 +95,12 @@ export default function RoomPage() {
     enabled: !!code && !!playerId,
   });
 
+  // Fetch all characters for the room to display character names
+  const { data: allCharacters } = useQuery<Character[]>({
+    queryKey: ["/api/rooms", code, "characters"],
+    enabled: !!code,
+  });
+
   // Fetch character data for viewed player
   const viewingPlayer = players.find(p => p.id === viewingPlayerId);
   const { data: viewedCharacter, isLoading: isLoadingViewedCharacter } = useQuery<Character>({
@@ -603,12 +609,19 @@ export default function RoomPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className={cn("px-2 py-1 h-auto flex-1", player.name === playerName && "font-medium")}
+                    className={cn("px-2 py-1 h-auto flex-1 text-left justify-start", player.name === playerName && "font-medium")}
                     onClick={() => setViewingPlayerId(player.id)}
                     data-testid={`button-view-player-${player.id}`}
                   >
-                    <Eye className="h-3 w-3 mr-1" />
-                    {player.name}
+                    <Eye className="h-3 w-3 mr-1 flex-shrink-0" />
+                    <span className="truncate">
+                      {player.name}
+                      {allCharacters?.find(c => c.playerId === player.id)?.name && (
+                        <span className="text-muted-foreground ml-1">
+                          ({allCharacters.find(c => c.playerId === player.id)!.name})
+                        </span>
+                      )}
+                    </span>
                   </Button>
                   {player.isHost && <Badge variant="outline">Host</Badge>}
                   {isHost && !player.isHost && !gameEnded && (

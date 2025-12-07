@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { parseDiceExpression } from "./dice";
-import { generateDMResponse, generateBatchedDMResponse, generateStartingScene, generateCombatDMTurn, type CharacterInfo, type BatchedMessage, getTokenUsage } from "./grok";
+import { generateDMResponse, generateBatchedDMResponse, generateStartingScene, generateCombatDMTurn, type CharacterInfo, type BatchedMessage, type DroppedItemInfo, getTokenUsage } from "./grok";
 import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, type Message, type Character, type InventoryItem } from "@shared/schema";
 
 const roomConnections = new Map<string, Set<WebSocket>>();
@@ -39,6 +39,16 @@ interface CombatState {
 }
 
 const roomCombatState = new Map<string, CombatState>();
+
+// Track dropped items per room (items on the ground that can be picked up)
+interface DroppedItem {
+  name: string;
+  quantity: number;
+  droppedBy: string;
+  droppedAt: Date;
+}
+
+const roomDroppedItems = new Map<string, DroppedItem[]>();
 
 export async function registerRoutes(
   httpServer: Server,
@@ -475,6 +485,25 @@ export async function registerRoutes(
       const players = await storage.getPlayersByRoom(room.id);
       const player = players.find(p => p.name === playerName);
       
+      // Track the dropped item on the ground
+      if (!roomDroppedItems.has(roomCode)) {
+        roomDroppedItems.set(roomCode, []);
+      }
+      const droppedItems = roomDroppedItems.get(roomCode)!;
+      
+      // Check if same item already on ground, merge quantities
+      const existingItem = droppedItems.find(i => i.name.toLowerCase() === itemName.toLowerCase());
+      if (existingItem) {
+        existingItem.quantity += quantity;
+      } else {
+        droppedItems.push({
+          name: itemName,
+          quantity,
+          droppedBy: playerName,
+          droppedAt: new Date(),
+        });
+      }
+      
       const dropMessage: Message = {
         id: randomUUID(),
         roomId: room.id,
@@ -491,6 +520,77 @@ export async function registerRoutes(
       if (player) {
         broadcastToRoom(roomCode, { type: "inventory_update", playerId: player.id });
       }
+      return;
+    }
+    
+    // Handle picking up dropped items
+    if (message.type === "pickup_item") {
+      const itemName = message.itemName;
+      const quantity = message.quantity || 1;
+      
+      if (!itemName || typeof itemName !== "string") {
+        ws.send(JSON.stringify({ type: "error", content: "Invalid pickup request" }));
+        return;
+      }
+      
+      const droppedItems = roomDroppedItems.get(roomCode) || [];
+      const itemIndex = droppedItems.findIndex(i => i.name.toLowerCase() === itemName.toLowerCase());
+      
+      if (itemIndex === -1) {
+        ws.send(JSON.stringify({ type: "error", content: `No ${itemName} found on the ground nearby.` }));
+        return;
+      }
+      
+      const droppedItem = droppedItems[itemIndex];
+      const pickupQty = Math.min(quantity, droppedItem.quantity);
+      
+      // Remove or reduce quantity from ground
+      droppedItem.quantity -= pickupQty;
+      if (droppedItem.quantity <= 0) {
+        droppedItems.splice(itemIndex, 1);
+      }
+      
+      // Add to player's inventory
+      const players = await storage.getPlayersByRoom(room.id);
+      const player = players.find(p => p.name === playerName);
+      
+      if (player) {
+        let character = await storage.getCharacterByPlayer(player.id, room.id);
+        if (!character) {
+          character = await storage.createCharacter({
+            playerId: player.id,
+            roomId: room.id,
+            name: player.name,
+            gameSystem: room.gameSystem,
+            stats: {},
+            notes: null,
+          });
+        }
+        
+        await storage.createInventoryItem({
+          characterId: character.id,
+          name: droppedItem.name,
+          description: null,
+          quantity: pickupQty,
+          grantedBy: "Picked up",
+        });
+        
+        broadcastToRoom(roomCode, { type: "inventory_update", playerId: player.id });
+      }
+      
+      const pickupMessage: Message = {
+        id: randomUUID(),
+        roomId: room.id,
+        playerName: "System",
+        content: `${playerName} picks up ${droppedItem.name}${pickupQty > 1 ? ` x${pickupQty}` : ""}.`,
+        type: "system",
+        timestamp: new Date().toISOString(),
+      };
+
+      const updatedHistory = [...(room.messageHistory || []), pickupMessage].slice(-100);
+      await storage.updateRoom(room.id, { messageHistory: updatedHistory, lastActivityAt: new Date() });
+
+      broadcastToRoom(roomCode, { type: "message", message: pickupMessage });
       return;
     }
   }
@@ -522,6 +622,10 @@ export async function registerRoutes(
           notes: char.notes
         };
       });
+
+      // Get dropped items for the room
+      const droppedItemsList = roomDroppedItems.get(roomCode) || [];
+      const droppedItems: DroppedItemInfo[] = droppedItemsList.map(i => ({ name: i.name, quantity: i.quantity }));
       
       let dmResponse: string;
       
@@ -545,7 +649,8 @@ export async function registerRoutes(
           msg.diceResult,
           playerCount,
           playerInventory,
-          partyCharacters
+          partyCharacters,
+          droppedItems
         );
       } else {
         // Multiple messages - use batched response
@@ -561,7 +666,8 @@ export async function registerRoutes(
           batchedMessages,
           room,
           playerCount,
-          partyCharacters
+          partyCharacters,
+          droppedItems
         );
       }
 

@@ -247,6 +247,11 @@ export interface CharacterInfo {
   notes?: string | null;
 }
 
+export interface DroppedItemInfo {
+  name: string;
+  quantity: number;
+}
+
 export async function generateDMResponse(
   userMessage: string,
   room: Room,
@@ -254,7 +259,8 @@ export async function generateDMResponse(
   diceResult?: { expression: string; total: number; rolls: number[] },
   playerCount?: number,
   playerInventory?: { name: string; quantity: number }[],
-  partyCharacters?: CharacterInfo[]
+  partyCharacters?: CharacterInfo[],
+  droppedItems?: DroppedItemInfo[]
 ): Promise<string> {
   const gameSystem = room.gameSystem || "dnd";
   const systemPrompt = SYSTEM_PROMPTS[gameSystem] || SYSTEM_PROMPTS.dnd;
@@ -309,6 +315,15 @@ export async function generateDMResponse(
     messages.push({
       role: "system",
       content: `${playerName}'s inventory: ${itemList}`
+    });
+  }
+
+  // Add dropped items context (items on the ground)
+  if (droppedItems && droppedItems.length > 0) {
+    const itemList = droppedItems.map(i => `${i.name}${i.quantity > 1 ? ` x${i.quantity}` : ""}`).join(", ");
+    messages.push({
+      role: "system",
+      content: `Items on the ground nearby: ${itemList}`
     });
   }
 
@@ -369,7 +384,8 @@ export async function generateBatchedDMResponse(
   batchedMessages: BatchedMessage[],
   room: Room,
   playerCount?: number,
-  partyCharacters?: CharacterInfo[]
+  partyCharacters?: CharacterInfo[],
+  droppedItems?: DroppedItemInfo[]
 ): Promise<string> {
   const gameSystem = room.gameSystem || "dnd";
   const systemPrompt = SYSTEM_PROMPTS[gameSystem] || SYSTEM_PROMPTS.dnd;
@@ -402,6 +418,15 @@ export async function generateBatchedDMResponse(
     messages.push({
       role: "system",
       content: `Party size: ${playerCount} player${playerCount > 1 ? "s" : ""} in this session.`
+    });
+  }
+
+  // Add dropped items context (items on the ground)
+  if (droppedItems && droppedItems.length > 0) {
+    const itemList = droppedItems.map(i => `${i.name}${i.quantity > 1 ? ` x${i.quantity}` : ""}`).join(", ");
+    messages.push({
+      role: "system",
+      content: `Items on the ground nearby: ${itemList}`
     });
   }
 
