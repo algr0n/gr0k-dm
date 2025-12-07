@@ -84,7 +84,11 @@ export const characters = pgTable("characters", {
   name: text("name").notNull(),
   gameSystem: text("game_system").notNull(),
   level: integer("level").notNull().default(1),
+  currentHp: integer("current_hp").notNull().default(10),
+  maxHp: integer("max_hp").notNull().default(10),
   stats: jsonb("stats").$type<Record<string, unknown>>().notNull().default({}),
+  skills: jsonb("skills").$type<string[]>().notNull().default([]),
+  spells: jsonb("spells").$type<string[]>().notNull().default([]),
   notes: text("notes"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

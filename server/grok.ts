@@ -175,6 +175,12 @@ COMBAT MANAGEMENT:
 - When combat ends (all enemies defeated, enemies flee, combat resolved peacefully): [COMBAT_END]
 Include these tags when the combat state changes. Combat mode helps players track turns.
 
+HP TRACKING:
+- When a player takes damage or heals, update their HP: [HP: PlayerName | CurrentHP/MaxHP]
+- Example: Player with 15 max HP takes 5 damage: [HP: Jordan | 10/15]
+- Example: Player heals 3 HP: [HP: Jordan | 13/15]
+- Always include this tag when HP changes during combat or healing.
+
 INVENTORY MANAGEMENT: 
 - When a player picks up or receives an item: [ITEM: PlayerName | ItemName | Quantity]
 - When a player uses, consumes, or loses an item: [REMOVE_ITEM: PlayerName | ItemName | Quantity]
@@ -198,6 +204,11 @@ COMBAT MANAGEMENT:
 - When combat begins (shootout starts, enemies attack, firefight breaks out): [COMBAT_START]
 - When combat ends (enemies flatlined, situation de-escalated, combat resolved): [COMBAT_END]
 Include these tags when the combat state changes. Combat mode helps players track turns.
+
+HP TRACKING:
+- When a player takes damage or heals, update their HP: [HP: PlayerName | CurrentHP/MaxHP]
+- Example: Player with 40 max HP takes 8 damage: [HP: V | 32/40]
+- Always include this tag when HP changes during combat or healing.
 
 INVENTORY MANAGEMENT:
 - When a player gets an item: [ITEM: PlayerName | ItemName | Quantity]

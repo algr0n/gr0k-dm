@@ -241,7 +241,12 @@ export class DatabaseStorage implements IStorage {
       roomId: insertChar.roomId,
       name: insertChar.name,
       gameSystem: insertChar.gameSystem,
+      level: insertChar.level ?? 1,
+      currentHp: insertChar.currentHp ?? 10,
+      maxHp: insertChar.maxHp ?? 10,
       stats: insertChar.stats ?? {},
+      skills: insertChar.skills ?? [],
+      spells: insertChar.spells ?? [],
       notes: insertChar.notes ?? null,
     };
     const result = await db.insert(characters).values(values as any).returning();

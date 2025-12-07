@@ -602,6 +602,32 @@ export async function registerRoutes(
         }
       }
 
+      // Parse and handle [HP: PlayerName | CurrentHP/MaxHP] tags
+      const hpRegex = /\[HP:\s*([^|]+)\s*\|\s*(\d+)\s*\/\s*(\d+)\s*\]/gi;
+      let hpMatch;
+      while ((hpMatch = hpRegex.exec(dmResponse)) !== null) {
+        const targetPlayerName = hpMatch[1].trim();
+        const currentHp = parseInt(hpMatch[2]);
+        const maxHp = parseInt(hpMatch[3]);
+
+        const targetPlayer = players.find(p => p.name.toLowerCase() === targetPlayerName.toLowerCase());
+        
+        if (targetPlayer) {
+          let character = await storage.getCharacterByPlayer(targetPlayer.id, room.id);
+          if (character) {
+            await storage.updateCharacter(character.id, { currentHp, maxHp });
+            console.log(`[HP Update] ${targetPlayerName}: ${currentHp}/${maxHp}`);
+            broadcastToRoom(roomCode, { 
+              type: "character_update", 
+              playerId: targetPlayer.id,
+              characterId: character.id,
+              currentHp,
+              maxHp
+            });
+          }
+        }
+      }
+
       // Parse and handle [COMBAT_START] tag - auto-initiate combat
       if (/\[COMBAT_START\]/i.test(dmResponse)) {
         const existingCombat = roomCombatState.get(roomCode);
@@ -697,6 +723,7 @@ export async function registerRoutes(
       const cleanedResponse = dmResponse
         .replace(/\[ITEM:\s*[^\]]+\]/gi, "")
         .replace(/\[REMOVE_ITEM:\s*[^\]]+\]/gi, "")
+        .replace(/\[HP:\s*[^\]]+\]/gi, "")
         .replace(/\[COMBAT_START\]/gi, "")
         .replace(/\[COMBAT_END\]/gi, "")
         .trim();

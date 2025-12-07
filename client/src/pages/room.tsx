@@ -19,6 +19,8 @@ import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { type Message, type Room, type Player, type Character, type InventoryItem, gameSystemLabels, type GameSystem } from "@shared/schema";
 import { SpellBrowser } from "@/components/spell-browser";
+import { FloatingCharacterPanel } from "@/components/floating-character-panel";
+import { Heart } from "lucide-react";
 
 interface InitiativeEntry {
   playerId: string;
@@ -49,6 +51,10 @@ export default function RoomPage() {
   const [gameEnded, setGameEnded] = useState(false);
   const [isRoomPublic, setIsRoomPublic] = useState(false);
   const [combatState, setCombatState] = useState<CombatState | null>(null);
+  
+  // Floating character panel state
+  const [showCharacterPanel, setShowCharacterPanel] = useState(false);
+  const [liveHp, setLiveHp] = useState<{ current: number; max: number } | null>(null);
   
   // View other player's character state
   const [viewingPlayerId, setViewingPlayerId] = useState<string | null>(null);
@@ -355,6 +361,11 @@ export default function RoomPage() {
         }
       } else if (data.type === "combat_update") {
         setCombatState(data.combat);
+      } else if (data.type === "character_update") {
+        if (data.playerId === playerId) {
+          setLiveHp({ current: data.currentHp, max: data.maxHp });
+          queryClient.invalidateQueries({ queryKey: ["/api/characters", data.characterId] });
+        }
       } else if (data.type === "error") {
         toast({
           title: "Error",
@@ -677,7 +688,7 @@ export default function RoomPage() {
 
       <main className="flex-1 flex flex-col h-full overflow-hidden">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-          <div className="sticky top-0 z-50 border-b px-4 bg-background">
+          <div className="sticky top-0 z-50 border-b px-4 bg-background flex items-center justify-between gap-2">
             <TabsList className="h-12">
               <TabsTrigger value="chat" className="gap-2" data-testid="tab-chat">
                 <MessageSquare className="h-4 w-4" />
@@ -698,6 +709,15 @@ export default function RoomPage() {
                 </TabsTrigger>
               )}
             </TabsList>
+            <Button
+              variant={showCharacterPanel ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowCharacterPanel(!showCharacterPanel)}
+              data-testid="button-toggle-character-panel"
+            >
+              <Heart className="h-4 w-4 mr-2" />
+              {liveHp ? `${liveHp.current}/${liveHp.max}` : "HP"}
+            </Button>
           </div>
 
           <TabsContent value="chat" className="flex-1 flex flex-col mt-0 overflow-hidden data-[state=inactive]:hidden">
@@ -1908,6 +1928,16 @@ export default function RoomPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <FloatingCharacterPanel
+        characterId={existingCharacter?.id}
+        playerId={playerId}
+        playerName={playerName}
+        isOpen={showCharacterPanel}
+        onClose={() => setShowCharacterPanel(false)}
+        currentHp={liveHp?.current}
+        maxHp={liveHp?.max}
+      />
     </div>
   );
 }
