@@ -49,21 +49,21 @@ const DYNAMIC_PATTERNS = [
 
 function isCacheableQuery(message: string): { cacheable: boolean; isRulesQuery: boolean } {
   const lowerMessage = message.toLowerCase().trim();
-  
+
   // Never cache dynamic/action content
   for (const pattern of DYNAMIC_PATTERNS) {
     if (pattern.test(lowerMessage)) {
       return { cacheable: false, isRulesQuery: false };
     }
   }
-  
+
   // Check if it's a rules query (longer cache TTL)
   for (const pattern of RULES_PATTERNS) {
     if (pattern.test(lowerMessage)) {
       return { cacheable: true, isRulesQuery: true };
     }
   }
-  
+
   return { cacheable: false, isRulesQuery: false };
 }
 
@@ -75,15 +75,15 @@ function getCacheKey(message: string, gameSystem: string): string {
 function getFromCache(key: string, isRulesQuery: boolean): string | null {
   const entry = responseCache.get(key);
   if (!entry) return null;
-  
+
   const now = Date.now();
   const ttl = entry.isRulesQuery ? RULES_CACHE_TTL_MS : CACHE_TTL_MS;
-  
+
   if (now - entry.createdAt > ttl) {
     responseCache.delete(key);
     return null;
   }
-  
+
   // Update last access time for true LRU
   entry.lastAccess = now;
   return entry.response;
@@ -94,19 +94,19 @@ function addToCache(key: string, response: string, isRulesQuery: boolean): void 
   if (responseCache.size >= CACHE_MAX_SIZE) {
     let lruKey: string | null = null;
     let oldestAccess = Infinity;
-    
+
     responseCache.forEach((v, k) => {
       if (v.lastAccess < oldestAccess) {
         oldestAccess = v.lastAccess;
         lruKey = k;
       }
     });
-    
+
     if (lruKey) {
       responseCache.delete(lruKey);
     }
   }
-  
+
   const now = Date.now();
   responseCache.set(key, {
     response,
@@ -133,7 +133,7 @@ export function getAllTokenUsage(): Map<string, TokenUsage> {
 
 function trackTokenUsage(roomId: string, usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined) {
   if (!usage) return;
-  
+
   const existing = roomTokenUsage.get(roomId) || {
     promptTokens: 0,
     completionTokens: 0,
@@ -141,15 +141,15 @@ function trackTokenUsage(roomId: string, usage: { prompt_tokens?: number; comple
     callCount: 0,
     lastUpdated: new Date()
   };
-  
+
   existing.promptTokens += usage.prompt_tokens || 0;
   existing.completionTokens += usage.completion_tokens || 0;
   existing.totalTokens += usage.total_tokens || 0;
   existing.callCount += 1;
   existing.lastUpdated = new Date();
-  
+
   roomTokenUsage.set(roomId, existing);
-  
+
   console.log(`[Token Usage] Room ${roomId}: +${usage.total_tokens || 0} tokens (total: ${existing.totalTokens}, calls: ${existing.callCount})`);
 }
 
@@ -180,6 +180,18 @@ HP TRACKING:
 - Example: Player with 15 max HP takes 5 damage: [HP: Jordan | 10/15]
 - Example: Player heals 3 HP: [HP: Jordan | 13/15]
 - Always include this tag when HP changes during combat or healing.
+
+DEATH SAVING THROWS:
+- When a player's HP reaches 0, they fall unconscious and start making death saving throws.
+- On their turn, they roll a d20 for a death save.
+- Result: 10 or higher = 1 success; below 10 = 1 failure; natural 20 = regain 1 HP and become conscious; natural 1 = 2 failures.
+- Track with [DEATH_SAVES: PlayerName | Successes/Failures]
+- Example: First success: [DEATH_SAVES: Jordan | 1/0]
+- 3 successes: player stabilizes at 0 HP, unconscious but not dying. Add [STABLE: PlayerName]
+- 3 failures: player dies. Add [DEAD: PlayerName]
+- Reset death saves when the player regains any HP or is stabilized.
+- If the player takes damage while at 0 HP, it causes 1 death save failure (2 if critical hit or melee attack within 5 feet).
+- Include these tags at the END of your response.
 
 INVENTORY MANAGEMENT: 
 - When a player picks up or receives an item: [ITEM: PlayerName | ItemName | Quantity]
@@ -234,7 +246,7 @@ export async function generateDMResponse(
 ): Promise<string> {
   const gameSystem = room.gameSystem || "dnd";
   const systemPrompt = SYSTEM_PROMPTS[gameSystem] || SYSTEM_PROMPTS.dnd;
-  
+
   // Check cache for deterministic queries (rules, status)
   const { cacheable, isRulesQuery } = isCacheableQuery(userMessage);
   if (cacheable && !diceResult) {
@@ -245,7 +257,7 @@ export async function generateDMResponse(
       return cached;
     }
   }
-  
+
   const messages: OpenAI.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
   ];
@@ -318,14 +330,14 @@ export async function generateDMResponse(
 
     trackTokenUsage(room.id, response.usage);
     const result = response.choices[0]?.message?.content || "The DM ponders silently...";
-    
+
     // Cache the response if it was a cacheable query
     if (cacheable && !diceResult) {
       const cacheKey = getCacheKey(userMessage, gameSystem);
       addToCache(cacheKey, result, isRulesQuery);
       console.log(`[Cache Store] Cached response for: "${userMessage.slice(0, 50)}..." (rules: ${isRulesQuery}, TTL: ${isRulesQuery ? '1hr' : '5min'})`);
     }
-    
+
     return result;
   } catch (error) {
     console.error("Grok API error:", error);
@@ -349,7 +361,7 @@ export async function generateBatchedDMResponse(
 ): Promise<string> {
   const gameSystem = room.gameSystem || "dnd";
   const systemPrompt = SYSTEM_PROMPTS[gameSystem] || SYSTEM_PROMPTS.dnd;
-  
+
   const messages: OpenAI.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
   ];
@@ -428,7 +440,7 @@ export async function generateBatchedDMResponse(
 
 export async function generateSceneDescription(prompt: string, gameSystem: string = "dnd"): Promise<string> {
   const systemPrompt = SYSTEM_PROMPTS[gameSystem] || SYSTEM_PROMPTS.dnd;
-  
+
   try {
     const response = await openai.chat.completions.create({
       model: "grok-4-1-fast-reasoning",
@@ -449,7 +461,7 @@ export async function generateSceneDescription(prompt: string, gameSystem: strin
 
 export async function generateStartingScene(gameSystem: string, roomName: string): Promise<string> {
   const systemPrompt = SYSTEM_PROMPTS[gameSystem] || SYSTEM_PROMPTS.dnd;
-  
+
   try {
     const response = await openai.chat.completions.create({
       model: "grok-4-1-fast-reasoning",
@@ -475,7 +487,7 @@ export async function generateCombatDMTurn(
 ): Promise<string> {
   const gameSystem = room.gameSystem || "dnd";
   const systemPrompt = SYSTEM_PROMPTS[gameSystem] || SYSTEM_PROMPTS.dnd;
-  
+
   const messages: OpenAI.ChatCompletionMessageParam[] = [
     { 
       role: "system", 
