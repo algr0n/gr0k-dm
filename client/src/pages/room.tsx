@@ -137,6 +137,14 @@ export default function RoomPage() {
   });
 
   const isHost = roomData?.hostName === playerName;
+  
+  // Combat turn check - determine if current player can send messages
+  const currentTurnEntry = combatState?.isActive 
+    ? combatState.initiatives[combatState.currentTurnIndex] 
+    : null;
+  const isMyTurn = !combatState?.isActive || isHost || currentTurnEntry?.playerName === playerName;
+  const isCombatActive = combatState?.isActive ?? false;
+  const currentTurnCharacterName = currentTurnEntry?.characterName || "another player";
 
   const deleteInventoryItemMutation = useMutation({
     mutationFn: async (itemId: string) => {
@@ -762,7 +770,7 @@ export default function RoomPage() {
                         key={stat}
                         variant="outline"
                         size="sm"
-                        disabled={!isConnected || gameEnded}
+                        disabled={!isConnected || gameEnded || (!isMyTurn && isCombatActive)}
                         onClick={() => {
                           if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                             wsRef.current.send(JSON.stringify({
@@ -785,13 +793,19 @@ export default function RoomPage() {
               <Input
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder={gameEnded ? "Game has ended" : "Type a message... (use /roll 2d6+3 for dice, *asterisks* for actions)"}
-                disabled={!isConnected || gameEnded}
+                placeholder={
+                  gameEnded 
+                    ? "Game has ended" 
+                    : (!isMyTurn && isCombatActive)
+                      ? `Waiting for ${currentTurnCharacterName}'s turn...`
+                      : "Type a message... (use /roll 2d6+3 for dice, *asterisks* for actions)"
+                }
+                disabled={!isConnected || gameEnded || (!isMyTurn && isCombatActive)}
                 data-testid="input-chat-message"
               />
               <Button 
                 type="submit" 
-                disabled={!isConnected || !inputValue.trim() || gameEnded}
+                disabled={!isConnected || !inputValue.trim() || gameEnded || (!isMyTurn && isCombatActive)}
                 data-testid="button-send-message"
               >
                 <Send className="h-4 w-4" />

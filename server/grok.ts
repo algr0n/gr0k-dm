@@ -170,8 +170,10 @@ Style:
 
 Dice results: 20=amazing, 15-19=success, 10-14=partial, 5-9=struggle, 1=disaster.
 
-INVENTORY: When a player picks up an item, add this at the END:
-[ITEM: PlayerName | ItemName | Quantity]`,
+INVENTORY MANAGEMENT: 
+- When a player picks up or receives an item: [ITEM: PlayerName | ItemName | Quantity]
+- When a player uses, consumes, or loses an item: [REMOVE_ITEM: PlayerName | ItemName | Quantity]
+Add these tags at the END of your response.`,
 
   cyberpunk: `You are Grok, a GM for Cyberpunk RED in Night City, 2045. Be concise and punchy.
 
@@ -187,8 +189,10 @@ Style:
 
 Dice (d10): 10=crit, 7-9=success, 5-6=partial, 2-4=fail, 1=disaster.
 
-INVENTORY: When a player gets an item, add at END:
-[ITEM: PlayerName | ItemName | Quantity]`,
+INVENTORY MANAGEMENT:
+- When a player gets an item: [ITEM: PlayerName | ItemName | Quantity]
+- When a player uses or loses an item: [REMOVE_ITEM: PlayerName | ItemName | Quantity]
+Add these tags at the END of your response.`,
 };
 
 export interface CharacterInfo {
@@ -430,5 +434,74 @@ export async function generateStartingScene(gameSystem: string, roomName: string
   } catch (error) {
     console.error("Starting scene error:", error);
     return "Welcome, adventurers! Tell me about your characters and what kind of adventure you're looking for.";
+  }
+}
+
+// Generate enemy actions during combat when it's the DM's turn
+export async function generateCombatDMTurn(
+  room: Room,
+  partyCharacters?: CharacterInfo[]
+): Promise<string> {
+  const gameSystem = room.gameSystem || "dnd";
+  const systemPrompt = SYSTEM_PROMPTS[gameSystem] || SYSTEM_PROMPTS.dnd;
+  
+  const messages: OpenAI.ChatCompletionMessageParam[] = [
+    { 
+      role: "system", 
+      content: systemPrompt + `\n\nCOMBAT TURN: It's now the enemies' turn in initiative order. Describe what the enemies do - their attacks, movements, abilities. Roll dice for enemy attacks and describe the results. Be brief but dramatic. Target specific player characters by name if known.`
+    },
+  ];
+
+  if (room.currentScene) {
+    messages.push({ 
+      role: "system", 
+      content: `Current Scene: ${room.currentScene}` 
+    });
+  }
+
+  if (partyCharacters && partyCharacters.length > 0) {
+    const charDescriptions = partyCharacters.map(c => {
+      const statsStr = Object.entries(c.stats)
+        .filter(([_, v]) => v !== undefined && v !== null && v !== "")
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(", ");
+      const desc = `${c.playerName}'s character: ${c.characterName}`;
+      return statsStr ? `${desc} (${statsStr})` : desc;
+    }).join("\n");
+    messages.push({
+      role: "system",
+      content: `THE PARTY (your targets):\n${charDescriptions}`
+    });
+  }
+
+  // Add recent combat history for context
+  const recentHistory = (room.messageHistory || []).slice(-10);
+  for (const msg of recentHistory) {
+    if (msg.type === "dm") {
+      messages.push({ role: "assistant", content: msg.content });
+    } else if (msg.type === "chat" || msg.type === "action" || msg.type === "roll") {
+      messages.push({ role: "user", content: `${msg.playerName}: ${msg.content}` });
+    }
+  }
+
+  messages.push({ 
+    role: "user", 
+    content: `[COMBAT - ENEMY TURN] The enemies act now. Describe their actions, roll their attacks, and narrate the results. Keep it brief and dramatic.` 
+  });
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "grok-2-1212",
+      messages,
+      max_tokens: 600,
+      temperature: 0.8,
+    });
+
+    trackTokenUsage(room.id, response.usage);
+    console.log(`[Combat DM Turn] Generated enemy actions for room ${room.id}`);
+    return response.choices[0]?.message?.content || "The enemies prepare their next move...";
+  } catch (error) {
+    console.error("Combat DM turn error:", error);
+    return "The enemies ready themselves for their next attack...";
   }
 }

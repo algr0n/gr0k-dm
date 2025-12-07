@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { parseDiceExpression } from "./dice";
-import { generateDMResponse, generateBatchedDMResponse, generateStartingScene, type CharacterInfo, type BatchedMessage, getTokenUsage } from "./grok";
+import { generateDMResponse, generateBatchedDMResponse, generateStartingScene, generateCombatDMTurn, type CharacterInfo, type BatchedMessage, getTokenUsage } from "./grok";
 import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, type Message, type Character, type InventoryItem } from "@shared/schema";
 
 const roomConnections = new Map<string, Set<WebSocket>>();
@@ -103,6 +103,23 @@ export async function registerRoutes(
     }
 
     if (message.type === "chat" || message.type === "action") {
+      // Combat turn lockout: only the current turn player (or host) can send messages during combat
+      const combatState = roomCombatState.get(roomCode);
+      if (combatState?.isActive) {
+        const currentTurnEntry = combatState.initiatives[combatState.currentTurnIndex];
+        const isHost = room.hostName === playerName;
+        const isCurrentTurn = currentTurnEntry?.playerName === playerName;
+        
+        // Allow host to always chat, but enforce turn order for other players
+        if (!isHost && !isCurrentTurn && currentTurnEntry?.playerId !== "DM") {
+          ws.send(JSON.stringify({ 
+            type: "error", 
+            content: `It's ${currentTurnEntry?.characterName || "another player"}'s turn. Wait for your turn to act.` 
+          }));
+          return;
+        }
+      }
+      
       // Handle /give command: /give @PlayerName ItemName x Quantity
       // Uses a greedy match for item name, with optional "x N" at the end for quantity
       const giveMatch = message.content.match(/^\/give\s+@?(\S+)\s+(.+?)(?:\s+x\s*(\d+))?$/i);
@@ -292,6 +309,18 @@ export async function registerRoutes(
         });
       }
       
+      // Add DM (enemies) to initiative order
+      const dmRoll = Math.floor(Math.random() * 20) + 1;
+      const dmModifier = 2; // Standard enemy dex modifier
+      initiatives.push({
+        playerId: "DM",
+        playerName: "Grok DM",
+        characterName: "Enemies",
+        roll: dmRoll,
+        modifier: dmModifier,
+        total: dmRoll + dmModifier,
+      });
+      
       initiatives.sort((a, b) => b.total - a.total || b.roll - a.roll);
       
       const combatState: CombatState = {
@@ -343,11 +372,69 @@ export async function registerRoutes(
         timestamp: new Date().toISOString(),
       };
       
-      const updatedHistory = [...(room.messageHistory || []), turnMessage].slice(-100);
+      let updatedHistory = [...(room.messageHistory || []), turnMessage].slice(-100);
       await storage.updateRoom(room.id, { messageHistory: updatedHistory, lastActivityAt: new Date() });
       
       broadcastToRoom(roomCode, { type: "message", message: turnMessage });
       broadcastToRoom(roomCode, { type: "combat_update", combat: combatState });
+      
+      // If it's the DM's turn, auto-generate enemy actions
+      if (currentPlayer.playerId === "DM") {
+        try {
+          const players = await storage.getPlayersByRoom(room.id);
+          const allCharacters = await storage.getCharactersByRoom(room.id);
+          const partyCharacters: CharacterInfo[] = allCharacters.map(char => {
+            const player = players.find(p => p.id === char.playerId);
+            return {
+              playerName: player?.name || "Unknown",
+              characterName: char.name,
+              stats: char.stats || {},
+              notes: char.notes
+            };
+          });
+          
+          // Get fresh room data with updated history
+          const freshRoom = await storage.getRoomByCode(roomCode);
+          if (freshRoom) {
+            const dmResponse = await generateCombatDMTurn(freshRoom, partyCharacters);
+            
+            const dmMessage: Message = {
+              id: randomUUID(),
+              roomId: room.id,
+              playerName: "Grok DM",
+              content: dmResponse,
+              type: "dm",
+              timestamp: new Date().toISOString(),
+            };
+            
+            updatedHistory = [...(freshRoom.messageHistory || []), dmMessage].slice(-100);
+            await storage.updateRoom(room.id, { messageHistory: updatedHistory, lastActivityAt: new Date() });
+            
+            broadcastToRoom(roomCode, { type: "message", message: dmMessage });
+            
+            // Auto-advance to next player's turn after DM actions
+            combatState.currentTurnIndex = (combatState.currentTurnIndex + 1) % combatState.initiatives.length;
+            const nextPlayer = combatState.initiatives[combatState.currentTurnIndex];
+            
+            const nextTurnMessage: Message = {
+              id: randomUUID(),
+              roomId: room.id,
+              playerName: "System",
+              content: `It's ${nextPlayer.characterName}'s turn!`,
+              type: "system",
+              timestamp: new Date().toISOString(),
+            };
+            
+            const finalHistory = [...updatedHistory, nextTurnMessage].slice(-100);
+            await storage.updateRoom(room.id, { messageHistory: finalHistory, lastActivityAt: new Date() });
+            
+            broadcastToRoom(roomCode, { type: "message", message: nextTurnMessage });
+            broadcastToRoom(roomCode, { type: "combat_update", combat: combatState });
+          }
+        } catch (error) {
+          console.error("DM combat turn error:", error);
+        }
+      }
     }
 
     if (message.type === "end_combat") {
@@ -484,7 +571,38 @@ export async function registerRoutes(
         }
       }
 
-      const cleanedResponse = dmResponse.replace(/\[ITEM:\s*[^\]]+\]/gi, "").trim();
+      // Parse and handle [REMOVE_ITEM: PlayerName | ItemName | Quantity] tags
+      const removeItemMatches = dmResponse.matchAll(/\[REMOVE_ITEM:\s*([^|]+)\s*\|\s*([^|]+)\s*\|\s*(\d+)\s*\]/gi);
+      for (const match of removeItemMatches) {
+        const targetPlayerName = match[1].trim();
+        const itemName = match[2].trim();
+        const quantityToRemove = parseInt(match[3]) || 1;
+
+        const targetPlayer = players.find(p => p.name.toLowerCase() === targetPlayerName.toLowerCase());
+        
+        if (targetPlayer) {
+          const character = await storage.getCharacterByPlayer(targetPlayer.id, room.id);
+          if (character) {
+            const inventory = await storage.getInventoryByCharacter(character.id);
+            const item = inventory.find(i => i.name.toLowerCase() === itemName.toLowerCase());
+            
+            if (item) {
+              const newQuantity = item.quantity - quantityToRemove;
+              if (newQuantity <= 0) {
+                await storage.deleteInventoryItem(item.id);
+              } else {
+                await storage.updateInventoryItem(item.id, { quantity: newQuantity });
+              }
+              broadcastToRoom(roomCode, { type: "inventory_update", playerId: targetPlayer.id });
+            }
+          }
+        }
+      }
+
+      const cleanedResponse = dmResponse
+        .replace(/\[ITEM:\s*[^\]]+\]/gi, "")
+        .replace(/\[REMOVE_ITEM:\s*[^\]]+\]/gi, "")
+        .trim();
 
       const dmMessage: Message = {
         id: randomUUID(),
