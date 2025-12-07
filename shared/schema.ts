@@ -388,6 +388,46 @@ export const insertRoomCharacterSchema = createInsertSchema(roomCharacters).omit
 export type InsertRoomCharacter = z.infer<typeof insertRoomCharacterSchema>;
 export type RoomCharacter = typeof roomCharacters.$inferSelect;
 
+// Room inventory items (items acquired during gameplay by room characters)
+export const roomInventoryItems = pgTable("room_inventory_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  roomCharacterId: varchar("room_character_id")
+    .notNull()
+    .references(() => roomCharacters.id, { onDelete: "cascade" }),
+  itemId: varchar("item_id", { length: 64 })
+    .notNull()
+    .references(() => items.id, { onDelete: "restrict" }),
+  quantity: integer("quantity").notNull().default(1),
+  equipped: boolean("equipped").notNull().default(false),
+  notes: text("notes"),
+  attunementSlot: boolean("attunement_slot").default(false),
+  grantedBy: text("granted_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()),
+}, (table) => [
+  index("idx_room_inventory_character").on(table.roomCharacterId),
+  index("idx_room_inventory_item").on(table.itemId),
+]);
+
+export const roomInventoryItemsRelations = relations(roomInventoryItems, ({ one }) => ({
+  roomCharacter: one(roomCharacters, {
+    fields: [roomInventoryItems.roomCharacterId],
+    references: [roomCharacters.id],
+  }),
+  item: one(items, {
+    fields: [roomInventoryItems.itemId],
+    references: [items.id],
+  }),
+}));
+
+export const insertRoomInventoryItemSchema = createInsertSchema(roomInventoryItems)
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .extend({
+    quantity: z.coerce.number().min(1),
+  });
+export type InsertRoomInventoryItem = z.infer<typeof insertRoomInventoryItemSchema>;
+export type RoomInventoryItem = typeof roomInventoryItems.$inferSelect;
+
 // Relations for room characters
 export const roomCharactersRelations = relations(roomCharacters, ({ one, many }) => ({
   room: one(rooms, {
@@ -403,6 +443,7 @@ export const roomCharactersRelations = relations(roomCharacters, ({ one, many })
     references: [users.id],
   }),
   statusEffects: many(characterStatusEffects),
+  inventoryItems: many(roomInventoryItems),
 }));
 
 // Predefined status effects per game system

@@ -9,8 +9,10 @@ import {
   type SavedInventoryItem, type InsertSavedInventoryItem,
   type RoomCharacter, type InsertRoomCharacter, type UpdateRoomCharacter,
   type CharacterStatusEffect, type InsertStatusEffect,
+  type RoomInventoryItem, type InsertRoomInventoryItem,
   rooms, players, diceRolls, users, characters, inventoryItems,
-  savedCharacters, savedInventoryItems, roomCharacters, characterStatusEffects
+  savedCharacters, savedInventoryItems, roomCharacters, characterStatusEffects,
+  roomInventoryItems
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, lt, sql, count } from "drizzle-orm";
@@ -114,6 +116,11 @@ export interface IStorage {
   createStatusEffect(effect: InsertStatusEffect): Promise<CharacterStatusEffect>;
   deleteStatusEffect(id: string): Promise<boolean>;
   deleteStatusEffectsByRoomCharacter(roomCharacterId: string): Promise<boolean>;
+
+  // Room Inventory (items acquired during gameplay)
+  getRoomInventoryByCharacter(roomCharacterId: string): Promise<(RoomInventoryItem & { item: Item })[]>;
+  addToRoomInventory(insert: InsertRoomInventoryItem): Promise<RoomInventoryItem>;
+  deleteRoomInventoryItem(id: string): Promise<boolean>;
 }
 
 class DatabaseStorage implements IStorage {
@@ -567,6 +574,45 @@ class DatabaseStorage implements IStorage {
 
   async deleteStatusEffectsByRoomCharacter(roomCharacterId: string): Promise<boolean> {
     await db.delete(characterStatusEffects).where(eq(characterStatusEffects.roomCharacterId, roomCharacterId));
+    return true;
+  }
+
+  // Room Inventory (items acquired during gameplay)
+  async getRoomInventoryByCharacter(roomCharacterId: string): Promise<(RoomInventoryItem & { item: Item })[]> {
+    const results = await db.query.roomInventoryItems.findMany({
+      where: eq(roomInventoryItems.roomCharacterId, roomCharacterId),
+      with: { item: true },
+    });
+    return results;
+  }
+
+  async addToRoomInventory(insert: InsertRoomInventoryItem): Promise<RoomInventoryItem> {
+    // Check if item already exists for this character
+    const existing = await db.query.roomInventoryItems.findFirst({
+      where: and(
+        eq(roomInventoryItems.roomCharacterId, insert.roomCharacterId),
+        eq(roomInventoryItems.itemId, insert.itemId)
+      )
+    });
+
+    if (existing) {
+      // Increment quantity
+      return await db.update(roomInventoryItems)
+        .set({ quantity: existing.quantity + (insert.quantity || 1) })
+        .where(eq(roomInventoryItems.id, existing.id))
+        .returning()
+        .then(r => r[0]);
+    }
+
+    // Insert new item
+    return await db.insert(roomInventoryItems)
+      .values(insert)
+      .returning()
+      .then(r => r[0]);
+  }
+
+  async deleteRoomInventoryItem(id: string): Promise<boolean> {
+    await db.delete(roomInventoryItems).where(eq(roomInventoryItems.id, id));
     return true;
   }
 }

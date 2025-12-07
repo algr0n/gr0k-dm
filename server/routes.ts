@@ -58,6 +58,49 @@ interface DroppedItem {
 
 const roomDroppedItems = new Map<string, DroppedItem[]>();
 
+// Starting items by D&D class
+const dndStartingItems: Record<string, string[]> = {
+  fighter: ["longsword", "dagger", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
+  wizard: ["quarterstaff", "dagger", "backpack", "component-pouch", "rations-1-day", "waterskin", "torch"],
+  rogue: ["shortsword", "dagger", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
+  cleric: ["mace", "dagger", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
+  ranger: ["longbow", "shortsword", "dagger", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
+  paladin: ["longsword", "dagger", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
+  barbarian: ["greataxe", "handaxe", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
+  bard: ["rapier", "dagger", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
+  druid: ["quarterstaff", "dagger", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
+  monk: ["quarterstaff", "dart", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
+  sorcerer: ["dagger", "backpack", "component-pouch", "rations-1-day", "waterskin", "torch"],
+  warlock: ["dagger", "backpack", "component-pouch", "rations-1-day", "waterskin", "torch"],
+  default: ["dagger", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
+};
+
+// Helper function to grant starting items to a new room character
+async function grantStartingItems(
+  roomCharacterId: string,
+  gameSystem: string,
+  characterClass: string | null | undefined
+): Promise<void> {
+  if (gameSystem === "dnd") {
+    const classKey = (characterClass || "default").toLowerCase();
+    const itemIds = dndStartingItems[classKey] || dndStartingItems.default;
+    
+    for (const itemId of itemIds) {
+      try {
+        await storage.addToRoomInventory({
+          roomCharacterId,
+          itemId,
+          quantity: itemId === "rations-1-day" ? 5 : itemId === "torch" ? 5 : 1,
+          grantedBy: "Starting Equipment",
+        });
+      } catch (error) {
+        console.error(`Failed to add starting item ${itemId}:`, error);
+      }
+    }
+  }
+  // Cyberpunk items would go here when added to the items table
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -580,6 +623,9 @@ export async function registerRoutes(
           temporaryHp: 0,
           gold: 0,
         });
+        
+        // Grant starting items based on game system and class
+        await grantStartingItems(roomCharacter.id, room.gameSystem, savedCharacter.class);
       }
 
       await storage.updateRoomActivity(room.id);
@@ -645,6 +691,9 @@ export async function registerRoutes(
         temporaryHp: 0,
         gold: 0,
       });
+
+      // Grant starting items based on game system and class
+      await grantStartingItems(roomCharacter.id, room.gameSystem, savedCharacter.class);
 
       res.json({ roomCharacter });
     } catch (error) {
@@ -1353,6 +1402,55 @@ export async function registerRoutes(
 
       const added = await storage.addToInventory(insert);
       res.json(added);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Room Character Inventory API (items acquired during gameplay)
+  app.get("/api/room-characters/:roomCharacterId/inventory", isAuthenticated, async (req, res) => {
+    try {
+      const { roomCharacterId } = req.params;
+      const inventory = await storage.getRoomInventoryByCharacter(roomCharacterId);
+      res.json(inventory);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  app.post("/api/room-characters/:roomCharacterId/inventory", isAuthenticated, async (req, res) => {
+    try {
+      const { roomCharacterId } = req.params;
+      const { itemId, name, quantity = 1, grantedBy } = req.body;
+      
+      // If name provided, look up the item by name
+      let resolvedItemId = itemId;
+      if (!itemId && name) {
+        const foundItems = await storage.searchItems(name);
+        if (foundItems.length > 0) {
+          resolvedItemId = foundItems[0].id;
+        } else {
+          return res.status(404).json({ error: "Item not found" });
+        }
+      }
+      
+      if (!resolvedItemId) {
+        return res.status(400).json({ error: "itemId or name is required" });
+      }
+      
+      const insert = { roomCharacterId, itemId: resolvedItemId, quantity, grantedBy };
+      const added = await storage.addToRoomInventory(insert);
+      res.json(added);
+    } catch (error) {
+      res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  app.delete("/api/room-characters/:roomCharacterId/inventory/:itemId", isAuthenticated, async (req, res) => {
+    try {
+      const { itemId } = req.params;
+      await storage.deleteRoomInventoryItem(itemId);
+      res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }

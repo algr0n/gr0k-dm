@@ -239,8 +239,8 @@ export default function RoomPage() {
   // Fetch inventory for current character (with joined item details)
   type InventoryWithItem = InventoryItem & { item: Item };
   const { data: inventory, isLoading: isLoadingInventory, refetch: refetchInventory } = useQuery<InventoryWithItem[]>({
-    queryKey: ["/api/characters", existingCharacter?.id, "inventory"],
-    enabled: !!existingCharacter?.id,
+    queryKey: ["/api/room-characters", myCharacterData?.roomCharacter?.id, "inventory"],
+    enabled: !!myCharacterData?.roomCharacter?.id,
   });
 
   // Fetch all items for item name detection in chat
@@ -433,7 +433,7 @@ export default function RoomPage() {
 
   const addInventoryItemMutation = useMutation({
     mutationFn: async (data: { name: string; quantity: number }) => {
-      const response = await apiRequest("POST", `/api/characters/${existingCharacter?.id}/inventory`, {
+      const response = await apiRequest("POST", `/api/room-characters/${myCharacterData?.roomCharacter?.id}/inventory`, {
         name: data.name,
         quantity: data.quantity,
         grantedBy: playerName,
@@ -441,7 +441,7 @@ export default function RoomPage() {
       return response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter?.id, "inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/room-characters", myCharacterData?.roomCharacter?.id, "inventory"] });
       toast({
         title: "Item added",
         description: "The item has been added to your inventory.",
@@ -461,18 +461,18 @@ export default function RoomPage() {
 
   const pickupItemMutation = useMutation({
     mutationFn: async (data: { itemId: string; itemName: string }) => {
-      if (!existingCharacter?.id) {
+      if (!myCharacterData?.roomCharacter?.id) {
         throw new Error("No character to add item to");
       }
-      const response = await apiRequest("POST", `/api/characters/${existingCharacter.id}/inventory`, {
+      const response = await apiRequest("POST", `/api/room-characters/${myCharacterData.roomCharacter.id}/inventory`, {
         itemId: data.itemId,
         quantity: 1,
       });
       return response.json();
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter?.id, "inventory"] });
-      queryClient.invalidateQueries({ queryKey: ["inventory", existingCharacter?.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/room-characters", myCharacterData?.roomCharacter?.id, "inventory"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory", myCharacterData?.roomCharacter?.id] });
       toast({
         title: "Item picked up",
         description: `${variables.itemName} has been added to your inventory.`,
@@ -1487,7 +1487,7 @@ export default function RoomPage() {
                       {isHost && " Use /give @PlayerName ItemName x Quantity to grant items to players."}
                     </p>
                   </div>
-                  {existingCharacter && (
+                  {myCharacterData && (
                     <Button 
                       size="sm" 
                       onClick={() => setShowAddItemForm(!showAddItemForm)}
@@ -1499,7 +1499,7 @@ export default function RoomPage() {
                   )}
                 </CardHeader>
                 <CardContent>
-                  {showAddItemForm && existingCharacter && (
+                  {showAddItemForm && myCharacterData && (
                     <div className="mb-4 p-3 border rounded-md space-y-3">
                       <div className="flex gap-2">
                         <Input
@@ -1526,7 +1526,7 @@ export default function RoomPage() {
                       </div>
                     </div>
                   )}
-                  {!existingCharacter ? (
+                  {!myCharacterData ? (
                     <div className="text-center py-8">
                       <p className="text-muted-foreground">Create a character first to see your inventory.</p>
                       <Button 
