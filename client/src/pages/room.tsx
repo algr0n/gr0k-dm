@@ -45,6 +45,31 @@ interface ParsedMessagePart {
   item?: Item;
 }
 
+function formatTimestamp(timestamp: string | number | Date): string {
+  if (!timestamp) return "";
+  try {
+    let date: Date;
+    if (typeof timestamp === "string") {
+      const numericValue = Number(timestamp);
+      if (!isNaN(numericValue) && numericValue > 0) {
+        date = new Date(numericValue);
+      } else {
+        date = new Date(timestamp);
+      }
+    } else if (typeof timestamp === "number") {
+      date = new Date(timestamp);
+    } else {
+      date = timestamp;
+    }
+    if (isNaN(date.getTime())) {
+      return "";
+    }
+    return date.toLocaleTimeString();
+  } catch {
+    return "";
+  }
+}
+
 function parseMessageForItems(content: string, itemNameMap: Map<string, Item>): ParsedMessagePart[] {
   if (itemNameMap.size === 0) {
     return [{ type: "text", content }];
@@ -1096,7 +1121,7 @@ export default function RoomPage() {
                           {message.playerName}
                         </span>
                         <span className="text-xs text-muted-foreground">
-                          {new Date(message.timestamp).toLocaleTimeString()}
+                          {formatTimestamp(message.timestamp)}
                         </span>
                       </div>
                     )}
@@ -1829,14 +1854,10 @@ export default function RoomPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4 text-center">
+              <div className="grid grid-cols-2 gap-4 text-center">
                 <div className="p-2 bg-muted rounded-md">
                   <span className="text-xs text-muted-foreground">Level</span>
                   <p className="font-mono font-bold text-lg" data-testid="text-viewed-level">{viewedCharacter.level || 1}</p>
-                </div>
-                <div className="p-2 bg-muted rounded-md">
-                  <span className="text-xs text-muted-foreground">XP</span>
-                  <p className="font-mono font-bold text-lg" data-testid="text-viewed-xp">{viewedCharacter.xp || 0}</p>
                 </div>
                 <div className="p-2 bg-muted rounded-md">
                   <span className="text-xs text-muted-foreground">Max HP</span>

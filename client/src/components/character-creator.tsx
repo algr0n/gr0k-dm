@@ -7,10 +7,22 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import { Wand2, ChevronLeft, ChevronRight, Dices, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { GameSystem } from "@shared/schema";
+import {
+  applyDndRaceBonuses,
+  applyCyberpunkBonuses,
+  calculateDndMaxHp,
+  getAbilityModifier,
+  getRaceBonusDescription,
+  getClassBonusDescription,
+  type DndStatName,
+  type CyberpunkStatName,
+  DND_CLASS_HP_BONUSES,
+} from "@shared/race-class-bonuses";
 
 // D&D options
 const DND_RACES = [
@@ -73,27 +85,38 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const stats = formData.gameSystem === "dnd" 
-        ? {
-            strength: formData.strength,
-            dexterity: formData.dexterity,
-            constitution: formData.constitution,
-            intelligence: formData.intelligence,
-            wisdom: formData.wisdom,
-            charisma: formData.charisma,
-          }
-        : {
-            int: formData.int,
-            ref: formData.ref,
-            dex: formData.dex,
-            tech: formData.tech,
-            cool: formData.cool,
-            will: formData.will,
-            luck: formData.luck,
-            move: formData.move,
-            body: formData.body,
-            emp: formData.emp,
-          };
+      let stats: Record<string, number>;
+      let maxHp = 10;
+      
+      if (formData.gameSystem === "dnd") {
+        const baseStats: Record<DndStatName, number> = {
+          strength: formData.strength,
+          dexterity: formData.dexterity,
+          constitution: formData.constitution,
+          intelligence: formData.intelligence,
+          wisdom: formData.wisdom,
+          charisma: formData.charisma,
+        };
+        const finalStats = applyDndRaceBonuses(baseStats, formData.race);
+        stats = finalStats;
+        const conModifier = getAbilityModifier(finalStats.constitution);
+        maxHp = calculateDndMaxHp(formData.characterClass, 1, conModifier);
+      } else {
+        const baseStats: Record<CyberpunkStatName, number> = {
+          int: formData.int,
+          ref: formData.ref,
+          dex: formData.dex,
+          tech: formData.tech,
+          cool: formData.cool,
+          will: formData.will,
+          luck: formData.luck,
+          move: formData.move,
+          body: formData.body,
+          emp: formData.emp,
+        };
+        stats = applyCyberpunkBonuses(baseStats, formData.race, formData.characterClass);
+        maxHp = 10 + (stats.body || 5);
+      }
       
       const result = await apiRequest("POST", "/api/characters", {
         name: formData.name,
@@ -101,6 +124,7 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
         characterClass: formData.characterClass,
         gameSystem: formData.gameSystem,
         stats,
+        maxHp,
         backstory: formData.backstory || undefined,
       });
       return result.json();
@@ -265,6 +289,13 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
                     ))}
                   </SelectContent>
                 </Select>
+                {formData.race && (
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge variant="secondary" className="text-xs" data-testid="badge-race-bonus">
+                      {getRaceBonusDescription(formData.race, formData.gameSystem) || "No stat bonuses"}
+                    </Badge>
+                  </div>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="class">{formData.gameSystem === "dnd" ? "Class" : "Role"}</Label>
@@ -281,6 +312,13 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
                     ))}
                   </SelectContent>
                 </Select>
+                {formData.characterClass && (
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge variant="secondary" className="text-xs" data-testid="badge-class-bonus">
+                      {getClassBonusDescription(formData.characterClass, formData.gameSystem) || "No bonuses"}
+                    </Badge>
+                  </div>
+                )}
               </div>
             </>
           )}
