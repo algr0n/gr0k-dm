@@ -1403,6 +1403,182 @@ export async function registerRoutes(
     }
   });
 
+  // Generate PDF adventure recap
+  app.get("/api/rooms/:code/pdf", async (req, res) => {
+    try {
+      const { code } = req.params;
+      const room = await storage.getRoomByCode(code);
+      
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+      
+      const players = await storage.getPlayersByRoom(room.id);
+      const characters = await storage.getCharactersByRoom(room.id);
+      const messages = room.messageHistory || [];
+      
+      // Import pdf-lib
+      const { PDFDocument, rgb, StandardFonts } = await import("pdf-lib");
+      
+      const pdfDoc = await PDFDocument.create();
+      const timesRoman = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+      const timesRomanBold = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
+      const courier = await pdfDoc.embedFont(StandardFonts.Courier);
+      
+      const pageWidth = 612;
+      const pageHeight = 792;
+      const margin = 50;
+      const lineHeight = 14;
+      const maxWidth = pageWidth - margin * 2;
+      
+      let currentPage = pdfDoc.addPage([pageWidth, pageHeight]);
+      let yPosition = pageHeight - margin;
+      
+      const addNewPage = () => {
+        currentPage = pdfDoc.addPage([pageWidth, pageHeight]);
+        yPosition = pageHeight - margin;
+      };
+      
+      const wrapText = (text: string, font: any, fontSize: number, maxW: number): string[] => {
+        const words = text.split(' ');
+        const lines: string[] = [];
+        let currentLine = '';
+        
+        for (const word of words) {
+          const testLine = currentLine ? `${currentLine} ${word}` : word;
+          const width = font.widthOfTextAtSize(testLine, fontSize);
+          
+          if (width > maxW && currentLine) {
+            lines.push(currentLine);
+            currentLine = word;
+          } else {
+            currentLine = testLine;
+          }
+        }
+        
+        if (currentLine) {
+          lines.push(currentLine);
+        }
+        
+        return lines;
+      };
+      
+      const drawText = (text: string, font: any, fontSize: number, color = rgb(0, 0, 0)) => {
+        const lines = wrapText(text, font, fontSize, maxWidth);
+        
+        for (const line of lines) {
+          if (yPosition < margin + lineHeight) {
+            addNewPage();
+          }
+          
+          currentPage.drawText(line, {
+            x: margin,
+            y: yPosition,
+            size: fontSize,
+            font,
+            color,
+          });
+          
+          yPosition -= lineHeight;
+        }
+      };
+      
+      // Title
+      currentPage.drawText("Adventure Recap", {
+        x: margin,
+        y: yPosition,
+        size: 24,
+        font: timesRomanBold,
+        color: rgb(0.4, 0.2, 0.1),
+      });
+      yPosition -= 36;
+      
+      // Game info
+      drawText(`Game: ${room.name}`, timesRomanBold, 14);
+      yPosition -= 4;
+      
+      const gameSystemLabels: Record<string, string> = {
+        dnd5e: "D&D 5th Edition",
+        pathfinder: "Pathfinder 2e",
+        cyberpunk: "Cyberpunk RED",
+        coc: "Call of Cthulhu",
+        daggerheart: "Daggerheart",
+        custom: "Custom System",
+      };
+      drawText(`System: ${gameSystemLabels[room.gameSystem] || room.gameSystem}`, timesRoman, 12);
+      drawText(`Date: ${new Date().toLocaleDateString()}`, timesRoman, 12);
+      drawText(`Room Code: ${room.code}`, courier, 10, rgb(0.5, 0.5, 0.5));
+      yPosition -= 12;
+      
+      // Players section
+      drawText("Party Members", timesRomanBold, 14);
+      yPosition -= 4;
+      
+      if (players.length === 0) {
+        drawText("  (No players recorded)", timesRoman, 11, rgb(0.5, 0.5, 0.5));
+      } else {
+        for (const player of players) {
+          const character = characters.find(c => c.playerId === player.id);
+          const charName = character?.name || player.name;
+          const isDead = character?.isDead ? " [DECEASED]" : "";
+          const hostBadge = player.isHost ? " (Host/DM)" : "";
+          drawText(`  - ${charName}${hostBadge}${isDead}`, timesRoman, 11);
+        }
+      }
+      yPosition -= 12;
+      
+      // Adventure log
+      drawText("Adventure Log", timesRomanBold, 14);
+      yPosition -= 8;
+      
+      if (messages.length === 0) {
+        drawText("(No adventure recorded)", timesRoman, 11, rgb(0.5, 0.5, 0.5));
+      } else {
+        for (const msg of messages) {
+          if (msg.type === "system" && msg.content?.includes("joined")) continue;
+          
+          const content = msg.content || "";
+          const timestamp = msg.timestamp 
+            ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : "";
+          
+          if (msg.type === "dm") {
+            yPosition -= 4;
+            drawText(`[DM] ${content}`, timesRoman, 11, rgb(0.3, 0.15, 0.05));
+          } else if (msg.type === "roll") {
+            const rollInfo = msg.diceResult 
+              ? ` (${msg.diceResult.expression}: ${msg.diceResult.total})`
+              : "";
+            drawText(`[${timestamp}] ${msg.playerName || "Unknown"}${rollInfo}`, courier, 10, rgb(0.4, 0.4, 0.6));
+          } else if (msg.type === "action") {
+            drawText(`[${timestamp}] *${msg.playerName || "Unknown"} ${content.replace(/^\*|\*$/g, '')}*`, timesRoman, 11, rgb(0.3, 0.3, 0.3));
+          } else if (msg.type === "system") {
+            drawText(`--- ${content} ---`, timesRoman, 10, rgb(0.5, 0.5, 0.5));
+          } else {
+            drawText(`[${timestamp}] ${msg.playerName || "Unknown"}: ${content}`, timesRoman, 11);
+          }
+        }
+      }
+      
+      // Footer on last page
+      yPosition -= 24;
+      if (yPosition < margin + 30) addNewPage();
+      drawText("Generated by Grok DM - AI-Powered Dungeon Master", timesRoman, 9, rgb(0.6, 0.6, 0.6));
+      
+      const pdfBytes = await pdfDoc.save();
+      
+      const filename = `${room.name.replace(/[^a-zA-Z0-9]/g, '_')}_adventure_${room.code}.pdf`;
+      
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(Buffer.from(pdfBytes));
+      
+    } catch (error) {
+      console.error("PDF generation error:", error);
+      res.status(500).json({ error: "Failed to generate PDF" });
+    }
+  });
+
   // Periodic cleanup job: Delete stale inactive rooms (older than 24 hours)
   const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // Run every hour
   const STALE_ROOM_HOURS = 24; // Delete rooms inactive for 24+ hours
