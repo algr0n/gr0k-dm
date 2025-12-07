@@ -46,6 +46,7 @@ export default function RoomPage() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isConnected, setIsConnected] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState("chat");
   const [gameEnded, setGameEnded] = useState(false);
@@ -354,6 +355,8 @@ export default function RoomPage() {
     const connectWebSocket = () => {
       if (isCleaningUp) return;
       
+      setIsConnecting(true);
+      
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${protocol}//${window.location.host}/ws?room=${code}&player=${encodeURIComponent(playerName)}`;
       
@@ -366,6 +369,7 @@ export default function RoomPage() {
         console.log("[WebSocket] Connected successfully");
         reconnectAttempts = 0;
         setIsConnected(true);
+        setIsConnecting(false);
         ws.send(JSON.stringify({ type: "get_combat_state" }));
       };
 
@@ -420,24 +424,23 @@ export default function RoomPage() {
       ws.onclose = (event) => {
         console.log(`[WebSocket] Connection closed: code=${event.code}, reason=${event.reason}`);
         setIsConnected(false);
+        setIsConnecting(false);
         
         if (!isCleaningUp && reconnectAttempts < maxReconnectAttempts) {
           const delay = getReconnectDelay();
           console.log(`[WebSocket] Reconnecting in ${delay}ms...`);
           reconnectAttempts++;
+          setIsConnecting(true);
           reconnectTimeout = setTimeout(connectWebSocket, delay);
         } else if (reconnectAttempts >= maxReconnectAttempts) {
-          toast({
-            title: "Connection lost",
-            description: "Unable to reconnect to the game room. Please refresh the page.",
-            variant: "destructive",
-          });
+          console.log("[WebSocket] Max reconnection attempts reached");
         }
       };
 
       ws.onerror = (error) => {
         console.error("[WebSocket] Error:", error);
         setIsConnected(false);
+        setIsConnecting(false);
       };
     };
 
@@ -452,7 +455,7 @@ export default function RoomPage() {
         wsRef.current.close();
       }
     };
-  }, [code, playerName, toast]);
+  }, [code, playerName]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -687,10 +690,10 @@ export default function RoomPage() {
           <div className="flex items-center gap-2 text-sm">
             <div className={cn(
               "h-2 w-2 rounded-full",
-              isConnected ? "bg-green-500" : "bg-red-500"
+              isConnected ? "bg-green-500" : isConnecting ? "bg-yellow-500 animate-pulse" : "bg-red-500"
             )} />
             <span className="text-muted-foreground">
-              {isConnected ? "Connected" : "Disconnected"}
+              {isConnected ? "Connected" : isConnecting ? "Connecting..." : "Disconnected"}
             </span>
           </div>
           
