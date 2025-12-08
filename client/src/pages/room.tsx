@@ -373,6 +373,7 @@ export default function RoomPage() {
       alignment: savedChar.alignment,
       skills: savedChar.skills || [],
       spells: savedChar.spells || [],
+      spellSlots: savedChar.spellSlots || undefined,
     });
     setCharacterNotes(savedChar.backstory || "");
     setShowLoadCharacterDialog(false);
@@ -395,26 +396,38 @@ export default function RoomPage() {
     }
   }, [existingCharacter]);
 
+  // Load spell slots from saved character when myCharacterData loads
+  useEffect(() => {
+    if (myCharacterData?.savedCharacter?.spellSlots) {
+      setCharacterStats(prev => ({
+        ...prev,
+        spellSlots: myCharacterData.savedCharacter.spellSlots,
+      }));
+    }
+  }, [myCharacterData?.savedCharacter?.spellSlots]);
+
   const saveCharacterMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", `/api/rooms/${code}/characters`, {
-        playerId,
-        name: characterName,
-        stats: characterStats,
+      if (!savedCharacterId) {
+        throw new Error("No character to save");
+      }
+      // Extract spellSlots from characterStats to send at top level
+      const { spellSlots, ...statsWithoutSpellSlots } = characterStats;
+      const response = await apiRequest("PATCH", `/api/saved-characters/${savedCharacterId}`, {
+        stats: statsWithoutSpellSlots,
         notes: characterNotes,
+        spellSlots: spellSlots,
       });
       return response.json();
     },
     onSuccess: (data) => {
-      // Invalidate the main room query to refresh the characters list
+      // Invalidate queries to refresh character data
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", code] });
-      if (existingCharacter?.id) {
-        queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter.id] });
-        queryClient.invalidateQueries({ queryKey: ["inventory", existingCharacter.id] });
-      }
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "my-character"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "room-characters"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/saved-characters", savedCharacterId] });
       if (data?.id) {
-        queryClient.invalidateQueries({ queryKey: ["/api/characters", data.id] });
-        queryClient.invalidateQueries({ queryKey: ["inventory", data.id] });
+        queryClient.invalidateQueries({ queryKey: ["/api/saved-characters", data.id] });
       }
       const newCurrentHp = characterStats.currentHp ?? 0;
       const newMaxHp = characterStats.maxHp ?? 1;
