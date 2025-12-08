@@ -678,12 +678,255 @@ export const classDefinitions: Record<DndClass, ClassDefinition> = {
   },
 };
 
+// Level-based skill features (Expertise, Jack of All Trades, etc.)
+export type SkillFeatureType = 
+  | "expertise"           // Double proficiency bonus (Rogue, Bard)
+  | "jack_of_all_trades"  // Half proficiency to non-proficient skills (Bard)
+  | "remarkable_athlete"  // Half proficiency to STR/DEX/CON checks not already proficient (Champion Fighter)
+  | "reliable_talent";    // Minimum 10 on proficient skill checks (Rogue 11)
+
+export interface ClassLevelFeature {
+  level: number;
+  name: string;
+  type: SkillFeatureType;
+  description: string;
+  skillChoices?: number;  // Number of skills to choose for expertise
+  applicableTo?: "proficient" | "non_proficient" | "str_dex_con";
+}
+
+export const classSkillFeatures: Partial<Record<DndClass, ClassLevelFeature[]>> = {
+  Rogue: [
+    {
+      level: 1,
+      name: "Expertise",
+      type: "expertise",
+      description: "Choose two of your skill proficiencies. Your proficiency bonus is doubled for any ability check you make that uses either of the chosen proficiencies.",
+      skillChoices: 2,
+      applicableTo: "proficient",
+    },
+    {
+      level: 6,
+      name: "Expertise",
+      type: "expertise",
+      description: "Choose two more of your skill proficiencies to gain expertise.",
+      skillChoices: 2,
+      applicableTo: "proficient",
+    },
+    {
+      level: 11,
+      name: "Reliable Talent",
+      type: "reliable_talent",
+      description: "Whenever you make an ability check that lets you add your proficiency bonus, you can treat a d20 roll of 9 or lower as a 10.",
+      applicableTo: "proficient",
+    },
+  ],
+  Bard: [
+    {
+      level: 2,
+      name: "Jack of All Trades",
+      type: "jack_of_all_trades",
+      description: "You can add half your proficiency bonus, rounded down, to any ability check you make that doesn't already include your proficiency bonus.",
+      applicableTo: "non_proficient",
+    },
+    {
+      level: 3,
+      name: "Expertise",
+      type: "expertise",
+      description: "Choose two of your skill proficiencies. Your proficiency bonus is doubled for any ability check you make that uses either of the chosen proficiencies.",
+      skillChoices: 2,
+      applicableTo: "proficient",
+    },
+    {
+      level: 10,
+      name: "Expertise",
+      type: "expertise",
+      description: "Choose two more of your skill proficiencies to gain expertise.",
+      skillChoices: 2,
+      applicableTo: "proficient",
+    },
+  ],
+  Ranger: [
+    {
+      level: 6,
+      name: "Deft Explorer - Expertise",
+      type: "expertise",
+      description: "Choose two of your skill proficiencies to gain expertise (Tasha's Deft Explorer feature).",
+      skillChoices: 2,
+      applicableTo: "proficient",
+    },
+  ],
+};
+
+// Cleric Domain skill features (subclass-based)
+export interface SubclassSkillFeature {
+  subclass: string;
+  parentClass: DndClass;
+  level: number;
+  name: string;
+  type: SkillFeatureType | "bonus_proficiency";
+  description: string;
+  skills?: DndSkill[];
+  skillChoices?: number;
+}
+
+export const subclassSkillFeatures: SubclassSkillFeature[] = [
+  {
+    subclass: "Knowledge Domain",
+    parentClass: "Cleric",
+    level: 1,
+    name: "Blessings of Knowledge",
+    type: "bonus_proficiency",
+    description: "Choose two skills from Arcana, History, Nature, or Religion. Your proficiency bonus is doubled for any ability check you make with those skills.",
+    skills: ["Arcana", "History", "Nature", "Religion"],
+    skillChoices: 2,
+  },
+  {
+    subclass: "Scout",
+    parentClass: "Rogue",
+    level: 3,
+    name: "Survivalist",
+    type: "expertise",
+    description: "You gain proficiency in Nature and Survival, and your proficiency bonus is doubled for any ability check you make that uses either skill.",
+    skills: ["Nature", "Survival"],
+  },
+  {
+    subclass: "Champion",
+    parentClass: "Fighter",
+    level: 7,
+    name: "Remarkable Athlete",
+    type: "remarkable_athlete",
+    description: "Add half your proficiency bonus (round up) to any Strength, Dexterity, or Constitution check you make that doesn't already use your proficiency bonus.",
+  },
+];
+
+// Calculate skill bonus for a character
+export function calculateSkillBonus(
+  skill: DndSkill,
+  abilityScore: number,
+  level: number,
+  isProficient: boolean,
+  hasExpertise: boolean,
+  hasJackOfAllTrades: boolean
+): number {
+  const abilityMod = getAbilityModifier(abilityScore);
+  const profBonus = getProficiencyBonus(level);
+  
+  if (hasExpertise) {
+    return abilityMod + (profBonus * 2);
+  } else if (isProficient) {
+    return abilityMod + profBonus;
+  } else if (hasJackOfAllTrades) {
+    return abilityMod + Math.floor(profBonus / 2);
+  }
+  return abilityMod;
+}
+
 // D&D 5e Race definitions
 export const dndRaces = [
   "Human", "Elf", "Dwarf", "Halfling", "Dragonborn",
   "Gnome", "Half-Elf", "Half-Orc", "Tiefling"
 ] as const;
 export type DndRace = typeof dndRaces[number];
+
+// D&D 5e Subraces
+export const dndSubraces: Record<DndRace, string[]> = {
+  Human: ["Standard", "Variant"],
+  Elf: ["High Elf", "Wood Elf", "Dark Elf (Drow)"],
+  Dwarf: ["Hill Dwarf", "Mountain Dwarf"],
+  Halfling: ["Lightfoot", "Stout"],
+  Dragonborn: [],
+  Gnome: ["Forest Gnome", "Rock Gnome"],
+  "Half-Elf": [],
+  "Half-Orc": [],
+  Tiefling: [],
+};
+
+export interface SubraceDefinition {
+  name: string;
+  parentRace: DndRace;
+  abilityScoreIncreases: Record<string, number>;
+  traits: string[];
+  skillProficiencies?: DndSkill[];
+  weaponProficiencies?: string[];
+  armorProficiencies?: string[];
+  toolProficiencies?: string[];
+  bonusSkillChoices?: { count: number; from: DndSkill[] | "any" };
+}
+
+export const subraceDefinitions: Record<string, SubraceDefinition> = {
+  "High Elf": {
+    name: "High Elf",
+    parentRace: "Elf",
+    abilityScoreIncreases: { intelligence: 1 },
+    traits: ["Cantrip", "Extra Language"],
+    weaponProficiencies: ["Longsword", "Shortsword", "Shortbow", "Longbow"],
+  },
+  "Wood Elf": {
+    name: "Wood Elf",
+    parentRace: "Elf",
+    abilityScoreIncreases: { wisdom: 1 },
+    traits: ["Fleet of Foot", "Mask of the Wild"],
+    weaponProficiencies: ["Longsword", "Shortsword", "Shortbow", "Longbow"],
+  },
+  "Dark Elf (Drow)": {
+    name: "Dark Elf (Drow)",
+    parentRace: "Elf",
+    abilityScoreIncreases: { charisma: 1 },
+    traits: ["Superior Darkvision", "Sunlight Sensitivity", "Drow Magic"],
+    weaponProficiencies: ["Rapier", "Shortsword", "Hand Crossbow"],
+  },
+  "Hill Dwarf": {
+    name: "Hill Dwarf",
+    parentRace: "Dwarf",
+    abilityScoreIncreases: { wisdom: 1 },
+    traits: ["Dwarven Toughness"],
+  },
+  "Mountain Dwarf": {
+    name: "Mountain Dwarf",
+    parentRace: "Dwarf",
+    abilityScoreIncreases: { strength: 2 },
+    traits: ["Dwarven Armor Training"],
+    armorProficiencies: ["Light armor", "Medium armor"],
+  },
+  "Lightfoot": {
+    name: "Lightfoot",
+    parentRace: "Halfling",
+    abilityScoreIncreases: { charisma: 1 },
+    traits: ["Naturally Stealthy"],
+  },
+  "Stout": {
+    name: "Stout",
+    parentRace: "Halfling",
+    abilityScoreIncreases: { constitution: 1 },
+    traits: ["Stout Resilience"],
+  },
+  "Forest Gnome": {
+    name: "Forest Gnome",
+    parentRace: "Gnome",
+    abilityScoreIncreases: { dexterity: 1 },
+    traits: ["Natural Illusionist", "Speak with Small Beasts"],
+  },
+  "Rock Gnome": {
+    name: "Rock Gnome",
+    parentRace: "Gnome",
+    abilityScoreIncreases: { constitution: 1 },
+    traits: ["Artificer's Lore", "Tinker"],
+    toolProficiencies: ["Tinker's tools"],
+  },
+  "Variant": {
+    name: "Variant Human",
+    parentRace: "Human",
+    abilityScoreIncreases: {},
+    traits: ["Feat", "Extra Skill"],
+    bonusSkillChoices: { count: 1, from: "any" },
+  },
+  "Standard": {
+    name: "Standard Human",
+    parentRace: "Human",
+    abilityScoreIncreases: {},
+    traits: [],
+  },
+};
 
 export interface RaceDefinition {
   name: DndRace;
@@ -698,6 +941,16 @@ export interface RaceDefinition {
   traits: string[];
   languages: string[];
   darkvision: number;
+  skillProficiencies: DndSkill[];
+  bonusSkillChoices?: {
+    count: number;
+    from: DndSkill[] | "any";
+  };
+  toolProficiencies?: string[];
+  toolProficiencyChoice?: {
+    count: number;
+    from: string[];
+  };
 }
 
 export const raceDefinitions: Record<DndRace, RaceDefinition> = {
@@ -709,6 +962,7 @@ export const raceDefinitions: Record<DndRace, RaceDefinition> = {
     traits: ["Extra Language"],
     languages: ["Common", "One extra language"],
     darkvision: 0,
+    skillProficiencies: [],
   },
   Elf: {
     name: "Elf",
@@ -718,15 +972,18 @@ export const raceDefinitions: Record<DndRace, RaceDefinition> = {
     traits: ["Darkvision", "Keen Senses", "Fey Ancestry", "Trance"],
     languages: ["Common", "Elvish"],
     darkvision: 60,
+    skillProficiencies: ["Perception"],
   },
   Dwarf: {
     name: "Dwarf",
     abilityScoreIncreases: { constitution: 2 },
     speed: 25,
     size: "Medium",
-    traits: ["Darkvision", "Dwarven Resilience", "Stonecunning"],
+    traits: ["Darkvision", "Dwarven Resilience", "Stonecunning", "Tool Proficiency"],
     languages: ["Common", "Dwarvish"],
     darkvision: 60,
+    skillProficiencies: [],
+    toolProficiencyChoice: { count: 1, from: ["Smith's tools", "Brewer's supplies", "Mason's tools"] },
   },
   Halfling: {
     name: "Halfling",
@@ -736,6 +993,7 @@ export const raceDefinitions: Record<DndRace, RaceDefinition> = {
     traits: ["Lucky", "Brave", "Halfling Nimbleness"],
     languages: ["Common", "Halfling"],
     darkvision: 0,
+    skillProficiencies: [],
   },
   Dragonborn: {
     name: "Dragonborn",
@@ -745,6 +1003,7 @@ export const raceDefinitions: Record<DndRace, RaceDefinition> = {
     traits: ["Draconic Ancestry", "Breath Weapon", "Damage Resistance"],
     languages: ["Common", "Draconic"],
     darkvision: 0,
+    skillProficiencies: [],
   },
   Gnome: {
     name: "Gnome",
@@ -754,6 +1013,7 @@ export const raceDefinitions: Record<DndRace, RaceDefinition> = {
     traits: ["Darkvision", "Gnome Cunning"],
     languages: ["Common", "Gnomish"],
     darkvision: 60,
+    skillProficiencies: [],
   },
   "Half-Elf": {
     name: "Half-Elf",
@@ -768,6 +1028,8 @@ export const raceDefinitions: Record<DndRace, RaceDefinition> = {
     traits: ["Darkvision", "Fey Ancestry", "Skill Versatility"],
     languages: ["Common", "Elvish", "One extra language"],
     darkvision: 60,
+    skillProficiencies: [],
+    bonusSkillChoices: { count: 2, from: "any" },
   },
   "Half-Orc": {
     name: "Half-Orc",
@@ -777,6 +1039,7 @@ export const raceDefinitions: Record<DndRace, RaceDefinition> = {
     traits: ["Darkvision", "Menacing", "Relentless Endurance", "Savage Attacks"],
     languages: ["Common", "Orc"],
     darkvision: 60,
+    skillProficiencies: ["Intimidation"],
   },
   Tiefling: {
     name: "Tiefling",
@@ -786,6 +1049,7 @@ export const raceDefinitions: Record<DndRace, RaceDefinition> = {
     traits: ["Darkvision", "Hellish Resistance", "Infernal Legacy"],
     languages: ["Common", "Infernal"],
     darkvision: 60,
+    skillProficiencies: [],
   },
 };
 
