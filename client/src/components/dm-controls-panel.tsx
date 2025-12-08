@@ -11,12 +11,13 @@ import { Separator } from "@/components/ui/separator";
 import { Heart, Shield, Coins, Sparkles, Plus, X, Skull, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { type SavedCharacter, type RoomCharacter, type CharacterStatusEffect, statusEffectDefinitions, type GameSystem } from "@shared/schema";
+import { type SavedCharacter, type UnifiedCharacter, type CharacterStatusEffect, statusEffectDefinitions, type GameSystem } from "@shared/schema";
 
 interface CharacterData {
-  roomCharacter: RoomCharacter;
-  savedCharacter: SavedCharacter;
+  roomCharacter: UnifiedCharacter & { playerName?: string };
+  savedCharacter: UnifiedCharacter;
   statusEffects: CharacterStatusEffect[];
+  playerName?: string;
 }
 
 interface DMControlsPanelProps {
@@ -126,11 +127,37 @@ export function DMControlsPanel({ roomCode, hostName, gameSystem }: DMControlsPa
     setGoldChange("");
   };
 
+  const awardXpMutation = useMutation({
+    mutationFn: async (xpAmount: number) => {
+      const savedCharId = selectedCharacter?.savedCharacter.id;
+      if (!savedCharId) throw new Error("No saved character");
+      const response = await apiRequest("POST", `/api/saved-characters/${savedCharId}/award-xp`, {
+        xpAmount,
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", roomCode, "room-characters"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", roomCode, "my-character"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/saved-characters"] });
+      
+      if (data.leveledUp) {
+        toast({ 
+          title: "Level Up!", 
+          description: `${selectedCharacter?.savedCharacter.characterName} leveled up to Level ${data.level}! HP increased.`,
+        });
+      } else {
+        toast({ title: "XP Awarded", description: `${data.xpAwarded} XP has been awarded.` });
+      }
+    },
+    onError: () => {
+      toast({ title: "Failed to award XP", description: "Could not award experience points.", variant: "destructive" });
+    },
+  });
+
   const handleXpChange = (delta: number) => {
-    if (!selectedCharacter) return;
-    const current = selectedCharacter.roomCharacter.experience || 0;
-    const newVal = Math.max(0, current + delta);
-    updateStatsMutation.mutate({ experience: newVal });
+    if (!selectedCharacter || delta <= 0) return;
+    awardXpMutation.mutate(delta);
     setXpChange("");
   };
 
@@ -335,7 +362,8 @@ export function DMControlsPanel({ roomCode, hostName, gameSystem }: DMControlsPa
                 <div className="flex items-center gap-2">
                   <Sparkles className="h-4 w-4 text-purple-500" />
                   <span className="font-medium">XP:</span>
-                  <span>{selectedCharacter.roomCharacter.experience || 0}</span>
+                  <span>{selectedCharacter.savedCharacter.xp || 0}</span>
+                  <Badge variant="outline" className="ml-2">Lv {selectedCharacter.savedCharacter.level || 1}</Badge>
                 </div>
                 <div className="flex items-center gap-2">
                   <Input
@@ -350,7 +378,7 @@ export function DMControlsPanel({ roomCode, hostName, gameSystem }: DMControlsPa
                     size="sm"
                     variant="outline"
                     onClick={() => handleXpChange(parseInt(xpChange) || 0)}
-                    disabled={!xpChange || updateStatsMutation.isPending}
+                    disabled={!xpChange || parseInt(xpChange) <= 0 || awardXpMutation.isPending}
                     data-testid="button-add-xp"
                   >
                     <Plus className="h-4 w-4 mr-1" /> Award

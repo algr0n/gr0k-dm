@@ -5,7 +5,7 @@ import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { parseDiceExpression } from "./dice";
 import { generateDMResponse, generateBatchedDMResponse, generateStartingScene, generateCombatDMTurn, type CharacterInfo, type BatchedMessage, type DroppedItemInfo, getTokenUsage } from "./grok";
-import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, insertSavedCharacterSchema, updateUserProfileSchema, type Message, type Character, type InventoryItem, type InsertInventoryItem, itemCategoryEnum, itemRarityEnum, type SavedCharacter } from "@shared/schema";
+import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, insertSavedCharacterSchema, updateUserProfileSchema, type Message, type Character, type InventoryItem, type InsertInventoryItem, itemCategoryEnum, itemRarityEnum, type SavedCharacter, getLevelFromXP, calculateLevelUpHP, getAbilityModifier, classDefinitions, type DndClass } from "@shared/schema";
 import { setupAuth, isAuthenticated, getSession } from "./auth";
 import passport from "passport";
 
@@ -513,10 +513,125 @@ export async function registerRoutes(
       if (!existing || existing.userId !== userId) {
         return res.status(404).json({ error: "Character not found" });
       }
-      const character = await storage.updateSavedCharacter(id, req.body);
-      res.json(character);
+      
+      // Check if XP update triggers a level up
+      let updates = { ...req.body };
+      let leveledUp = false;
+      let oldLevel = existing.level;
+      let newLevel = oldLevel;
+      
+      if (updates.xp !== undefined && updates.xp !== existing.xp) {
+        newLevel = getLevelFromXP(updates.xp);
+        
+        if (newLevel > oldLevel) {
+          leveledUp = true;
+          updates.level = newLevel;
+          
+          // Calculate HP increase for each level gained
+          if (existing.class && classDefinitions[existing.class as DndClass]) {
+            const conMod = existing.stats?.constitution 
+              ? getAbilityModifier(existing.stats.constitution as number) 
+              : 0;
+            
+            let hpGain = 0;
+            for (let lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
+              hpGain += calculateLevelUpHP(existing.class as DndClass, conMod);
+            }
+            
+            updates.maxHp = (existing.maxHp || 10) + hpGain;
+            updates.currentHp = Math.min(
+              (updates.currentHp ?? existing.currentHp) + hpGain,
+              updates.maxHp
+            );
+          }
+        }
+      }
+      
+      const character = await storage.updateSavedCharacter(id, updates);
+      res.json({ 
+        ...character, 
+        leveledUp, 
+        previousLevel: leveledUp ? oldLevel : undefined,
+        newLevel: leveledUp ? newLevel : undefined 
+      });
     } catch (error) {
       res.status(500).json({ error: "Failed to update character" });
+    }
+  });
+
+  // Award XP to a character with automatic level-up handling (DM can award to any character in their room)
+  app.post("/api/saved-characters/:id/award-xp", isAuthenticated, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { xpAmount } = req.body;
+      const userId = req.user!.id;
+      
+      if (typeof xpAmount !== "number" || xpAmount < 0) {
+        return res.status(400).json({ error: "xpAmount must be a positive number" });
+      }
+      
+      const existing = await storage.getSavedCharacter(id);
+      if (!existing) {
+        return res.status(404).json({ error: "Character not found" });
+      }
+      
+      // Allow if user owns the character OR if they are the DM of the room the character is in
+      const isOwner = existing.userId === userId;
+      let isDM = false;
+      
+      if (existing.currentRoomCode) {
+        const room = await storage.getRoomByCode(existing.currentRoomCode);
+        if (room) {
+          // Check if the current user is the room host by looking up their username
+          const currentUser = await storage.getUser(userId);
+          if (currentUser && room.hostName === (currentUser.username || currentUser.email)) {
+            isDM = true;
+          }
+        }
+      }
+      
+      if (!isOwner && !isDM) {
+        return res.status(403).json({ error: "Only the character owner or room DM can award XP" });
+      }
+      
+      const oldXp = existing.xp || 0;
+      const newXp = oldXp + xpAmount;
+      const oldLevel = existing.level;
+      const newLevel = getLevelFromXP(newXp);
+      const leveledUp = newLevel > oldLevel;
+      
+      let updates: Record<string, unknown> = { xp: newXp };
+      
+      if (leveledUp) {
+        updates.level = newLevel;
+        
+        // Calculate HP increase for each level gained
+        if (existing.class && classDefinitions[existing.class as DndClass]) {
+          const conMod = existing.stats?.constitution 
+            ? getAbilityModifier(existing.stats.constitution as number) 
+            : 0;
+          
+          let hpGain = 0;
+          for (let lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
+            hpGain += calculateLevelUpHP(existing.class as DndClass, conMod);
+          }
+          
+          updates.maxHp = (existing.maxHp || 10) + hpGain;
+          updates.currentHp = existing.currentHp + hpGain;
+        }
+      }
+      
+      const character = await storage.updateSavedCharacter(id, updates);
+      res.json({
+        ...character,
+        xpAwarded: xpAmount,
+        leveledUp,
+        previousLevel: leveledUp ? oldLevel : undefined,
+        levelsGained: leveledUp ? newLevel - oldLevel : 0,
+      });
+    } catch (error) {
+      console.error("Error awarding XP:", error);
+      res.status(500).json({ error: "Failed to award XP" });
     }
   });
 
@@ -860,14 +975,23 @@ export async function registerRoutes(
 
       const characters = await storage.getCharactersByRoomCode(code);
       
-      // Return unified format with status effects
+      // Return unified format with status effects and player name
       const charactersWithData = await Promise.all(
         characters.map(async (char) => {
           const statusEffects = await storage.getStatusEffectsByCharacter(char.id);
+          // Look up player name from user
+          let playerName = "Unknown Player";
+          if (char.userId) {
+            const user = await storage.getUser(char.userId);
+            if (user) {
+              playerName = user.username || user.email || "Unknown Player";
+            }
+          }
           return {
-            roomCharacter: char,
+            roomCharacter: { ...char, playerName },
             savedCharacter: char,
             statusEffects,
+            playerName,
           };
         })
       );
