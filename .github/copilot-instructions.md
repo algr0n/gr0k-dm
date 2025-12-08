@@ -12,7 +12,7 @@ The system provides a real-time multiplayer TTRPG experience with support for mu
 
 - **Frontend**: React 18 with TypeScript, Vite build tool
 - **Backend**: Express.js with WebSocket support (ws library)
-- **Database**: PostgreSQL with Drizzle ORM
+- **Database**: Turso (libSQL/SQLite) with Drizzle ORM
 - **UI Components**: shadcn/ui (Radix UI primitives) with Tailwind CSS
 - **State Management**: TanStack Query (React Query) for server state
 - **Routing**: Wouter for client-side routing
@@ -102,12 +102,14 @@ When adding new UI components:
 
 ## Database Schema
 
-- Uses Drizzle ORM with PostgreSQL
-- Schema defined in `shared/schema.ts`
+- Uses Drizzle ORM with Turso (libSQL/SQLite)
+- Connection configured in `server/db.ts` using `@libsql/client`
+- Schema defined in `shared/schema.ts` using PostgreSQL-compatible syntax (Drizzle handles dialect differences)
 - Key entities: Rooms, Players, Dice Rolls, Characters, Items, Spells
 - Use Drizzle's type-safe query builder, not raw SQL
 - Always use transactions for multi-table operations
 - Keep migrations in `migrations/` directory
+- Environment variables: `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`
 
 ## API Design
 
