@@ -1,7 +1,6 @@
 // server/index.ts
-await import('./migrate-on-startup');  // Wait for migrations to complete
-
-// ... rest of your server code
+import('./migrate-on-startup');  // Wait for migrations to complete
+setTimeout(() => {
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -93,3 +92,7 @@ app.use((req, res, next) => {
     },
   );
 })();
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}, 3000)
