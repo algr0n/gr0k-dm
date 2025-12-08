@@ -122,19 +122,16 @@ When adding new UI components:
 ## AI Integration
 
 - xAI Grok API used for Dungeon Master responses
-- System prompts tailored to each game system (D&D 5e, Pathfinder, etc.)
+- System prompts tailored to each game system (currently D&D 5e and Cyberpunk RED)
 - Located in `server/grok.ts`
 - Always handle API errors gracefully with fallback messages
 - Rate limiting and error handling is critical
 
 ## Game Systems Supported
 
-- D&D 5th Edition (dnd5e)
-- Pathfinder 2e (pathfinder)
+Currently implemented:
+- D&D 5th Edition (dnd)
 - Cyberpunk RED (cyberpunk)
-- Call of Cthulhu (coc)
-- Daggerheart (daggerheart)
-- Custom System (custom)
 
 When adding new game system features, ensure compatibility across all systems or make it system-specific with clear conditionals.
 
