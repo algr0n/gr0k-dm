@@ -1188,6 +1188,12 @@ export default function RoomPage() {
                 <Package className="h-4 w-4" />
                 Inventory
               </TabsTrigger>
+              {roomData?.gameSystem === "dnd" && myCharacterData?.savedCharacter?.class && isSpellcaster(myCharacterData.savedCharacter.class) && (
+                <TabsTrigger value="spells" className="gap-2" data-testid="tab-spells">
+                  <Sparkles className="h-4 w-4" />
+                  Spells
+                </TabsTrigger>
+              )}
               {isHost && (
                 <TabsTrigger value="dm" className="gap-2" data-testid="tab-dm-controls">
                   <Shield className="h-4 w-4" />
@@ -1930,6 +1936,217 @@ export default function RoomPage() {
               </Card>
             </div>
           </TabsContent>
+
+          {/* Spells Tab - for D&D spellcasters */}
+          {roomData?.gameSystem === "dnd" && myCharacterData?.savedCharacter?.class && isSpellcaster(myCharacterData.savedCharacter.class) && (
+            <TabsContent value="spells" className="flex-1 mt-0 overflow-auto data-[state=inactive]:hidden">
+              <div className="max-w-2xl mx-auto space-y-4 p-4">
+                {/* Spell Slots Section */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Flame className="h-4 w-4" />
+                      Spell Slots
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Track your available spell slots. Click to use or recover.
+                    </p>
+                    {(() => {
+                      const className = myCharacterData.savedCharacter.class || "";
+                      const level = myCharacterData.savedCharacter.level || 1;
+                      const maxSlots = getMaxSpellSlots(className, level);
+                      const currentSlots = characterStats.spellSlots?.current || maxSlots.slice();
+                      
+                      return (
+                        <div className="space-y-3">
+                          {maxSlots.map((max: number, slotLevel: number) => {
+                            if (slotLevel === 0 || max === 0) return null;
+                            const current = currentSlots[slotLevel] ?? max;
+                            
+                            return (
+                              <div key={slotLevel} className="flex items-center gap-3">
+                                <span className="w-20 text-sm font-medium">
+                                  {slotLevel === 1 ? "1st" : slotLevel === 2 ? "2nd" : slotLevel === 3 ? "3rd" : `${slotLevel}th`} Level
+                                </span>
+                                <div className="flex gap-1">
+                                  {Array.from({ length: max }).map((_, i) => (
+                                    <button
+                                      key={i}
+                                      className={`w-6 h-6 rounded-full border-2 transition-colors ${
+                                        i < current
+                                          ? "bg-primary border-primary"
+                                          : "bg-background border-muted-foreground/30"
+                                      }`}
+                                      onClick={() => {
+                                        setCharacterStats(prev => {
+                                          const newSlots = [...(prev.spellSlots?.current || maxSlots.slice())];
+                                          newSlots[slotLevel] = i < current ? current - 1 : current + 1;
+                                          return {
+                                            ...prev,
+                                            spellSlots: {
+                                              current: newSlots,
+                                              max: maxSlots,
+                                            },
+                                          };
+                                        });
+                                      }}
+                                      data-testid={`spell-slot-${slotLevel}-${i}`}
+                                    />
+                                  ))}
+                                </div>
+                                <span className="text-sm text-muted-foreground">
+                                  {current}/{max}
+                                </span>
+                              </div>
+                            );
+                          })}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="mt-2"
+                            onClick={() => {
+                              const className = myCharacterData.savedCharacter.class || "";
+                              const level = myCharacterData.savedCharacter.level || 1;
+                              const maxSlots = getMaxSpellSlots(className, level);
+                              setCharacterStats(prev => ({
+                                ...prev,
+                                spellSlots: {
+                                  current: maxSlots.slice(),
+                                  max: maxSlots,
+                                },
+                              }));
+                              toast({
+                                title: "Spell Slots Restored",
+                                description: "All spell slots have been recovered (long rest).",
+                              });
+                            }}
+                            data-testid="button-restore-spell-slots"
+                          >
+                            Long Rest (Restore All)
+                          </Button>
+                        </div>
+                      );
+                    })()}
+                  </CardContent>
+                </Card>
+
+                {/* Spell Browser */}
+                <Card>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Sparkles className="h-4 w-4" />
+                      Spell Browser
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-0">
+                    <SpellBrowser
+                      characterClass={myCharacterData.savedCharacter.class}
+                      knownSpells={characterStats.knownSpells || []}
+                      preparedSpells={characterStats.preparedSpells || []}
+                      spellSlots={characterStats.spellSlots}
+                      maxSpellSlots={getMaxSpellSlots(myCharacterData.savedCharacter.class || "", myCharacterData.savedCharacter.level || 1)}
+                      onAddKnownSpell={(spellId) => {
+                        setCharacterStats(prev => {
+                          const known = prev.knownSpells || [];
+                          if (known.includes(spellId)) {
+                            return prev;
+                          }
+                          return {
+                            ...prev,
+                            knownSpells: [...known, spellId],
+                          };
+                        });
+                        toast({
+                          title: "Spell Added",
+                          description: "Added spell to your known spells.",
+                        });
+                      }}
+                      onRemoveKnownSpell={(spellId) => {
+                        setCharacterStats(prev => ({
+                          ...prev,
+                          knownSpells: (prev.knownSpells || []).filter((id: string) => id !== spellId),
+                          preparedSpells: (prev.preparedSpells || []).filter((id: string) => id !== spellId),
+                        }));
+                        toast({
+                          title: "Spell Removed",
+                          description: "Removed spell from your known spells.",
+                        });
+                      }}
+                      onTogglePreparedSpell={(spellId) => {
+                        setCharacterStats(prev => {
+                          const prepared = prev.preparedSpells || [];
+                          if (prepared.includes(spellId)) {
+                            return {
+                              ...prev,
+                              preparedSpells: prepared.filter((id: string) => id !== spellId),
+                            };
+                          } else {
+                            return {
+                              ...prev,
+                              preparedSpells: [...prepared, spellId],
+                            };
+                          }
+                        });
+                      }}
+                      onCastSpell={(spell, slotLevel) => {
+                        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !gameEnded) {
+                          const charName = myCharacterData.savedCharacter.characterName || playerName;
+                          wsRef.current.send(JSON.stringify({
+                            type: "action",
+                            content: `*${charName} casts ${spell.name}!* (${spell.level === 0 ? "Cantrip" : `Level ${spell.level}`} ${spell.school} - ${spell.castingTime}, Range: ${spell.range})`,
+                          }));
+                          
+                          // Deduct spell slot for non-cantrips
+                          if (spell.level > 0 && slotLevel && slotLevel > 0) {
+                            setCharacterStats(prev => {
+                              const className = myCharacterData.savedCharacter.class || "";
+                              const level = myCharacterData.savedCharacter.level || 1;
+                              const maxSlots = getMaxSpellSlots(className, level);
+                              const currentSlots = [...(prev.spellSlots?.current || maxSlots.slice())];
+                              if (currentSlots[slotLevel] > 0) {
+                                currentSlots[slotLevel] -= 1;
+                              }
+                              return {
+                                ...prev,
+                                spellSlots: {
+                                  current: currentSlots,
+                                  max: maxSlots,
+                                },
+                              };
+                            });
+                          }
+                          
+                          const slotInfo = spell.level > 0 && slotLevel
+                            ? ` (Used 1 level ${slotLevel} slot)` 
+                            : "";
+                          toast({
+                            title: "Spell Cast",
+                            description: `You cast ${spell.name}!${slotInfo}`,
+                          });
+                          setActiveTab("chat");
+                        }
+                      }}
+                      onRollSpellDice={(spell, diceExpression) => {
+                        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !gameEnded) {
+                          wsRef.current.send(JSON.stringify({
+                            type: "chat",
+                            content: `/roll ${diceExpression} for ${spell.name}`,
+                          }));
+                          toast({
+                            title: "Rolling Dice",
+                            description: `Rolling ${diceExpression} for ${spell.name}`,
+                          });
+                          setActiveTab("chat");
+                        }
+                      }}
+                    />
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+          )}
 
           {isHost && (
             <TabsContent value="dm" className="flex-1 mt-0 overflow-auto data-[state=inactive]:hidden">
