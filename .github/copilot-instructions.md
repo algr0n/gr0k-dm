@@ -12,7 +12,7 @@ The system provides a real-time multiplayer TTRPG experience with support for D&
 
 - **Frontend**: React 18 with TypeScript, Vite build tool
 - **Backend**: Express.js with WebSocket support (ws library)
-- **Database**: Turso (libSQL/SQLite) with Drizzle ORM
+- **Database**: libSQL (Turso) with Drizzle ORM (SQLite dialect)
 - **UI Components**: shadcn/ui (Radix UI primitives) with Tailwind CSS
 - **State Management**: TanStack Query (React Query) for server state
 - **Routing**: Wouter for client-side routing
