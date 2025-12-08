@@ -773,8 +773,8 @@ export default function RoomPage() {
             description: "The host has ended this game session.",
           });
         } else if (data.type === "inventory_update") {
-          if (data.playerId === playerId && existingCharacter?.id) {
-            queryClient.invalidateQueries({ queryKey: ["/api/characters", existingCharacter.id, "inventory"] });
+          if (data.characterId === savedCharacterId) {
+            queryClient.invalidateQueries({ queryKey: ["/api/saved-characters", savedCharacterId, "inventory"] });
           }
         } else if (data.type === "player_left") {
           setPlayers((prev) => prev.filter((p) => p.id !== data.playerId));
