@@ -359,6 +359,10 @@ export const unifiedCharacters = pgTable("unified_characters", {
   skills: text("skills").array().default([]),
   proficiencies: text("proficiencies").array().default([]),
   spells: text("spells").array().default([]),
+  spellSlots: jsonb("spell_slots").$type<{
+    current: number[];  // [0]=cantrips(unused), [1]=1st level, [2]=2nd, ..., [9]=9th level
+    max: number[];      // Maximum slots per level based on class/level
+  }>().default({ current: [0,0,0,0,0,0,0,0,0,0], max: [0,0,0,0,0,0,0,0,0,0] }),
   hitDice: text("hit_dice"),
   maxHp: integer("max_hp").notNull().default(10),
   currentHp: integer("current_hp").notNull().default(10),
@@ -1151,4 +1155,115 @@ export function getAbilityModifier(score: number): number {
 // Proficiency bonus by level
 export function getProficiencyBonus(level: number): number {
   return Math.floor((level - 1) / 4) + 2;
+}
+
+// D&D 5e Spell Slot Progression by class type
+// Full casters: Bard, Cleric, Druid, Sorcerer, Wizard
+// Half casters: Paladin, Ranger (start at level 2)
+// Third casters: (Eldritch Knight Fighter, Arcane Trickster Rogue - not implemented yet)
+// Warlocks use Pact Magic (different system)
+
+// Full caster spell slots by level (indices 0-9, where 0 is unused, 1-9 are spell levels)
+const fullCasterSlots: Record<number, number[]> = {
+  1:  [0, 2, 0, 0, 0, 0, 0, 0, 0, 0],
+  2:  [0, 3, 0, 0, 0, 0, 0, 0, 0, 0],
+  3:  [0, 4, 2, 0, 0, 0, 0, 0, 0, 0],
+  4:  [0, 4, 3, 0, 0, 0, 0, 0, 0, 0],
+  5:  [0, 4, 3, 2, 0, 0, 0, 0, 0, 0],
+  6:  [0, 4, 3, 3, 0, 0, 0, 0, 0, 0],
+  7:  [0, 4, 3, 3, 1, 0, 0, 0, 0, 0],
+  8:  [0, 4, 3, 3, 2, 0, 0, 0, 0, 0],
+  9:  [0, 4, 3, 3, 3, 1, 0, 0, 0, 0],
+  10: [0, 4, 3, 3, 3, 2, 0, 0, 0, 0],
+  11: [0, 4, 3, 3, 3, 2, 1, 0, 0, 0],
+  12: [0, 4, 3, 3, 3, 2, 1, 0, 0, 0],
+  13: [0, 4, 3, 3, 3, 2, 1, 1, 0, 0],
+  14: [0, 4, 3, 3, 3, 2, 1, 1, 0, 0],
+  15: [0, 4, 3, 3, 3, 2, 1, 1, 1, 0],
+  16: [0, 4, 3, 3, 3, 2, 1, 1, 1, 0],
+  17: [0, 4, 3, 3, 3, 2, 1, 1, 1, 1],
+  18: [0, 4, 3, 3, 3, 3, 1, 1, 1, 1],
+  19: [0, 4, 3, 3, 3, 3, 2, 1, 1, 1],
+  20: [0, 4, 3, 3, 3, 3, 2, 2, 1, 1],
+};
+
+// Half caster spell slots (Paladin, Ranger) - start getting slots at level 2
+const halfCasterSlots: Record<number, number[]> = {
+  1:  [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  2:  [0, 2, 0, 0, 0, 0, 0, 0, 0, 0],
+  3:  [0, 3, 0, 0, 0, 0, 0, 0, 0, 0],
+  4:  [0, 3, 0, 0, 0, 0, 0, 0, 0, 0],
+  5:  [0, 4, 2, 0, 0, 0, 0, 0, 0, 0],
+  6:  [0, 4, 2, 0, 0, 0, 0, 0, 0, 0],
+  7:  [0, 4, 3, 0, 0, 0, 0, 0, 0, 0],
+  8:  [0, 4, 3, 0, 0, 0, 0, 0, 0, 0],
+  9:  [0, 4, 3, 2, 0, 0, 0, 0, 0, 0],
+  10: [0, 4, 3, 2, 0, 0, 0, 0, 0, 0],
+  11: [0, 4, 3, 3, 0, 0, 0, 0, 0, 0],
+  12: [0, 4, 3, 3, 0, 0, 0, 0, 0, 0],
+  13: [0, 4, 3, 3, 1, 0, 0, 0, 0, 0],
+  14: [0, 4, 3, 3, 1, 0, 0, 0, 0, 0],
+  15: [0, 4, 3, 3, 2, 0, 0, 0, 0, 0],
+  16: [0, 4, 3, 3, 2, 0, 0, 0, 0, 0],
+  17: [0, 4, 3, 3, 3, 1, 0, 0, 0, 0],
+  18: [0, 4, 3, 3, 3, 1, 0, 0, 0, 0],
+  19: [0, 4, 3, 3, 3, 2, 0, 0, 0, 0],
+  20: [0, 4, 3, 3, 3, 2, 0, 0, 0, 0],
+};
+
+// Warlock Pact Magic slots (different system - always cast at highest level available)
+const warlockSlots: Record<number, { slots: number; level: number }> = {
+  1:  { slots: 1, level: 1 },
+  2:  { slots: 2, level: 1 },
+  3:  { slots: 2, level: 2 },
+  4:  { slots: 2, level: 2 },
+  5:  { slots: 2, level: 3 },
+  6:  { slots: 2, level: 3 },
+  7:  { slots: 2, level: 4 },
+  8:  { slots: 2, level: 4 },
+  9:  { slots: 2, level: 5 },
+  10: { slots: 2, level: 5 },
+  11: { slots: 3, level: 5 },
+  12: { slots: 3, level: 5 },
+  13: { slots: 3, level: 5 },
+  14: { slots: 3, level: 5 },
+  15: { slots: 3, level: 5 },
+  16: { slots: 3, level: 5 },
+  17: { slots: 4, level: 5 },
+  18: { slots: 4, level: 5 },
+  19: { slots: 4, level: 5 },
+  20: { slots: 4, level: 5 },
+};
+
+// Get max spell slots for a class at a given level
+export function getMaxSpellSlots(className: string, level: number): number[] {
+  const normalizedClass = className.toLowerCase();
+  const clampedLevel = Math.max(1, Math.min(20, level));
+  
+  // Full casters
+  if (["bard", "cleric", "druid", "sorcerer", "wizard"].includes(normalizedClass)) {
+    return fullCasterSlots[clampedLevel];
+  }
+  
+  // Half casters
+  if (["paladin", "ranger"].includes(normalizedClass)) {
+    return halfCasterSlots[clampedLevel];
+  }
+  
+  // Warlock (Pact Magic) - represented as slots at their pact level only
+  if (normalizedClass === "warlock") {
+    const pact = warlockSlots[clampedLevel];
+    const slots = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    slots[pact.level] = pact.slots;
+    return slots;
+  }
+  
+  // Non-casters (Barbarian, Fighter, Monk, Rogue)
+  return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+}
+
+// Check if a class is a spellcaster
+export function isSpellcaster(className: string): boolean {
+  const normalizedClass = className.toLowerCase();
+  return ["bard", "cleric", "druid", "sorcerer", "wizard", "warlock", "paladin", "ranger"].includes(normalizedClass);
 }

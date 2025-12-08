@@ -58,6 +58,359 @@ interface DroppedItem {
 
 const roomDroppedItems = new Map<string, DroppedItem[]>();
 
+// ============================================================================
+// DM Response Parsing - Extract game actions from AI response tags
+// ============================================================================
+
+interface ParsedGameAction {
+  type: 'hp_change' | 'item_add' | 'item_remove' | 'combat_start' | 'combat_end' | 'death_save' | 'stable' | 'dead' | 'status_add' | 'status_remove';
+  playerName?: string;
+  characterName?: string;
+  currentHp?: number;
+  maxHp?: number;
+  itemName?: string;
+  quantity?: number;
+  successes?: number;
+  failures?: number;
+  statusName?: string;
+}
+
+function parseDMResponseTags(response: string): ParsedGameAction[] {
+  const actions: ParsedGameAction[] = [];
+  
+  // Parse HP changes: [HP: PlayerName | CurrentHP/MaxHP]
+  const hpPattern = /\[HP:\s*([^|]+?)\s*\|\s*(\d+)\s*\/\s*(\d+)\s*\]/gi;
+  let match;
+  while ((match = hpPattern.exec(response)) !== null) {
+    actions.push({
+      type: 'hp_change',
+      playerName: match[1].trim(),
+      currentHp: parseInt(match[2], 10),
+      maxHp: parseInt(match[3], 10),
+    });
+  }
+  
+  // Parse item additions: [ITEM: PlayerName | ItemName | Quantity]
+  const itemAddPattern = /\[ITEM:\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\]/gi;
+  while ((match = itemAddPattern.exec(response)) !== null) {
+    actions.push({
+      type: 'item_add',
+      playerName: match[1].trim(),
+      itemName: match[2].trim(),
+      quantity: parseInt(match[3], 10),
+    });
+  }
+  
+  // Parse item removals: [REMOVE_ITEM: PlayerName | ItemName | Quantity]
+  const itemRemovePattern = /\[REMOVE_ITEM:\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\]/gi;
+  while ((match = itemRemovePattern.exec(response)) !== null) {
+    actions.push({
+      type: 'item_remove',
+      playerName: match[1].trim(),
+      itemName: match[2].trim(),
+      quantity: parseInt(match[3], 10),
+    });
+  }
+  
+  // Parse combat state changes
+  if (/\[COMBAT_START\]/i.test(response)) {
+    actions.push({ type: 'combat_start' });
+  }
+  if (/\[COMBAT_END\]/i.test(response)) {
+    actions.push({ type: 'combat_end' });
+  }
+  
+  // Parse death saving throws: [DEATH_SAVES: PlayerName | Successes/Failures]
+  const deathSavePattern = /\[DEATH_SAVES:\s*([^|]+?)\s*\|\s*(\d+)\s*\/\s*(\d+)\s*\]/gi;
+  while ((match = deathSavePattern.exec(response)) !== null) {
+    actions.push({
+      type: 'death_save',
+      playerName: match[1].trim(),
+      successes: parseInt(match[2], 10),
+      failures: parseInt(match[3], 10),
+    });
+  }
+  
+  // Parse stabilized: [STABLE: PlayerName]
+  const stablePattern = /\[STABLE:\s*([^\]]+?)\s*\]/gi;
+  while ((match = stablePattern.exec(response)) !== null) {
+    actions.push({
+      type: 'stable',
+      playerName: match[1].trim(),
+    });
+  }
+  
+  // Parse death: [DEAD: PlayerName]
+  const deadPattern = /\[DEAD:\s*([^\]]+?)\s*\]/gi;
+  while ((match = deadPattern.exec(response)) !== null) {
+    actions.push({
+      type: 'dead',
+      playerName: match[1].trim(),
+    });
+  }
+  
+  // Parse status effect additions: [STATUS: PlayerName | EffectName]
+  const statusAddPattern = /\[STATUS:\s*([^|]+?)\s*\|\s*([^\]]+?)\s*\]/gi;
+  while ((match = statusAddPattern.exec(response)) !== null) {
+    actions.push({
+      type: 'status_add',
+      playerName: match[1].trim(),
+      statusName: match[2].trim(),
+    });
+  }
+  
+  // Parse status effect removals: [REMOVE_STATUS: PlayerName | EffectName]
+  const statusRemovePattern = /\[REMOVE_STATUS:\s*([^|]+?)\s*\|\s*([^\]]+?)\s*\]/gi;
+  while ((match = statusRemovePattern.exec(response)) !== null) {
+    actions.push({
+      type: 'status_remove',
+      playerName: match[1].trim(),
+      statusName: match[2].trim(),
+    });
+  }
+  
+  return actions;
+}
+
+async function executeGameActions(
+  actions: ParsedGameAction[],
+  roomCode: string,
+  broadcastFn: (roomCode: string, message: any) => void
+): Promise<void> {
+  const characters = await storage.getCharactersByRoomCode(roomCode);
+  const room = await storage.getRoomByCode(roomCode);
+  if (!room) return;
+  
+  const players = await storage.getPlayersByRoom(room.id);
+  
+  for (const action of actions) {
+    try {
+      // Find character by player name (case insensitive match)
+      const findCharacter = (playerName: string) => {
+        // Try to match by player name first
+        const player = players.find(p => 
+          p.name.toLowerCase() === playerName.toLowerCase()
+        );
+        if (player) {
+          return characters.find(c => c.userId === player.userId);
+        }
+        // Fallback: match by character name
+        return characters.find(c => 
+          c.characterName.toLowerCase() === playerName.toLowerCase()
+        );
+      };
+      
+      switch (action.type) {
+        case 'hp_change': {
+          if (!action.playerName || action.currentHp === undefined) break;
+          const char = findCharacter(action.playerName);
+          if (char) {
+            await storage.updateSavedCharacter(char.id, {
+              currentHp: action.currentHp,
+              maxHp: action.maxHp ?? char.maxHp,
+            });
+            broadcastFn(roomCode, {
+              type: 'character_update',
+              characterId: char.id,
+              updates: { currentHp: action.currentHp, maxHp: action.maxHp ?? char.maxHp },
+            });
+            console.log(`[DM Action] Updated HP for ${action.playerName}: ${action.currentHp}/${action.maxHp}`);
+          }
+          break;
+        }
+        
+        case 'combat_start': {
+          let combatState = roomCombatState.get(roomCode);
+          if (!combatState) {
+            combatState = { isActive: true, currentTurnIndex: 0, initiatives: [] };
+          } else {
+            combatState.isActive = true;
+          }
+          roomCombatState.set(roomCode, combatState);
+          broadcastFn(roomCode, { type: 'combat_update', combat: combatState });
+          console.log(`[DM Action] Combat started in room ${roomCode}`);
+          break;
+        }
+        
+        case 'combat_end': {
+          const combatState = roomCombatState.get(roomCode);
+          if (combatState) {
+            combatState.isActive = false;
+            combatState.initiatives = [];
+            combatState.currentTurnIndex = 0;
+            roomCombatState.set(roomCode, combatState);
+            broadcastFn(roomCode, { type: 'combat_update', combat: combatState });
+          }
+          console.log(`[DM Action] Combat ended in room ${roomCode}`);
+          break;
+        }
+        
+        case 'dead': {
+          if (!action.playerName) break;
+          const char = findCharacter(action.playerName);
+          if (char) {
+            await storage.updateSavedCharacter(char.id, {
+              isAlive: false,
+              currentHp: 0,
+            });
+            broadcastFn(roomCode, {
+              type: 'character_update',
+              characterId: char.id,
+              updates: { isAlive: false, currentHp: 0 },
+            });
+            console.log(`[DM Action] Character ${action.playerName} has died`);
+          }
+          break;
+        }
+        
+        case 'status_add': {
+          if (!action.playerName || !action.statusName) break;
+          const char = findCharacter(action.playerName);
+          if (char) {
+            await storage.addStatusEffect({
+              characterId: char.id,
+              name: action.statusName,
+              isPredefined: true,
+              appliedByDm: true,
+            });
+            broadcastFn(roomCode, {
+              type: 'status_effect_added',
+              characterId: char.id,
+              statusName: action.statusName,
+            });
+            console.log(`[DM Action] Added status "${action.statusName}" to ${action.playerName}`);
+          }
+          break;
+        }
+        
+        case 'status_remove': {
+          if (!action.playerName || !action.statusName) break;
+          const char = findCharacter(action.playerName);
+          if (char) {
+            const effects = await storage.getCharacterStatusEffects(char.id);
+            const effect = effects.find(e => 
+              e.name.toLowerCase() === action.statusName!.toLowerCase()
+            );
+            if (effect) {
+              await storage.removeStatusEffect(effect.id);
+              broadcastFn(roomCode, {
+                type: 'status_effect_removed',
+                characterId: char.id,
+                statusName: action.statusName,
+              });
+              console.log(`[DM Action] Removed status "${action.statusName}" from ${action.playerName}`);
+            }
+          }
+          break;
+        }
+        
+        case 'item_add': {
+          if (!action.playerName || !action.itemName) break;
+          const char = findCharacter(action.playerName);
+          if (char) {
+            // Try to find item by name (case-insensitive)
+            const allItems = await storage.getItems();
+            const item = allItems.find(i => 
+              i.name.toLowerCase() === action.itemName!.toLowerCase()
+            );
+            if (item) {
+              await storage.addToSavedInventory({
+                characterId: char.id,
+                itemId: item.id,
+                quantity: action.quantity || 1,
+              });
+              broadcastFn(roomCode, {
+                type: 'inventory_update',
+                characterId: char.id,
+                action: 'add',
+                itemName: item.name,
+                quantity: action.quantity || 1,
+              });
+              console.log(`[DM Action] Added ${action.quantity || 1}x "${action.itemName}" to ${action.playerName}`);
+            } else {
+              console.log(`[DM Action] Item "${action.itemName}" not found in database, skipping add`);
+            }
+          }
+          break;
+        }
+        
+        case 'item_remove': {
+          if (!action.playerName || !action.itemName) break;
+          const char = findCharacter(action.playerName);
+          if (char) {
+            // Get character's inventory and find the item
+            const inventory = await storage.getSavedInventoryWithDetails(char.id);
+            const invItem = inventory.find(i => 
+              i.item.name.toLowerCase() === action.itemName!.toLowerCase()
+            );
+            if (invItem) {
+              const removeQty = action.quantity || 1;
+              if (invItem.quantity <= removeQty) {
+                // Remove entirely
+                await storage.deleteSavedInventoryItem(invItem.id);
+              } else {
+                // Decrease quantity
+                await storage.updateSavedInventoryItem(invItem.id, {
+                  quantity: invItem.quantity - removeQty,
+                });
+              }
+              broadcastFn(roomCode, {
+                type: 'inventory_update',
+                characterId: char.id,
+                action: 'remove',
+                itemName: action.itemName,
+                quantity: removeQty,
+              });
+              console.log(`[DM Action] Removed ${removeQty}x "${action.itemName}" from ${action.playerName}`);
+            } else {
+              console.log(`[DM Action] Item "${action.itemName}" not in ${action.playerName}'s inventory`);
+            }
+          }
+          break;
+        }
+        
+        case 'death_save': {
+          if (!action.playerName) break;
+          const char = findCharacter(action.playerName);
+          if (char) {
+            // Broadcast death save status update
+            broadcastFn(roomCode, {
+              type: 'death_save_update',
+              characterId: char.id,
+              playerName: action.playerName,
+              successes: action.successes || 0,
+              failures: action.failures || 0,
+            });
+            console.log(`[DM Action] Death saves for ${action.playerName}: ${action.successes}/${action.failures}`);
+          }
+          break;
+        }
+        
+        case 'stable': {
+          if (!action.playerName) break;
+          const char = findCharacter(action.playerName);
+          if (char) {
+            // Character stabilizes at 0 HP, alive but unconscious
+            await storage.updateSavedCharacter(char.id, {
+              currentHp: 0,
+              isAlive: true,
+            });
+            broadcastFn(roomCode, {
+              type: 'character_update',
+              characterId: char.id,
+              updates: { currentHp: 0, isAlive: true, isStable: true },
+            });
+            console.log(`[DM Action] ${action.playerName} has stabilized at 0 HP`);
+          }
+          break;
+        }
+      }
+    } catch (error) {
+      console.error(`[DM Action] Error executing action ${action.type}:`, error);
+    }
+  }
+}
+
 // Starting items by D&D class
 const dndStartingItems: Record<string, string[]> = {
   fighter: ["longsword", "dagger", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
@@ -335,6 +688,13 @@ export async function registerRoutes(
       };
 
       broadcastToRoom(roomCode, dmMessage);
+
+      // Parse and execute game actions from DM response tags
+      const gameActions = parseDMResponseTags(dmResponse);
+      if (gameActions.length > 0) {
+        console.log(`[DM Response] Found ${gameActions.length} game actions to execute`);
+        await executeGameActions(gameActions, roomCode, broadcastToRoom);
+      }
 
       // Update room history
       const updatedHistory = [
@@ -1628,6 +1988,46 @@ export async function registerRoutes(
       res.json(item);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // Spells API
+  app.get("/api/spells", async (req, res) => {
+    try {
+      const { search, level, school, class: classFilter } = req.query as {
+        search?: string;
+        level?: string;
+        school?: string;
+        class?: string;
+      };
+
+      let result;
+      if (search) {
+        result = await storage.searchSpells(search);
+      } else {
+        result = await storage.getSpells(
+          level !== undefined ? parseInt(level) : undefined,
+          school,
+          classFilter
+        );
+      }
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching spells:", error);
+      res.status(500).json({ error: "Failed to fetch spells" });
+    }
+  });
+
+  app.get("/api/spells/:id", async (req, res) => {
+    try {
+      const spell = await storage.getSpell(req.params.id);
+      if (!spell) {
+        return res.status(404).json({ error: "Spell not found" });
+      }
+      res.json(spell);
+    } catch (error) {
+      console.error("Error fetching spell:", error);
+      res.status(500).json({ error: "Failed to fetch spell" });
     }
   });
 

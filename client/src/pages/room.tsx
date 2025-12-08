@@ -11,14 +11,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download, FolderOpen, Coins, Weight, Zap } from "lucide-react";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download, FolderOpen, Coins, Weight, Zap, Flame } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, type CharacterStatusEffect, gameSystemLabels, type GameSystem, statusEffectDefinitions } from "@shared/schema";
+import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, type CharacterStatusEffect, gameSystemLabels, type GameSystem, statusEffectDefinitions, getMaxSpellSlots, isSpellcaster } from "@shared/schema";
 import { SpellBrowser } from "@/components/spell-browser";
 import { FloatingCharacterPanel } from "@/components/floating-character-panel";
 import { DMControlsPanel } from "@/components/dm-controls-panel";
@@ -1803,6 +1803,99 @@ export default function RoomPage() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Spell Slots Section */}
+                {characterStats.class && isSpellcaster(characterStats.class) && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="font-serif flex items-center gap-2">
+                        <Flame className="h-5 w-5" />
+                        Spell Slots
+                      </CardTitle>
+                      <p className="text-sm text-muted-foreground">
+                        Track your available spell slots. Click to use or recover.
+                      </p>
+                    </CardHeader>
+                    <CardContent>
+                      {(() => {
+                        const className = characterStats.class || "";
+                        const level = characterStats.level || 1;
+                        const maxSlots = getMaxSpellSlots(className, level);
+                        const currentSlots = characterStats.spellSlots?.current || maxSlots.slice();
+                        
+                        return (
+                          <div className="space-y-3">
+                            {maxSlots.map((max: number, slotLevel: number) => {
+                              if (slotLevel === 0 || max === 0) return null;
+                              const current = currentSlots[slotLevel] ?? max;
+                              
+                              return (
+                                <div key={slotLevel} className="flex items-center gap-3">
+                                  <span className="w-20 text-sm font-medium">
+                                    {slotLevel === 1 ? "1st" : slotLevel === 2 ? "2nd" : slotLevel === 3 ? "3rd" : `${slotLevel}th`} Level
+                                  </span>
+                                  <div className="flex gap-1">
+                                    {Array.from({ length: max }).map((_, i) => (
+                                      <button
+                                        key={i}
+                                        className={`w-6 h-6 rounded-full border-2 transition-colors ${
+                                          i < current
+                                            ? "bg-primary border-primary"
+                                            : "bg-background border-muted-foreground/30"
+                                        }`}
+                                        onClick={() => {
+                                          setCharacterStats(prev => {
+                                            const newSlots = [...(prev.spellSlots?.current || maxSlots.slice())];
+                                            newSlots[slotLevel] = i < current ? current - 1 : current + 1;
+                                            return {
+                                              ...prev,
+                                              spellSlots: {
+                                                current: newSlots,
+                                                max: maxSlots,
+                                              },
+                                            };
+                                          });
+                                        }}
+                                        data-testid={`spell-slot-${slotLevel}-${i}`}
+                                      />
+                                    ))}
+                                  </div>
+                                  <span className="text-sm text-muted-foreground">
+                                    {current}/{max}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="mt-4"
+                              onClick={() => {
+                                const className = characterStats.class || "";
+                                const level = characterStats.level || 1;
+                                const maxSlots = getMaxSpellSlots(className, level);
+                                setCharacterStats(prev => ({
+                                  ...prev,
+                                  spellSlots: {
+                                    current: maxSlots.slice(),
+                                    max: maxSlots,
+                                  },
+                                }));
+                                toast({
+                                  title: "Spell Slots Restored",
+                                  description: "All spell slots have been recovered (long rest).",
+                                });
+                              }}
+                              data-testid="button-restore-spell-slots"
+                            >
+                              Long Rest (Restore All)
+                            </Button>
+                          </div>
+                        );
+                      })()}
+                    </CardContent>
+                  </Card>
+                )}
 
                 <Card>
                   <CardHeader>

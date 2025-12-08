@@ -201,6 +201,11 @@ INVENTORY MANAGEMENT:
 - When a player uses, consumes, or loses an item: [REMOVE_ITEM: PlayerName | ItemName | Quantity]
 Add these tags at the END of your response.
 
+STATUS EFFECTS:
+- When a player gains a status effect (poisoned, charmed, frightened, etc): [STATUS: PlayerName | EffectName]
+- When a status effect is removed or ends: [REMOVE_STATUS: PlayerName | EffectName]
+Add these tags at the END of your response.
+
 DROPPED ITEMS:
 - System messages will show when players drop items from their inventory.
 - IGNORE mundane item drops (rations, torches, broken bottles, rope, waterskin, backpack, common supplies). Do NOT acknowledge or respond to these drops. These are just inventory management and waste tokens.
@@ -234,6 +239,11 @@ HP TRACKING:
 INVENTORY MANAGEMENT:
 - When a player gets an item: [ITEM: PlayerName | ItemName | Quantity]
 - When a player uses or loses an item: [REMOVE_ITEM: PlayerName | ItemName | Quantity]
+Add these tags at the END of your response.
+
+STATUS EFFECTS:
+- When a player gains a status effect (stun, wounded, burning, etc): [STATUS: PlayerName | EffectName]
+- When a status effect is removed or ends: [REMOVE_STATUS: PlayerName | EffectName]
 Add these tags at the END of your response.
 
 DROPPED ITEMS:
