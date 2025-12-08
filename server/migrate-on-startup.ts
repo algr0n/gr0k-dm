@@ -1,7 +1,7 @@
 // server/migrate-on-startup.ts
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { Client } from "pg";
+import pg from "pg";
 
 async function runMigrationsIfNeeded() {
   if (!process.env.DATABASE_URL) {
@@ -9,36 +9,46 @@ async function runMigrationsIfNeeded() {
     return;
   }
 
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  const checkClient = new pg.Client({ connectionString: process.env.DATABASE_URL });
 
   try {
-    await client.connect();
+    await checkClient.connect();
     
     // Check if users table exists
-    const res = await client.query("SELECT to_regclass('public.users')");
+    const res = await checkClient.query("SELECT to_regclass('public.users')");
     
     if (res.rows[0].to_regclass) {
       console.log('✓ Database tables already exist — skipping migration');
-      await client.end();
+      await checkClient.end();
       return;
     }
 
     console.log('Running database migrations...');
-    await client.end();
+    
+    // Close the check connection FIRST
+    await checkClient.end();
 
-    // Create drizzle instance for migrations
-    const db = drizzle(client);
+    // Create NEW pool for migrations (don't reuse closed client)
+    const migrationPool = new pg.Pool({ 
+      connectionString: process.env.DATABASE_URL 
+    });
+    
+    const db = drizzle(migrationPool);
     
     // Run migrations from the migrations folder
     await migrate(db, { migrationsFolder: "./migrations" });
     
     console.log('✓ All migrations completed successfully!');
     
+    // Close the migration pool
+    await migrationPool.end();
+    
   } catch (err) {
     console.error('✗ Migration failed:', err);
+    await checkClient.end().catch(() => {}); // Safely close if still open
     process.exit(1);
   }
 }
 
-// Run it immediately
-runMigrationsIfNeeded();
+// Run it and WAIT for it to complete before continuing
+await runMigrationsIfNeeded();
