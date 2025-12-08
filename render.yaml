@@ -8,7 +8,7 @@ services:
     buildCommand: npm install
     startCommand: npx drizzle-kit push
     envVars:
-      DATABASE_URL: postgresql://gr0k_dm_db_user:GxPuNrlcUlfZEHImr8m7bMu6B3NuBbdz@dpg-d4ra7i7pm1nc73bjqtlg-a/gr0k_dm_db
-        fromDatabase:
+      DATABASE_URL: 
+        fromDatabase: postgresql://gr0k_dm_db_user:GxPuNrlcUlfZEHImr8m7bMu6B3NuBbdz@dpg-d4ra7i7pm1nc73bjqtlg-a/gr0k_dm_db
           databaseName: gr0k_dm_db
           property: connectionString
