@@ -10,5 +10,5 @@ services:
     envVars:
       DATABASE_URL:
         fromDatabase:
-          name: gr0k_dm_db
+          databaseName: gr0k_dm_db
           property: connectionString
