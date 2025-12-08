@@ -1,0 +1,14 @@
+version: 1
+services:
+  - type: web
+    name: gr0k-dm-migrate
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install
+    startCommand: npx drizzle-kit push:pg
+    envVars:
+      DATABASE_URL:
+        fromDatabase:
+          name: gr0k-dm-db
+          property: connectionString
