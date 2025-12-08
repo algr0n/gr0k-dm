@@ -234,13 +234,13 @@ export default function RoomPage() {
   // Use roomData.players for display (most up-to-date after refetch), fallback to state for WebSocket updates
   const displayPlayers = roomData?.players || players;
 
-  // Find current player's character from room data (unified model uses userId)
-  const existingCharacter = allCharacters.find(c => (c as any).userId === user?.id);
+  // Find current player's character from room data (characters link via playerId)
+  const existingCharacter = allCharacters.find(c => c.playerId === playerId);
 
-  // Find character for viewed player (need to get the player's userId first)
+  // Find character for viewed player (match character's playerId to player's id)
   const viewingPlayer = displayPlayers.find(p => p.id === viewingPlayerId);
-  const viewedCharacter = viewingPlayer?.userId 
-    ? allCharacters.find(c => (c as any).userId === viewingPlayer.userId) 
+  const viewedCharacter = viewingPlayer 
+    ? allCharacters.find(c => c.playerId === viewingPlayer.id) 
     : undefined;
   const isLoadingViewedCharacter = isLoading;
 
