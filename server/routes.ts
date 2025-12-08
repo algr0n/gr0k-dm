@@ -875,7 +875,7 @@ export async function registerRoutes(
     const characters = await storage.getCharactersByRoomCode(roomCode);
     const players = await storage.getPlayersByRoom(room.id);
     
-    // Build character info with player names looked up
+    // Build character info with player names and inventory
     const characterInfos: CharacterInfo[] = await Promise.all(
       characters.map(async (char) => {
         // Try to find player name from players list or user record
@@ -889,6 +889,13 @@ export async function registerRoutes(
             playerName = user.username || user.email || "Player";
           }
         }
+        
+        // Fetch character's inventory
+        const inventory = await storage.getSavedInventoryWithDetails(char.id);
+        const inventoryItems = inventory.map(i => {
+          const name = i.item?.name || 'unknown item';
+          return i.quantity > 1 ? `${name} x${i.quantity}` : name;
+        });
         
         return {
           playerName,
@@ -906,6 +913,7 @@ export async function registerRoutes(
             ...(char.stats as Record<string, unknown> || {}),
           },
           notes: char.backstory || "",
+          inventory: inventoryItems,
         };
       })
     );

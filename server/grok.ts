@@ -197,7 +197,10 @@ DEATH SAVING THROWS:
 - Include these tags at the END of your response.
 
 INVENTORY MANAGEMENT: 
-- When a player picks up or receives an item: [ITEM: PlayerName | ItemName | Quantity]
+- Each character's current inventory is shown in THE PARTY section above.
+- When asked about inventory, refer to the inventory list shown - do NOT say it's empty if items are listed.
+- Do NOT give players items they already have (check their inventory first).
+- When a player picks up or receives a NEW item: [ITEM: PlayerName | ItemName | Quantity]
 - When a player uses, consumes, or loses an item: [REMOVE_ITEM: PlayerName | ItemName | Quantity]
 Add these tags at the END of your response.
 
@@ -237,7 +240,10 @@ HP TRACKING:
 - Always include this tag when HP changes during combat or healing.
 
 INVENTORY MANAGEMENT:
-- When a player gets an item: [ITEM: PlayerName | ItemName | Quantity]
+- Each character's current inventory is shown in THE PARTY section above.
+- When asked about inventory, refer to the inventory list shown - do NOT say it's empty if items are listed.
+- Do NOT give players items they already have (check their inventory first).
+- When a player gets a NEW item: [ITEM: PlayerName | ItemName | Quantity]
 - When a player uses or loses an item: [REMOVE_ITEM: PlayerName | ItemName | Quantity]
 Add these tags at the END of your response.
 
@@ -258,6 +264,7 @@ export interface CharacterInfo {
   characterName: string;
   stats: Record<string, unknown>;
   notes?: string | null;
+  inventory?: string[];
 }
 
 export interface DroppedItemInfo {
@@ -307,8 +314,12 @@ export async function generateDMResponse(
         .filter(([_, v]) => v !== undefined && v !== null && v !== "")
         .map(([k, v]) => `${k}: ${v}`)
         .join(", ");
+      const inventoryStr = c.inventory && c.inventory.length > 0 
+        ? `Inventory: ${c.inventory.join(", ")}` 
+        : "Inventory: empty";
       const desc = `${c.playerName}'s character: ${c.characterName}`;
-      return statsStr ? `${desc} (${statsStr})` : desc;
+      const fullDesc = statsStr ? `${desc} (${statsStr})` : desc;
+      return `${fullDesc}\n  ${inventoryStr}`;
     }).join("\n");
     messages.push({
       role: "system",
@@ -420,8 +431,12 @@ export async function generateBatchedDMResponse(
         .filter(([_, v]) => v !== undefined && v !== null && v !== "")
         .map(([k, v]) => `${k}: ${v}`)
         .join(", ");
+      const inventoryStr = c.inventory && c.inventory.length > 0 
+        ? `Inventory: ${c.inventory.join(", ")}` 
+        : "Inventory: empty";
       const desc = `${c.playerName}'s character: ${c.characterName}`;
-      return statsStr ? `${desc} (${statsStr})` : desc;
+      const fullDesc = statsStr ? `${desc} (${statsStr})` : desc;
+      return `${fullDesc}\n  ${inventoryStr}`;
     }).join("\n");
     messages.push({
       role: "system",
