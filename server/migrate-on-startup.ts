@@ -25,10 +25,10 @@ async function runMigrationsIfNeeded() {
 
     console.log('Running database migrations...');
     
-    // Close the check connection FIRST
+    // Close the check connection
     await checkClient.end();
 
-    // Create NEW pool for migrations (don't reuse closed client)
+    // Create NEW pool for migrations
     const migrationPool = new pg.Pool({ 
       connectionString: process.env.DATABASE_URL 
     });
@@ -45,10 +45,10 @@ async function runMigrationsIfNeeded() {
     
   } catch (err) {
     console.error('✗ Migration failed:', err);
-    await checkClient.end().catch(() => {}); // Safely close if still open
+    await checkClient.end().catch(() => {});
     process.exit(1);
   }
 }
 
-// Run it and WAIT for it to complete before continuing
-await runMigrationsIfNeeded();
+// Run it immediately (no await at top level)
+runMigrationsIfNeeded();
