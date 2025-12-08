@@ -1179,9 +1179,16 @@ export default function Characters() {
                           : character.class || character.race || `Level ${character.level}`}
                     </CardDescription>
                   </div>
-                  <Badge variant="secondary">
-                    {gameSystemLabels[character.gameSystem as GameSystem] || character.gameSystem}
-                  </Badge>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Badge variant="secondary">
+                      {gameSystemLabels[character.gameSystem as GameSystem] || character.gameSystem}
+                    </Badge>
+                    {character.currentRoomCode && (
+                      <Badge variant="outline" className="text-xs" data-testid={`badge-in-game-${character.id}`}>
+                        In Game
+                      </Badge>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>

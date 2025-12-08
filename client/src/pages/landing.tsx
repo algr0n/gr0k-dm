@@ -930,6 +930,11 @@ function CharacterSelectionList({
                   <Badge variant="outline" className="text-xs">
                     Lvl {char.level}
                   </Badge>
+                  {char.currentRoomCode && (
+                    <Badge variant="outline" className="text-xs text-amber-600 dark:text-amber-400" data-testid={`badge-in-game-${char.id}`}>
+                      In Game
+                    </Badge>
+                  )}
                 </div>
               </div>
               {selectedId === char.id && (
