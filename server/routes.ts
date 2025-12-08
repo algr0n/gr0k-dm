@@ -1038,15 +1038,77 @@ export async function registerRoutes(
     }
   });
 
-  // End room
-  app.post("/api/rooms/:code/end", async (req, res) => {
+  // Leave room (player leaves with their character)
+  app.post("/api/rooms/:code/leave", isAuthenticated, async (req, res) => {
     try {
       const { code } = req.params;
+      const userId = req.user!.id;
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(401).json({ error: "User not found" });
+      }
+      const playerName = user.username || user.email || "Player";
+      
       const room = await storage.getRoomByCode(code);
       if (!room) {
         return res.status(404).json({ error: "Room not found" });
       }
+      
+      // Find the player record
+      const players = await storage.getPlayersByRoom(room.id);
+      const player = players.find(p => p.userId === userId);
+      
+      if (!player) {
+        return res.status(404).json({ error: "You are not in this room" });
+      }
+      
+      // Find and remove the character from the room
+      const character = await storage.getCharacterByUserInRoom(userId, code);
+      if (character) {
+        await storage.leaveRoom(character.id);
+      }
+      
+      // Delete the player record
+      await storage.deletePlayer(player.id);
+      
+      // Broadcast leave message
+      broadcastToRoom(code, {
+        type: "system",
+        content: `${playerName} has left the adventure.`,
+      });
+      
+      await storage.updateRoomActivity(room.id);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error leaving room:", error);
+      res.status(500).json({ error: "Failed to leave room" });
+    }
+  });
 
+  // End room
+  app.post("/api/rooms/:code/end", isAuthenticated, async (req, res) => {
+    try {
+      const { code } = req.params;
+      const userId = req.user!.id;
+      
+      const room = await storage.getRoomByCode(code);
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+      
+      // Verify the user is the host by checking their player record's isHost flag
+      const players = await storage.getPlayersByRoom(room.id);
+      const userPlayer = players.find(p => p.userId === userId);
+      
+      if (!userPlayer || !userPlayer.isHost) {
+        return res.status(403).json({ error: "Only the host can end the room" });
+      }
+
+      // Clear all characters from the room (set currentRoomCode to null)
+      await storage.leaveAllCharactersFromRoom(code);
+      
       await storage.updateRoom(room.id, { isActive: false });
 
       broadcastToRoom(code, {
@@ -1056,6 +1118,7 @@ export async function registerRoutes(
 
       res.json({ success: true });
     } catch (error) {
+      console.error("Error ending room:", error);
       res.status(500).json({ error: "Failed to end room" });
     }
   });
