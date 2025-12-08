@@ -38,10 +38,12 @@ interface SpellBrowserProps {
   characterClass?: string;
   knownSpells: string[];
   preparedSpells: string[];
+  spellSlots?: { current: number[]; max: number[] };
+  maxSpellSlots?: number[];
   onAddKnownSpell: (spellId: string) => void;
   onRemoveKnownSpell: (spellId: string) => void;
   onTogglePreparedSpell: (spellId: string) => void;
-  onCastSpell?: (spell: Spell) => void;
+  onCastSpell?: (spell: Spell, slotLevel?: number) => void;
   onRollSpellDice?: (spell: Spell, diceExpression: string) => void;
 }
 
@@ -102,10 +104,27 @@ function extractDiceFromSpell(spell: Spell): string | null {
   return match ? match[1].replace(/\s+/g, '') : null;
 }
 
+function findLowestAvailableSlot(
+  spellLevel: number,
+  spellSlots?: { current: number[]; max: number[] },
+  maxSpellSlots?: number[]
+): number | null {
+  if (spellLevel === 0) return 0;
+  const currentSlots = spellSlots?.current || maxSpellSlots || [];
+  for (let level = spellLevel; level <= 9; level++) {
+    if ((currentSlots[level] ?? 0) > 0) {
+      return level;
+    }
+  }
+  return null;
+}
+
 export function SpellBrowser({
   characterClass,
   knownSpells,
   preparedSpells,
+  spellSlots,
+  maxSpellSlots,
   onAddKnownSpell,
   onRemoveKnownSpell,
   onTogglePreparedSpell,
@@ -257,53 +276,76 @@ export function SpellBrowser({
             <p className="text-sm text-muted-foreground mb-3">
               {filteredSpells.length} spell{filteredSpells.length !== 1 ? "s" : ""} found
             </p>
-            {filteredSpells.map((spell) => (
-              <Card
-                key={spell.id}
-                className={cn(
-                  "cursor-pointer hover-elevate",
-                  isSpellKnown(spell.id) && "border-primary/50"
-                )}
-                onClick={() => setSelectedSpell(spell)}
-                data-testid={`spell-card-${spell.id}`}
-              >
-                <CardContent className="p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className="font-medium truncate">{spell.name}</h4>
-                        {isSpellKnown(spell.id) && (
-                          <Badge variant="outline" className="text-xs">
-                            <Sparkles className="h-3 w-3 mr-1" />
-                            Known
+            {filteredSpells.map((spell) => {
+              const isKnown = isSpellKnown(spell.id);
+              const availableSlot = findLowestAvailableSlot(spell.level, spellSlots, maxSpellSlots);
+              const canCast = spell.level === 0 || availableSlot !== null;
+              
+              return (
+                <Card
+                  key={spell.id}
+                  className={cn(
+                    "cursor-pointer hover-elevate",
+                    isKnown && "border-primary/50"
+                  )}
+                  onClick={() => setSelectedSpell(spell)}
+                  data-testid={`spell-card-${spell.id}`}
+                >
+                  <CardContent className="p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="font-medium truncate">{spell.name}</h4>
+                          {isKnown && (
+                            <Badge variant="outline" className="text-xs">
+                              <Sparkles className="h-3 w-3 mr-1" />
+                              Known
+                            </Badge>
+                          )}
+                          {isSpellPrepared(spell.id) && (
+                            <Badge className="text-xs">
+                              <Check className="h-3 w-3 mr-1" />
+                              Prepared
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <Badge variant="secondary" className="text-xs">
+                            {spell.school}
                           </Badge>
-                        )}
-                        {isSpellPrepared(spell.id) && (
-                          <Badge className="text-xs">
-                            <Check className="h-3 w-3 mr-1" />
-                            Prepared
-                          </Badge>
-                        )}
+                          <span className="text-xs text-muted-foreground">
+                            {getLevelLabel(spell.level)}
+                          </span>
+                          {spell.concentration && (
+                            <span className="text-xs text-muted-foreground">C</span>
+                          )}
+                          {spell.ritual && (
+                            <span className="text-xs text-muted-foreground">R</span>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <Badge variant="secondary" className="text-xs">
-                          {spell.school}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground">
-                          {getLevelLabel(spell.level)}
-                        </span>
-                        {spell.concentration && (
-                          <span className="text-xs text-muted-foreground">C</span>
-                        )}
-                        {spell.ritual && (
-                          <span className="text-xs text-muted-foreground">R</span>
-                        )}
-                      </div>
+                      {isKnown && onCastSpell && (
+                        <Button
+                          size="sm"
+                          variant={canCast ? "default" : "secondary"}
+                          disabled={!canCast}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (canCast) {
+                              onCastSpell(spell, availableSlot ?? undefined);
+                            }
+                          }}
+                          data-testid={`button-quick-cast-${spell.id}`}
+                        >
+                          <Zap className="h-3 w-3 mr-1" />
+                          {spell.level === 0 ? "Cast" : canCast ? `Cast (L${availableSlot})` : "No Slots"}
+                        </Button>
+                      )}
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         )}
       </ScrollArea>
@@ -381,18 +423,25 @@ export function SpellBrowser({
               <div className="flex items-center gap-2 flex-wrap">
                 {isSpellKnown(selectedSpell.id) ? (
                   <>
-                    {onCastSpell && (
-                      <Button
-                        onClick={() => {
-                          onCastSpell(selectedSpell);
-                          setSelectedSpell(null);
-                        }}
-                        data-testid="button-cast-spell"
-                      >
-                        <Zap className="h-4 w-4 mr-2" />
-                        Cast Spell
-                      </Button>
-                    )}
+                    {onCastSpell && (() => {
+                      const availableSlot = findLowestAvailableSlot(selectedSpell.level, spellSlots, maxSpellSlots);
+                      const canCast = selectedSpell.level === 0 || availableSlot !== null;
+                      return (
+                        <Button
+                          disabled={!canCast}
+                          onClick={() => {
+                            if (canCast) {
+                              onCastSpell(selectedSpell, availableSlot ?? undefined);
+                              setSelectedSpell(null);
+                            }
+                          }}
+                          data-testid="button-cast-spell"
+                        >
+                          <Zap className="h-4 w-4 mr-2" />
+                          {selectedSpell.level === 0 ? "Cast Cantrip" : canCast ? `Cast (Level ${availableSlot} Slot)` : "No Slots Available"}
+                        </Button>
+                      );
+                    })()}
                     {onRollSpellDice && extractDiceFromSpell(selectedSpell) && (
                       <Button
                         variant="secondary"
