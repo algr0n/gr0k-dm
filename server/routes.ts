@@ -63,13 +63,14 @@ const roomDroppedItems = new Map<string, DroppedItem[]>();
 // ============================================================================
 
 interface ParsedGameAction {
-  type: 'hp_change' | 'item_add' | 'item_remove' | 'combat_start' | 'combat_end' | 'death_save' | 'stable' | 'dead' | 'status_add' | 'status_remove';
+  type: 'hp_change' | 'item_add' | 'item_remove' | 'gold_change' | 'combat_start' | 'combat_end' | 'death_save' | 'stable' | 'dead' | 'status_add' | 'status_remove';
   playerName?: string;
   characterName?: string;
   currentHp?: number;
   maxHp?: number;
   itemName?: string;
   quantity?: number;
+  goldAmount?: number;
   successes?: number;
   failures?: number;
   statusName?: string;
@@ -166,6 +167,187 @@ function parseDMResponseTags(response: string): ParsedGameAction[] {
       type: 'status_remove',
       playerName: match[1].trim(),
       statusName: match[2].trim(),
+    });
+  }
+  
+  return actions;
+}
+
+// ============================================================================
+// Intelligent Natural Language Item/Gold Detection
+// ============================================================================
+
+interface DetectedItem {
+  itemName: string;
+  quantity: number;
+}
+
+interface DetectedGold {
+  amount: number;
+}
+
+// Detect gold/GP mentions in natural language
+function detectGoldMentions(response: string): DetectedGold[] {
+  const goldResults: DetectedGold[] = [];
+  
+  // Patterns for gold detection: "10 gp", "10 gold", "10 gold pieces", "receives 50 gold"
+  const goldPatterns = [
+    /(\d+)\s*(?:gp|gold\s*pieces?|gold)/gi,
+    /receives?\s+(\d+)\s*(?:gp|gold)/gi,
+    /gains?\s+(\d+)\s*(?:gp|gold)/gi,
+    /finds?\s+(\d+)\s*(?:gp|gold)/gi,
+    /(?:has|have)\s+(\d+)\s*(?:gp|gold)/gi,
+  ];
+  
+  const seenAmounts = new Set<number>();
+  
+  for (const pattern of goldPatterns) {
+    let match;
+    while ((match = pattern.exec(response)) !== null) {
+      const amount = parseInt(match[1], 10);
+      if (amount > 0 && !seenAmounts.has(amount)) {
+        seenAmounts.add(amount);
+        goldResults.push({ amount });
+      }
+    }
+  }
+  
+  return goldResults;
+}
+
+// Detect item mentions using fuzzy matching against the items database
+async function detectItemMentions(
+  response: string,
+  characterName: string,
+  existingItemNames: Set<string>
+): Promise<DetectedItem[]> {
+  const detectedItems: DetectedItem[] = [];
+  
+  // Get all items from database for matching
+  const allItems = await storage.getAllItems();
+  if (!allItems || allItems.length === 0) return detectedItems;
+  
+  // Build item name lookup (lowercase -> original name)
+  const itemNameMap = new Map<string, string>();
+  for (const item of allItems) {
+    itemNameMap.set(item.name.toLowerCase(), item.name);
+  }
+  
+  // Common phrases that indicate the character receives/has an item
+  const receivePhrases = [
+    'receives?',
+    'gains?',
+    'picks? up',
+    'takes?',
+    'grabs?',
+    'finds?',
+    'obtains?',
+    'acquires?',
+    'collects?',
+    'has',
+    'have',
+    'carrying',
+    'carries',
+    'holds?',
+    'possesses?',
+    'in (?:your|their|his|her) (?:pack|inventory|bag|backpack|pouch)',
+    'adds? to (?:inventory|pack)',
+  ];
+  
+  const receivePattern = new RegExp(
+    `(?:${receivePhrases.join('|')})\\s+(?:a\\s+|an\\s+|the\\s+|\\d+\\s*x?\\s*)?([a-zA-Z][a-zA-Z\\s'-]+?)(?:\\s*\\(|\\s*,|\\s*\\.|\\s*!|\\s*and\\s|$)`,
+    'gi'
+  );
+  
+  // Also check for quantity patterns like "2x healing potion" or "3 healing potions"
+  const quantityPattern = /(\d+)\s*x?\s+([a-zA-Z][a-zA-Z\s'-]+?)(?:\s*\(|\s*,|\s*\.|\s*!|\s*and\s|$)/gi;
+  
+  const seenItems = new Set<string>();
+  
+  // Check direct item mentions with quantity
+  let match;
+  while ((match = quantityPattern.exec(response)) !== null) {
+    const quantity = parseInt(match[1], 10);
+    const potentialItemName = match[2].trim().toLowerCase();
+    
+    // Try to match against known items
+    for (const [lowerName, originalName] of itemNameMap.entries()) {
+      if (potentialItemName.includes(lowerName) || lowerName.includes(potentialItemName)) {
+        if (!seenItems.has(originalName) && !existingItemNames.has(originalName.toLowerCase())) {
+          seenItems.add(originalName);
+          detectedItems.push({ itemName: originalName, quantity });
+        }
+        break;
+      }
+    }
+  }
+  
+  // Check for single item mentions
+  while ((match = receivePattern.exec(response)) !== null) {
+    const potentialItemName = match[1].trim().toLowerCase();
+    
+    // Skip if it's gold (handled separately)
+    if (potentialItemName.includes('gold') || potentialItemName.includes(' gp')) continue;
+    
+    // Try exact match first
+    if (itemNameMap.has(potentialItemName)) {
+      const originalName = itemNameMap.get(potentialItemName)!;
+      if (!seenItems.has(originalName) && !existingItemNames.has(originalName.toLowerCase())) {
+        seenItems.add(originalName);
+        detectedItems.push({ itemName: originalName, quantity: 1 });
+      }
+      continue;
+    }
+    
+    // Try partial match
+    for (const [lowerName, originalName] of itemNameMap.entries()) {
+      // Match if the potential name contains the item name or vice versa
+      const words = potentialItemName.split(/\s+/);
+      const itemWords = lowerName.split(/\s+/);
+      
+      // Check if main words match (e.g., "holy symbol" matches "holy symbol")
+      const mainWordMatch = words.some(w => 
+        itemWords.some(iw => iw === w && w.length > 3)
+      );
+      
+      if (mainWordMatch && !seenItems.has(originalName) && !existingItemNames.has(originalName.toLowerCase())) {
+        seenItems.add(originalName);
+        detectedItems.push({ itemName: originalName, quantity: 1 });
+        break;
+      }
+    }
+  }
+  
+  return detectedItems;
+}
+
+// Parse natural language in DM response for items and gold
+async function parseNaturalLanguageItems(
+  response: string,
+  characterName: string,
+  existingInventory: string[]
+): Promise<ParsedGameAction[]> {
+  const actions: ParsedGameAction[] = [];
+  const existingItemNames = new Set(existingInventory.map(n => n.toLowerCase()));
+  
+  // Detect gold mentions
+  const goldMentions = detectGoldMentions(response);
+  for (const gold of goldMentions) {
+    actions.push({
+      type: 'gold_change',
+      playerName: characterName,
+      goldAmount: gold.amount,
+    });
+  }
+  
+  // Detect item mentions
+  const itemMentions = await detectItemMentions(response, characterName, existingItemNames);
+  for (const item of itemMentions) {
+    actions.push({
+      type: 'item_add',
+      playerName: characterName,
+      itemName: item.itemName,
+      quantity: item.quantity,
     });
   }
   
@@ -300,6 +482,22 @@ async function executeGameActions(
               });
               console.log(`[DM Action] Removed status "${action.statusName}" from ${action.playerName}`);
             }
+          }
+          break;
+        }
+        
+        case 'gold_change': {
+          if (!action.playerName || action.goldAmount === undefined) break;
+          const char = findCharacter(action.playerName);
+          if (char) {
+            const newGold = (char.gold || 0) + action.goldAmount;
+            await storage.updateSavedCharacter(char.id, { gold: newGold });
+            broadcastFn(roomCode, {
+              type: 'character_update',
+              characterId: char.id,
+              updates: { gold: newGold },
+            });
+            console.log(`[DM Action] Updated gold for ${action.playerName}: +${action.goldAmount} (total: ${newGold})`);
           }
           break;
         }
@@ -443,7 +641,7 @@ const dndStartingItems: Record<string, string[]> = {
   fighter: ["longsword", "dagger", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
   wizard: ["quarterstaff", "dagger", "backpack", "component-pouch", "rations-1-day", "waterskin", "torch"],
   rogue: ["shortsword", "dagger", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
-  cleric: ["mace", "dagger", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
+  cleric: ["mace", "dagger", "backpack", "bedroll", "rations-1-day", "waterskin", "torch", "holy-symbol"],
   ranger: ["longbow", "shortsword", "dagger", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
   paladin: ["longsword", "dagger", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
   barbarian: ["greataxe", "handaxe", "backpack", "bedroll", "rations-1-day", "waterskin", "torch"],
@@ -718,6 +916,26 @@ export async function registerRoutes(
 
       // Parse and execute game actions from DM response tags
       const gameActions = parseDMResponseTags(dmResponse);
+      
+      // Add natural language item/gold detection only for single-player batches
+      // This avoids cross-applying items to all characters in multi-player scenarios
+      if (batch.length === 1) {
+        const msg = batch[0];
+        const player = players.find(p => p.name === msg.playerName);
+        if (player) {
+          const character = characters.find(c => c.userId === player.userId);
+          if (character) {
+            const inventory = await storage.getSavedInventoryWithDetails(character.id);
+            const inventoryNames = inventory.map(i => i.item?.name || '');
+            const nlActions = await parseNaturalLanguageItems(dmResponse, character.characterName, inventoryNames);
+            if (nlActions.length > 0) {
+              console.log(`[NL Detection] Found ${nlActions.length} natural language items/gold for ${character.characterName}`);
+              gameActions.push(...nlActions);
+            }
+          }
+        }
+      }
+      
       if (gameActions.length > 0) {
         console.log(`[DM Response] Found ${gameActions.length} game actions to execute`);
         await executeGameActions(gameActions, roomCode, broadcastToRoom);

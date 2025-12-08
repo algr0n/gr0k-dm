@@ -85,6 +85,7 @@ export interface IStorage {
   getItem(id: string): Promise<Item | undefined>;
   getItemByName(name: string): Promise<Item | undefined>;
   getItems(category?: typeof itemCategoryEnum.enumValues[number], rarity?: typeof itemRarityEnum.enumValues[number]): Promise<Item[]>;
+  getAllItems(): Promise<Item[]>;
   searchItems(query: string): Promise<Item[]>;
   createItem(item: { id: string; name: string; category: typeof itemCategoryEnum.enumValues[number]; type: string; description: string; rarity?: typeof itemRarityEnum.enumValues[number]; gameSystem?: string }): Promise<Item>;
   getInventoryWithDetails(characterId: string): Promise<(InventoryItem & { item: Item })[]>;
@@ -402,6 +403,10 @@ class DatabaseStorage implements IStorage {
         category ? eq(items.category, category) : undefined,
         rarity ? eq(items.rarity, rarity) : undefined
       ));
+  }
+
+  async getAllItems(): Promise<Item[]> {
+    return await db.select().from(items);
   }
 
   async searchItems(query: string): Promise<Item[]> {
