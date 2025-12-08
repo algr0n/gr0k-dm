@@ -1,14 +1,11 @@
-import { defineConfig } from "drizzle-kit";
+import type { Config } from "drizzle-kit";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL, ensure the database is provisioned");
-}
-
-export default defineConfig({
-  out: "./migrations",
-  schema: "./shared/schema.ts",
-  dialect: "postgresql",
+export default {
+  schema: "./schema.ts",
+  out: "./drizzle",
+  dialect: "sqlite",           // ← this is the missing line
+  driver: "turso",             // ← and this one
   dbCredentials: {
-    url: process.env.DATABASE_URL,
+    url: ":memory:",
   },
-});
+} satisfies Config;
