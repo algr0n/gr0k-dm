@@ -5,15 +5,14 @@ import {
   type User, type UpsertUser, type InsertUser,
   type Character, type InsertCharacter,
   type InventoryItem, type InsertInventoryItem,
-  type SavedCharacter, type InsertSavedCharacter,
+  type SavedCharacter, type InsertSavedCharacter, type UpdateUnifiedCharacter,
   type SavedInventoryItem, type InsertSavedInventoryItem,
-  type RoomCharacter, type InsertRoomCharacter, type UpdateRoomCharacter,
   type CharacterStatusEffect, type InsertStatusEffect,
   rooms, players, diceRolls, users, characters, inventoryItems,
-  savedCharacters, savedInventoryItems, roomCharacters, characterStatusEffects
+  savedCharacters, savedInventoryItems, characterStatusEffects
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, lt, sql, count } from "drizzle-orm";
+import { eq, desc, and, lt, sql, count, isNotNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { 
   items, Item,
@@ -54,7 +53,7 @@ export interface IStorage {
   deletePlayer(id: string): Promise<boolean>;
   deletePlayersByRoom(roomId: string): Promise<boolean>;
 
-  // Characters
+  // Characters (legacy room-bound characters)
   getCharacter(id: string): Promise<Character | undefined>;
   getCharactersByRoom(roomId: string): Promise<Character[]>;
   getCharacterByPlayer(playerId: string): Promise<Character | undefined>;
@@ -68,7 +67,7 @@ export interface IStorage {
   createDiceRoll(roll: InsertDiceRoll): Promise<DiceRollRecord>;
   deleteDiceRollsByRoom(roomId: string): Promise<boolean>;
 
-  // Inventory
+  // Inventory (legacy)
   getInventoryByCharacter(characterId: string): Promise<InventoryItem[]>;
   createInventoryItem(item: InsertInventoryItem): Promise<InventoryItem>;
   deleteInventoryByCharacter(characterId: string): Promise<boolean>;
@@ -87,35 +86,32 @@ export interface IStorage {
   getInventoryWithDetails(characterId: string): Promise<(InventoryItem & { item: Item })[]>;
   addToInventory(insert: InsertInventoryItem): Promise<InventoryItem>;
 
-  // Saved Characters (user-owned)
+  // Unified Characters (user-owned, can join rooms via currentRoomCode)
   getSavedCharactersByUser(userId: string): Promise<SavedCharacter[]>;
   getSavedCharacter(id: string): Promise<SavedCharacter | undefined>;
   createSavedCharacter(character: InsertSavedCharacter): Promise<SavedCharacter>;
   updateSavedCharacter(id: string, updates: Partial<SavedCharacter>): Promise<SavedCharacter | undefined>;
   deleteSavedCharacter(id: string): Promise<boolean>;
+  
+  // Unified Character Room Operations
+  getCharactersByRoomCode(roomCode: string): Promise<SavedCharacter[]>;
+  getCharacterByUserInRoom(userId: string, roomCode: string): Promise<SavedCharacter | undefined>;
+  joinRoom(characterId: string, roomCode: string): Promise<SavedCharacter | undefined>;
+  leaveRoom(characterId: string): Promise<SavedCharacter | undefined>;
+  leaveAllCharactersFromRoom(roomCode: string): Promise<boolean>;
 
-  // Saved Inventory
-  getSavedInventoryByCharacter(savedCharacterId: string): Promise<SavedInventoryItem[]>;
-  getSavedInventoryWithDetails(savedCharacterId: string): Promise<(SavedInventoryItem & { item: Item })[]>;
+  // Saved Inventory (for unified characters)
+  getSavedInventoryByCharacter(characterId: string): Promise<SavedInventoryItem[]>;
+  getSavedInventoryWithDetails(characterId: string): Promise<(SavedInventoryItem & { item: Item })[]>;
   addToSavedInventory(insert: InsertSavedInventoryItem): Promise<SavedInventoryItem>;
   updateSavedInventoryItem(id: string, updates: Partial<SavedInventoryItem>): Promise<SavedInventoryItem | undefined>;
   deleteSavedInventoryItem(id: string): Promise<boolean>;
 
-  // Room Characters (character instances in game rooms)
-  getRoomCharacter(id: string): Promise<RoomCharacter | undefined>;
-  getRoomCharactersByRoom(roomId: string): Promise<RoomCharacter[]>;
-  getRoomCharacterByUserInRoom(userId: string, roomId: string): Promise<RoomCharacter | undefined>;
-  createRoomCharacter(character: InsertRoomCharacter): Promise<RoomCharacter>;
-  updateRoomCharacter(id: string, updates: UpdateRoomCharacter): Promise<RoomCharacter | undefined>;
-  deleteRoomCharacter(id: string): Promise<boolean>;
-  deleteRoomCharactersByRoom(roomId: string): Promise<boolean>;
-
-  // Status Effects
-  getStatusEffectsByRoomCharacter(roomCharacterId: string): Promise<CharacterStatusEffect[]>;
+  // Status Effects (for unified characters)
+  getStatusEffectsByCharacter(characterId: string): Promise<CharacterStatusEffect[]>;
   createStatusEffect(effect: InsertStatusEffect): Promise<CharacterStatusEffect>;
   deleteStatusEffect(id: string): Promise<boolean>;
-  deleteStatusEffectsByRoomCharacter(roomCharacterId: string): Promise<boolean>;
-
+  deleteStatusEffectsByCharacter(characterId: string): Promise<boolean>;
 }
 
 class DatabaseStorage implements IStorage {
@@ -320,6 +316,12 @@ class DatabaseStorage implements IStorage {
   }
 
   async deleteRoomWithAllData(roomId: string): Promise<boolean> {
+    // Get the room to find its code
+    const room = await this.getRoom(roomId);
+    if (room) {
+      // Remove all characters from this room (set currentRoomCode to null)
+      await this.leaveAllCharactersFromRoom(room.code);
+    }
     await this.deleteInventoryByRoom(roomId);
     await this.deleteCharactersByRoom(roomId);
     await this.deleteDiceRollsByRoom(roomId);
@@ -390,7 +392,7 @@ class DatabaseStorage implements IStorage {
   async searchItems(query: string): Promise<Item[]> {
     return await db.select().from(items)
       .where(ilike(items.name, `%${query}%`))
-      .limit(50);  // Limit to prevent huge results
+      .limit(50);
   }
 
   async getInventoryWithDetails(characterId: string): Promise<(InventoryItem & { item: Item })[]> {
@@ -401,13 +403,11 @@ class DatabaseStorage implements IStorage {
   }
 
   async addToInventory(insert: InsertInventoryItem): Promise<InventoryItem> {
-    // Check if item exists
     const itemExists = await this.getItem(insert.itemId);
     if (!itemExists) {
       throw new Error(`Item ${insert.itemId} not found`);
     }
 
-    // Upsert: If same item already in inventory, increment quantity
     const existing = await db.query.inventoryItems.findFirst({
       where: and(
         eq(inventoryItems.characterId, insert.characterId),
@@ -429,7 +429,7 @@ class DatabaseStorage implements IStorage {
       .then(rows => rows[0]);
   }
 
-  // Saved Characters (user-owned)
+  // Unified Characters (user-owned)
   async getSavedCharactersByUser(userId: string): Promise<SavedCharacter[]> {
     return await db.select().from(savedCharacters)
       .where(eq(savedCharacters.userId, userId))
@@ -462,15 +462,54 @@ class DatabaseStorage implements IStorage {
     return true;
   }
 
-  // Saved Inventory
-  async getSavedInventoryByCharacter(savedCharacterId: string): Promise<SavedInventoryItem[]> {
-    return await db.select().from(savedInventoryItems)
-      .where(eq(savedInventoryItems.savedCharacterId, savedCharacterId));
+  // Unified Character Room Operations
+  async getCharactersByRoomCode(roomCode: string): Promise<SavedCharacter[]> {
+    return await db.select().from(savedCharacters)
+      .where(eq(savedCharacters.currentRoomCode, roomCode))
+      .orderBy(savedCharacters.updatedAt);
   }
 
-  async getSavedInventoryWithDetails(savedCharacterId: string): Promise<(SavedInventoryItem & { item: Item })[]> {
+  async getCharacterByUserInRoom(userId: string, roomCode: string): Promise<SavedCharacter | undefined> {
+    return await db.query.savedCharacters.findFirst({
+      where: and(
+        eq(savedCharacters.userId, userId),
+        eq(savedCharacters.currentRoomCode, roomCode)
+      )
+    });
+  }
+
+  async joinRoom(characterId: string, roomCode: string): Promise<SavedCharacter | undefined> {
+    const result = await db.update(savedCharacters)
+      .set({ currentRoomCode: roomCode })
+      .where(eq(savedCharacters.id, characterId))
+      .returning();
+    return result[0];
+  }
+
+  async leaveRoom(characterId: string): Promise<SavedCharacter | undefined> {
+    const result = await db.update(savedCharacters)
+      .set({ currentRoomCode: null })
+      .where(eq(savedCharacters.id, characterId))
+      .returning();
+    return result[0];
+  }
+
+  async leaveAllCharactersFromRoom(roomCode: string): Promise<boolean> {
+    await db.update(savedCharacters)
+      .set({ currentRoomCode: null })
+      .where(eq(savedCharacters.currentRoomCode, roomCode));
+    return true;
+  }
+
+  // Saved Inventory (uses characterId now, not savedCharacterId)
+  async getSavedInventoryByCharacter(characterId: string): Promise<SavedInventoryItem[]> {
+    return await db.select().from(savedInventoryItems)
+      .where(eq(savedInventoryItems.characterId, characterId));
+  }
+
+  async getSavedInventoryWithDetails(characterId: string): Promise<(SavedInventoryItem & { item: Item })[]> {
     const results = await db.query.savedInventoryItems.findMany({
-      where: eq(savedInventoryItems.savedCharacterId, savedCharacterId),
+      where: eq(savedInventoryItems.characterId, characterId),
       with: { item: true },
     });
     return results;
@@ -479,7 +518,7 @@ class DatabaseStorage implements IStorage {
   async addToSavedInventory(insert: InsertSavedInventoryItem): Promise<SavedInventoryItem> {
     const existing = await db.query.savedInventoryItems.findFirst({
       where: and(
-        eq(savedInventoryItems.savedCharacterId, insert.savedCharacterId),
+        eq(savedInventoryItems.characterId, insert.characterId),
         eq(savedInventoryItems.itemId, insert.itemId)
       ),
     });
@@ -511,55 +550,10 @@ class DatabaseStorage implements IStorage {
     return true;
   }
 
-  // Room Characters (character instances in game rooms)
-  async getRoomCharacter(id: string): Promise<RoomCharacter | undefined> {
-    return await db.query.roomCharacters.findFirst({ where: eq(roomCharacters.id, id) });
-  }
-
-  async getRoomCharactersByRoom(roomId: string): Promise<RoomCharacter[]> {
-    return await db.select().from(roomCharacters)
-      .where(eq(roomCharacters.roomId, roomId))
-      .orderBy(roomCharacters.joinedAt);
-  }
-
-  async getRoomCharacterByUserInRoom(userId: string, roomId: string): Promise<RoomCharacter | undefined> {
-    return await db.query.roomCharacters.findFirst({
-      where: and(
-        eq(roomCharacters.userId, userId),
-        eq(roomCharacters.roomId, roomId)
-      )
-    });
-  }
-
-  async createRoomCharacter(character: InsertRoomCharacter): Promise<RoomCharacter> {
-    const result = await db.insert(roomCharacters)
-      .values(character)
-      .returning();
-    return result[0];
-  }
-
-  async updateRoomCharacter(id: string, updates: UpdateRoomCharacter): Promise<RoomCharacter | undefined> {
-    const result = await db.update(roomCharacters)
-      .set(updates)
-      .where(eq(roomCharacters.id, id))
-      .returning();
-    return result[0];
-  }
-
-  async deleteRoomCharacter(id: string): Promise<boolean> {
-    await db.delete(roomCharacters).where(eq(roomCharacters.id, id));
-    return true;
-  }
-
-  async deleteRoomCharactersByRoom(roomId: string): Promise<boolean> {
-    await db.delete(roomCharacters).where(eq(roomCharacters.roomId, roomId));
-    return true;
-  }
-
-  // Status Effects
-  async getStatusEffectsByRoomCharacter(roomCharacterId: string): Promise<CharacterStatusEffect[]> {
+  // Status Effects (uses characterId now, not roomCharacterId)
+  async getStatusEffectsByCharacter(characterId: string): Promise<CharacterStatusEffect[]> {
     return await db.select().from(characterStatusEffects)
-      .where(eq(characterStatusEffects.roomCharacterId, roomCharacterId))
+      .where(eq(characterStatusEffects.characterId, characterId))
       .orderBy(characterStatusEffects.createdAt);
   }
 
@@ -575,8 +569,8 @@ class DatabaseStorage implements IStorage {
     return true;
   }
 
-  async deleteStatusEffectsByRoomCharacter(roomCharacterId: string): Promise<boolean> {
-    await db.delete(characterStatusEffects).where(eq(characterStatusEffects.roomCharacterId, roomCharacterId));
+  async deleteStatusEffectsByCharacter(characterId: string): Promise<boolean> {
+    await db.delete(characterStatusEffects).where(eq(characterStatusEffects.characterId, characterId));
     return true;
   }
 }

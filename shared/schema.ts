@@ -294,14 +294,15 @@ export const updateUserProfileSchema = z.object({
 });
 export type UpdateUserProfile = z.infer<typeof updateUserProfileSchema>;
 
-// Saved characters (linked to user accounts, separate from room-specific characters)
-export const savedCharacters = pgTable("saved_characters", {
+// Unified characters table - combines saved and room characters into one entity
+// Characters persist across game sessions with currentRoomCode tracking active game
+export const unifiedCharacters = pgTable("unified_characters", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   characterName: text("character_name").notNull(),
   race: text("race"),
   class: text("class"),
-  level: integer("level").default(1),
+  level: integer("level").notNull().default(1),
   background: text("background"),
   alignment: text("alignment"),
   stats: jsonb("stats").$type<{
@@ -314,35 +315,50 @@ export const savedCharacters = pgTable("saved_characters", {
     [key: string]: unknown;
   }>(),
   skills: jsonb("skills").$type<string[]>().default([]),
+  proficiencies: jsonb("proficiencies").$type<string[]>().default([]),
   spells: jsonb("spells").$type<string[]>().default([]),
+  hitDice: text("hit_dice"),
   maxHp: integer("max_hp").notNull().default(10),
+  currentHp: integer("current_hp").notNull().default(10),
+  temporaryHp: integer("temporary_hp").notNull().default(0),
   ac: integer("ac").notNull().default(10),
   speed: integer("speed").notNull().default(30),
   initiativeModifier: integer("initiative_modifier").notNull().default(0),
-  backstory: text("backstory"),
-  gameSystem: text("game_system").notNull().default("dnd"),
   xp: integer("xp").notNull().default(0),
+  gold: integer("gold").notNull().default(0),
+  isAlive: boolean("is_alive").notNull().default(true),
+  backstory: text("backstory"),
+  notes: text("notes"),
+  gameSystem: text("game_system").notNull().default("dnd"),
+  currentRoomCode: varchar("current_room_code", { length: 8 }),
   levelChoices: jsonb("level_choices").$type<Record<string, unknown>[]>().default([]),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
-  index("idx_saved_characters_user").on(table.userId),
+  index("idx_unified_characters_user").on(table.userId),
+  index("idx_unified_characters_room").on(table.currentRoomCode),
 ]);
 
-export const insertSavedCharacterSchema = createInsertSchema(savedCharacters).omit({
+export const insertUnifiedCharacterSchema = createInsertSchema(unifiedCharacters).omit({
   id: true,
   createdAt: true,
   updatedAt: true,
 });
-export type InsertSavedCharacter = z.infer<typeof insertSavedCharacterSchema>;
-export type SavedCharacter = typeof savedCharacters.$inferSelect;
+export type InsertUnifiedCharacter = z.infer<typeof insertUnifiedCharacterSchema>;
+export type UnifiedCharacter = typeof unifiedCharacters.$inferSelect;
 
-// Saved inventory (items owned by saved characters)
-export const savedInventoryItems = pgTable("saved_inventory_items", {
+// Keep savedCharacters as alias for backward compatibility during migration
+export const savedCharacters = unifiedCharacters;
+export type SavedCharacter = UnifiedCharacter;
+export type InsertSavedCharacter = InsertUnifiedCharacter;
+export const insertSavedCharacterSchema = insertUnifiedCharacterSchema;
+
+// Character inventory (items owned by characters)
+export const characterInventoryItems = pgTable("character_inventory_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  savedCharacterId: varchar("saved_character_id")
+  characterId: varchar("character_id")
     .notNull()
-    .references(() => savedCharacters.id, { onDelete: "cascade" }),
+    .references(() => unifiedCharacters.id, { onDelete: "cascade" }),
   itemId: varchar("item_id", { length: 64 })
     .notNull()
     .references(() => items.id, { onDelete: "restrict" }),
@@ -353,108 +369,43 @@ export const savedInventoryItems = pgTable("saved_inventory_items", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()),
 }, (table) => [
-  index("idx_saved_inventory_character").on(table.savedCharacterId),
+  index("idx_character_inventory_character").on(table.characterId),
+  index("idx_character_inventory_item").on(table.itemId),
 ]);
 
-export const savedInventoryItemsRelations = relations(savedInventoryItems, ({ one }) => ({
-  savedCharacter: one(savedCharacters, {
-    fields: [savedInventoryItems.savedCharacterId],
-    references: [savedCharacters.id],
+export const characterInventoryItemsRelations = relations(characterInventoryItems, ({ one }) => ({
+  character: one(unifiedCharacters, {
+    fields: [characterInventoryItems.characterId],
+    references: [unifiedCharacters.id],
   }),
   item: one(items, {
-    fields: [savedInventoryItems.itemId],
+    fields: [characterInventoryItems.itemId],
     references: [items.id],
   }),
 }));
 
-export const insertSavedInventoryItemSchema = createInsertSchema(savedInventoryItems)
-  .omit({ id: true, createdAt: true, updatedAt: true });
-export type InsertSavedInventoryItem = z.infer<typeof insertSavedInventoryItemSchema>;
-export type SavedInventoryItem = typeof savedInventoryItems.$inferSelect;
-
-// Room character instances - when a saved character joins a game room
-export const roomCharacters = pgTable("room_characters", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  roomId: varchar("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
-  savedCharacterId: varchar("saved_character_id").notNull().references(() => savedCharacters.id, { onDelete: "cascade" }),
-  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  playerName: text("player_name").notNull(),
-  currentHp: integer("current_hp").notNull(),
-  isAlive: boolean("is_alive").notNull().default(true),
-  experience: integer("experience").notNull().default(0),
-  temporaryHp: integer("temporary_hp").notNull().default(0),
-  gold: integer("gold").notNull().default(0),
-  notes: text("notes"),
-  joinedAt: timestamp("joined_at").notNull().defaultNow(),
-}, (table) => [
-  index("idx_room_characters_room").on(table.roomId),
-  index("idx_room_characters_user").on(table.userId),
-  index("idx_room_characters_saved").on(table.savedCharacterId),
-]);
-
-export const insertRoomCharacterSchema = createInsertSchema(roomCharacters).omit({
-  id: true,
-  joinedAt: true,
-});
-export type InsertRoomCharacter = z.infer<typeof insertRoomCharacterSchema>;
-export type RoomCharacter = typeof roomCharacters.$inferSelect;
-
-// Room inventory items (items acquired during gameplay by room characters)
-export const roomInventoryItems = pgTable("room_inventory_items", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  roomCharacterId: varchar("room_character_id")
-    .notNull()
-    .references(() => roomCharacters.id, { onDelete: "cascade" }),
-  itemId: varchar("item_id", { length: 64 })
-    .notNull()
-    .references(() => items.id, { onDelete: "restrict" }),
-  quantity: integer("quantity").notNull().default(1),
-  equipped: boolean("equipped").notNull().default(false),
-  notes: text("notes"),
-  attunementSlot: boolean("attunement_slot").default(false),
-  grantedBy: text("granted_by"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()),
-}, (table) => [
-  index("idx_room_inventory_character").on(table.roomCharacterId),
-  index("idx_room_inventory_item").on(table.itemId),
-]);
-
-export const roomInventoryItemsRelations = relations(roomInventoryItems, ({ one }) => ({
-  roomCharacter: one(roomCharacters, {
-    fields: [roomInventoryItems.roomCharacterId],
-    references: [roomCharacters.id],
-  }),
-  item: one(items, {
-    fields: [roomInventoryItems.itemId],
-    references: [items.id],
-  }),
-}));
-
-export const insertRoomInventoryItemSchema = createInsertSchema(roomInventoryItems)
+export const insertCharacterInventoryItemSchema = createInsertSchema(characterInventoryItems)
   .omit({ id: true, createdAt: true, updatedAt: true })
   .extend({
     quantity: z.coerce.number().min(1),
   });
-export type InsertRoomInventoryItem = z.infer<typeof insertRoomInventoryItemSchema>;
-export type RoomInventoryItem = typeof roomInventoryItems.$inferSelect;
+export type InsertCharacterInventoryItem = z.infer<typeof insertCharacterInventoryItemSchema>;
+export type CharacterInventoryItem = typeof characterInventoryItems.$inferSelect;
 
-// Relations for room characters
-export const roomCharactersRelations = relations(roomCharacters, ({ one, many }) => ({
-  room: one(rooms, {
-    fields: [roomCharacters.roomId],
-    references: [rooms.id],
-  }),
-  savedCharacter: one(savedCharacters, {
-    fields: [roomCharacters.savedCharacterId],
-    references: [savedCharacters.id],
-  }),
+// Backward compatibility aliases for saved inventory
+export const savedInventoryItems = characterInventoryItems;
+export type SavedInventoryItem = CharacterInventoryItem;
+export type InsertSavedInventoryItem = InsertCharacterInventoryItem;
+export const insertSavedInventoryItemSchema = insertCharacterInventoryItemSchema;
+
+// Relations for unified characters
+export const unifiedCharactersRelations = relations(unifiedCharacters, ({ one, many }) => ({
   user: one(users, {
-    fields: [roomCharacters.userId],
+    fields: [unifiedCharacters.userId],
     references: [users.id],
   }),
+  inventoryItems: many(characterInventoryItems),
   statusEffects: many(characterStatusEffects),
-  inventoryItems: many(roomInventoryItems),
 }));
 
 // Predefined status effects per game system
@@ -495,10 +446,10 @@ export const statusEffectDefinitions: Record<GameSystem, Array<{name: string; de
   ],
 };
 
-// Character status effects table (active effects on room characters)
+// Character status effects table (active effects on characters in game)
 export const characterStatusEffects = pgTable("character_status_effects", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  roomCharacterId: varchar("room_character_id").notNull().references(() => roomCharacters.id, { onDelete: "cascade" }),
+  characterId: varchar("character_id").notNull().references(() => unifiedCharacters.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description"),
   isPredefined: boolean("is_predefined").notNull().default(true),
@@ -506,7 +457,7 @@ export const characterStatusEffects = pgTable("character_status_effects", {
   appliedByDm: boolean("applied_by_dm").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (table) => [
-  index("idx_status_effects_character").on(table.roomCharacterId),
+  index("idx_status_effects_character").on(table.characterId),
 ]);
 
 export const insertStatusEffectSchema = createInsertSchema(characterStatusEffects).omit({
@@ -518,35 +469,20 @@ export type CharacterStatusEffect = typeof characterStatusEffects.$inferSelect;
 
 // Relations for status effects
 export const characterStatusEffectsRelations = relations(characterStatusEffects, ({ one }) => ({
-  roomCharacter: one(roomCharacters, {
-    fields: [characterStatusEffects.roomCharacterId],
-    references: [roomCharacters.id],
+  character: one(unifiedCharacters, {
+    fields: [characterStatusEffects.characterId],
+    references: [unifiedCharacters.id],
   }),
 }));
 
-// Relations for saved characters (defined after roomCharacters to avoid reference error)
-export const savedCharactersRelations = relations(savedCharacters, ({ one, many }) => ({
-  user: one(users, {
-    fields: [savedCharacters.userId],
-    references: [users.id],
-  }),
-  roomCharacters: many(roomCharacters),
-  inventoryItems: many(savedInventoryItems),
-}));
-
-// Schema for DM to update character stats
-export const updateRoomCharacterSchema = z.object({
+// Schema to update unified character (combines room and base updates)
+export const updateUnifiedCharacterSchema = z.object({
   currentHp: z.number().int().optional(),
   temporaryHp: z.number().int().min(0).optional(),
   isAlive: z.boolean().optional(),
-  experience: z.number().int().min(0).optional(),
+  xp: z.number().int().min(0).optional(),
   gold: z.number().int().min(0).optional(),
   notes: z.string().optional(),
-});
-export type UpdateRoomCharacter = z.infer<typeof updateRoomCharacterSchema>;
-
-// Schema for DM to update base character stats
-export const updateCharacterStatsSchema = z.object({
   level: z.number().int().min(1).max(20).optional(),
   maxHp: z.number().int().min(1).optional(),
   ac: z.number().int().min(0).optional(),
@@ -554,6 +490,14 @@ export const updateCharacterStatsSchema = z.object({
   initiativeModifier: z.number().int().optional(),
   stats: z.record(z.unknown()).optional(),
   skills: z.array(z.string()).optional(),
+  proficiencies: z.array(z.string()).optional(),
   spells: z.array(z.string()).optional(),
+  currentRoomCode: z.string().max(8).nullable().optional(),
 });
-export type UpdateCharacterStats = z.infer<typeof updateCharacterStatsSchema>;
+export type UpdateUnifiedCharacter = z.infer<typeof updateUnifiedCharacterSchema>;
+
+// Backward compatibility aliases
+export const updateRoomCharacterSchema = updateUnifiedCharacterSchema;
+export type UpdateRoomCharacter = UpdateUnifiedCharacter;
+export const updateCharacterStatsSchema = updateUnifiedCharacterSchema;
+export type UpdateCharacterStats = UpdateUnifiedCharacter;

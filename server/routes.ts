@@ -5,7 +5,7 @@ import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { parseDiceExpression } from "./dice";
 import { generateDMResponse, generateBatchedDMResponse, generateStartingScene, generateCombatDMTurn, type CharacterInfo, type BatchedMessage, type DroppedItemInfo, getTokenUsage } from "./grok";
-import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, insertSavedCharacterSchema, updateUserProfileSchema, type Message, type Character, type InventoryItem } from "@shared/schema";
+import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, insertSavedCharacterSchema, updateUserProfileSchema, type Message, type Character, type InventoryItem, type InsertInventoryItem, itemCategoryEnum, itemRarityEnum, type SavedCharacter } from "@shared/schema";
 import { setupAuth, isAuthenticated, getSession } from "./auth";
 import passport from "passport";
 
@@ -88,7 +88,7 @@ async function grantStartingItems(
     for (const itemId of itemIds) {
       try {
         await storage.addToSavedInventory({
-          savedCharacterId,
+          characterId: savedCharacterId,
           itemId,
           quantity: itemId === "rations-1-day" ? 5 : itemId === "torch" ? 5 : 1,
         });
@@ -578,7 +578,7 @@ export async function registerRoutes(
       }
       
       const inventoryItem = await storage.addToSavedInventory({
-        savedCharacterId: id,
+        characterId: id,
         itemId: resolvedItemId,
         quantity,
       });
@@ -669,8 +669,8 @@ export async function registerRoutes(
         isHost: existingPlayers.length === 0,
       });
 
-      // If savedCharacterId provided, create a room character instance
-      let roomCharacter = null;
+      // If savedCharacterId provided, join the character to the room
+      let roomCharacter: SavedCharacter | null = null;
       if (savedCharacterId) {
         const savedCharacter = await storage.getSavedCharacter(savedCharacterId);
         if (!savedCharacter) {
@@ -687,17 +687,13 @@ export async function registerRoutes(
           return res.status(400).json({ error: "Character game system does not match room" });
         }
         
-        roomCharacter = await storage.createRoomCharacter({
-          roomId: room.id,
-          savedCharacterId: savedCharacterId,
-          userId: savedCharacter.userId,
-          playerName: playerName,
-          currentHp: savedCharacter.maxHp,
-          isAlive: true,
-          experience: 0,
-          temporaryHp: 0,
-          gold: 0,
-        });
+        // Check if character is already in a room
+        if (savedCharacter.currentRoomCode && savedCharacter.currentRoomCode !== code) {
+          return res.status(400).json({ error: "Character is already in another room" });
+        }
+        
+        // Join the character to the room
+        roomCharacter = await storage.joinRoom(savedCharacterId, code) || null;
       }
 
       await storage.updateRoomActivity(room.id);
@@ -751,20 +747,15 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Character game system does not match room" });
       }
 
-      // Create room character instance
-      const roomCharacter = await storage.createRoomCharacter({
-        roomId: room.id,
-        savedCharacterId: savedCharacterId,
-        userId: savedCharacter.userId,
-        playerName: playerName,
-        currentHp: savedCharacter.maxHp,
-        isAlive: true,
-        experience: 0,
-        temporaryHp: 0,
-        gold: 0,
-      });
+      // Check if character is already in a room
+      if (savedCharacter.currentRoomCode && savedCharacter.currentRoomCode !== code) {
+        return res.status(400).json({ error: "Character is already in another room" });
+      }
+      
+      // Join the character to the room
+      const roomCharacter = await storage.joinRoom(savedCharacterId, code);
 
-      res.json({ roomCharacter });
+      res.json({ roomCharacter, savedCharacter: roomCharacter });
     } catch (error) {
       console.error("Error joining room with character:", error);
       res.status(500).json({ error: "Failed to join room with character" });
@@ -782,63 +773,52 @@ export async function registerRoutes(
       if (!user) {
         return res.status(401).json({ error: "User not found" });
       }
-      const playerName = user.username || user.email || "Player";
 
       const room = await storage.getRoomByCode(code);
       if (!room || !room.isActive) {
         return res.status(404).json({ error: "Room not found or inactive" });
       }
 
-      // Get current room character
-      const currentRoomCharacter = await storage.getRoomCharacterByUserInRoom(userId, room.id);
-      if (!currentRoomCharacter) {
+      // Get current character in this room
+      const currentCharacter = await storage.getCharacterByUserInRoom(userId, code);
+      if (!currentCharacter) {
         return res.status(404).json({ error: "No current character in this room" });
       }
 
       // Only allow switching if character is dead
-      if (currentRoomCharacter.isAlive) {
+      if (currentCharacter.isAlive) {
         return res.status(400).json({ error: "Cannot switch character while current character is alive" });
       }
 
       // Validate the new character
-      const savedCharacter = await storage.getSavedCharacter(savedCharacterId);
-      if (!savedCharacter) {
+      const newCharacter = await storage.getSavedCharacter(savedCharacterId);
+      if (!newCharacter) {
         return res.status(404).json({ error: "Saved character not found" });
       }
 
-      if (savedCharacter.userId !== userId) {
+      if (newCharacter.userId !== userId) {
         return res.status(403).json({ error: "You do not own this character" });
       }
 
-      if (savedCharacter.gameSystem !== room.gameSystem) {
+      if (newCharacter.gameSystem !== room.gameSystem) {
         return res.status(400).json({ error: "Character game system does not match room" });
       }
 
-      // Delete the old room character and its status effects
-      await storage.deleteStatusEffectsByRoomCharacter(currentRoomCharacter.id);
-      await storage.deleteRoomCharacter(currentRoomCharacter.id);
+      // Leave the old character from room and clear its status effects
+      await storage.deleteStatusEffectsByCharacter(currentCharacter.id);
+      await storage.leaveRoom(currentCharacter.id);
 
-      // Create new room character instance
-      const roomCharacter = await storage.createRoomCharacter({
-        roomId: room.id,
-        savedCharacterId: savedCharacterId,
-        userId: userId,
-        playerName: playerName,
-        currentHp: savedCharacter.maxHp,
-        isAlive: true,
-        experience: 0,
-        temporaryHp: 0,
-        gold: 0,
-      });
+      // Join new character to room
+      const roomCharacter = await storage.joinRoom(savedCharacterId, code);
 
-      res.json({ roomCharacter, savedCharacter });
+      res.json({ roomCharacter, savedCharacter: roomCharacter });
     } catch (error) {
       console.error("Error switching character:", error);
       res.status(500).json({ error: "Failed to switch character" });
     }
   });
 
-  // Get current player's room character with saved character data
+  // Get current player's character in this room
   app.get("/api/rooms/:code/my-character", isAuthenticated, async (req, res) => {
     try {
       const { code } = req.params;
@@ -849,21 +829,17 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Room not found" });
       }
 
-      const roomCharacter = await storage.getRoomCharacterByUserInRoom(userId, room.id);
-      if (!roomCharacter) {
+      const character = await storage.getCharacterByUserInRoom(userId, code);
+      if (!character) {
         return res.status(404).json({ error: "No character in this room" });
       }
 
-      const savedCharacter = await storage.getSavedCharacter(roomCharacter.savedCharacterId);
-      if (!savedCharacter) {
-        return res.status(404).json({ error: "Saved character not found" });
-      }
+      const statusEffects = await storage.getStatusEffectsByCharacter(character.id);
 
-      const statusEffects = await storage.getStatusEffectsByRoomCharacter(roomCharacter.id);
-
+      // Return unified response format
       res.json({
-        roomCharacter,
-        savedCharacter,
+        roomCharacter: character,
+        savedCharacter: character,
         statusEffects,
       });
     } catch (error) {
@@ -872,7 +848,7 @@ export async function registerRoutes(
     }
   });
 
-  // Get all room characters in a room (for DM and player views)
+  // Get all characters in a room (for DM and player views)
   app.get("/api/rooms/:code/room-characters", async (req, res) => {
     try {
       const { code } = req.params;
@@ -882,16 +858,15 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Room not found" });
       }
 
-      const roomCharacters = await storage.getRoomCharactersByRoom(room.id);
+      const characters = await storage.getCharactersByRoomCode(code);
       
-      // Fetch saved character data for each room character
+      // Return unified format with status effects
       const charactersWithData = await Promise.all(
-        roomCharacters.map(async (rc) => {
-          const savedCharacter = await storage.getSavedCharacter(rc.savedCharacterId);
-          const statusEffects = await storage.getStatusEffectsByRoomCharacter(rc.id);
+        characters.map(async (char) => {
+          const statusEffects = await storage.getStatusEffectsByCharacter(char.id);
           return {
-            roomCharacter: rc,
-            savedCharacter,
+            roomCharacter: char,
+            savedCharacter: char,
             statusEffects,
           };
         })
@@ -1273,7 +1248,7 @@ export async function registerRoutes(
     }
   });
 
-  // DM Controls API - Update room character stats
+  // DM Controls API - Update character stats (unified character model)
   app.patch("/api/room-characters/:id", async (req, res) => {
     try {
       const { id } = req.params;
@@ -1288,28 +1263,28 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Only the DM can modify character stats" });
       }
 
-      const roomCharacter = await storage.getRoomCharacter(id);
-      if (!roomCharacter || roomCharacter.roomId !== room.id) {
+      const character = await storage.getSavedCharacter(id);
+      if (!character || character.currentRoomCode !== roomCode) {
         return res.status(404).json({ error: "Character not found in this room" });
       }
 
-      const updatedCharacter = await storage.updateRoomCharacter(id, updates);
+      const updatedCharacter = await storage.updateSavedCharacter(id, updates);
       
       // Broadcast update to room
       broadcastToRoom(roomCode, {
         type: "character_update",
-        roomCharacterId: id,
+        characterId: id,
         updates,
       });
 
       res.json(updatedCharacter);
     } catch (error) {
-      console.error("Error updating room character:", error);
+      console.error("Error updating character:", error);
       res.status(500).json({ error: "Failed to update character" });
     }
   });
 
-  // DM Controls API - Add status effect
+  // DM Controls API - Add status effect (unified character model)
   app.post("/api/room-characters/:id/status-effects", async (req, res) => {
     try {
       const { id } = req.params;
@@ -1324,13 +1299,13 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Only the DM can apply status effects" });
       }
 
-      const roomCharacter = await storage.getRoomCharacter(id);
-      if (!roomCharacter || roomCharacter.roomId !== room.id) {
+      const character = await storage.getSavedCharacter(id);
+      if (!character || character.currentRoomCode !== roomCode) {
         return res.status(404).json({ error: "Character not found in this room" });
       }
 
       const effect = await storage.createStatusEffect({
-        roomCharacterId: id,
+        characterId: id,
         name,
         description,
         duration,
@@ -1341,7 +1316,7 @@ export async function registerRoutes(
       // Broadcast update to room
       broadcastToRoom(roomCode, {
         type: "status_effect_added",
-        roomCharacterId: id,
+        characterId: id,
         effect,
       });
 

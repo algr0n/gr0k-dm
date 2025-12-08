@@ -17,7 +17,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, type RoomCharacter, type CharacterStatusEffect, gameSystemLabels, type GameSystem, statusEffectDefinitions } from "@shared/schema";
+import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, type CharacterStatusEffect, gameSystemLabels, type GameSystem, statusEffectDefinitions } from "@shared/schema";
 import { SpellBrowser } from "@/components/spell-browser";
 import { FloatingCharacterPanel } from "@/components/floating-character-panel";
 import { DMControlsPanel } from "@/components/dm-controls-panel";
@@ -248,9 +248,9 @@ export default function RoomPage() {
     enabled: !!user && (showLoadCharacterDialog || showDeathDialog),
   });
 
-  // Fetch current player's room character data (new system)
+  // Fetch current player's room character data (unified model)
   interface MyCharacterData {
-    roomCharacter: RoomCharacter;
+    roomCharacter: SavedCharacter;
     savedCharacter: SavedCharacter;
     statusEffects: CharacterStatusEffect[];
   }
@@ -1331,14 +1331,10 @@ export default function RoomPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-4 text-center">
-                      <div className="p-3 rounded-md bg-muted/50">
-                        <div className="text-xl font-bold" data-testid="text-experience">{myCharacterData.roomCharacter.experience}</div>
-                        <div className="text-xs text-muted-foreground">Session XP</div>
-                      </div>
+                    <div className="grid grid-cols-2 gap-4 text-center">
                       <div className="p-3 rounded-md bg-muted/50">
                         <div className="text-xl font-bold" data-testid="text-total-xp">{myCharacterData.savedCharacter.xp || 0}</div>
-                        <div className="text-xs text-muted-foreground">Total XP</div>
+                        <div className="text-xs text-muted-foreground">XP</div>
                       </div>
                       <div className="p-3 rounded-md bg-muted/50">
                         <div className="text-xl font-bold" data-testid="text-level">{myCharacterData.savedCharacter.level || 1}</div>
