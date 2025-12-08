@@ -102,9 +102,9 @@ When adding new UI components:
 
 ## Database Schema
 
-- Uses Drizzle ORM with Turso (libSQL/SQLite)
+- Uses Drizzle ORM with Turso (libSQL/SQLite) 
 - Connection configured in `server/db.ts` using `@libsql/client`
-- Schema defined in `shared/schema.ts` using PostgreSQL-compatible syntax (Drizzle handles dialect differences)
+- Schema defined in `shared/schema.ts` - **Note: Currently uses PostgreSQL types (pgTable, pgEnum) which need migration to SQLite-compatible types**
 - Key entities: Rooms, Players, Dice Rolls, Characters, Items, Spells
 - Use Drizzle's type-safe query builder, not raw SQL
 - Always use transactions for multi-table operations
