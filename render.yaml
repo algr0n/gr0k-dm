@@ -1,7 +1,7 @@
 version: 1
 services:
   - type: web
-    name: gr0k-dm-migrate
+    name: gr0k-dm-migrate        # ← this can stay with hyphen, no problem
     env: node
     region: oregon
     plan: free
@@ -10,5 +10,5 @@ services:
     envVars:
       DATABASE_URL:
         fromDatabase:
-          name: gr0k-dm-db   # ← must match EXACTLY (lowercase "db")
+          name: gr0k_dm_db        # ← ONLY THIS ONE needs underscore (exact DB name)
           property: connectionString
