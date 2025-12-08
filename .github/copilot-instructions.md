@@ -6,7 +6,7 @@
 
 Grok DM is an AI-powered Dungeon Master platform for tabletop role-playing games (TTRPG). Players create or join game rooms directly in the browser, where Grok AI serves as an intelligent Dungeon Master that narrates stories, manages combat, interprets dice rolls, and brings adventures to life.
 
-The system provides a real-time multiplayer TTRPG experience with support for multiple game systems, built-in dice rolling, and AI-driven narrative responses.
+The system provides a real-time multiplayer TTRPG experience with support for D&D 5th Edition and Cyberpunk RED (and is designed to support multiple game systems), built-in dice rolling, and AI-driven narrative responses.
 
 ## Technology Stack
 
