@@ -216,6 +216,8 @@ function detectGoldMentions(response: string): DetectedGold[] {
 }
 
 // Detect item mentions using fuzzy matching against the items database
+// Acquisition verbs allow adding items even if already owned (for stacking)
+// Descriptive/possession verbs only add NEW items not already in inventory
 async function detectItemMentions(
   response: string,
   characterName: string,
@@ -233,76 +235,76 @@ async function detectItemMentions(
     itemNameMap.set(item.name.toLowerCase(), item.name);
   }
   
-  // Common phrases that indicate the character receives/has an item
-  const receivePhrases = [
+  // ACQUISITION verbs - unambiguous gain verbs that allow stacking existing items
+  // Only includes verbs that clearly indicate NEW item acquisition
+  const acquisitionPhrases = [
     'receives?',
     'gains?',
     'picks? up',
-    'takes?',
-    'grabs?',
     'finds?',
     'obtains?',
     'acquires?',
     'collects?',
+    'loots?',
+    'is awarded',
+    'adds? to (?:inventory|pack)',
+    '(?:picks? up |receives? |finds? |gains? )another',
+  ];
+  
+  // DESCRIPTIVE verbs - only add items if NOT already owned
+  // Includes ambiguous verbs that could be descriptions of possession
+  const descriptivePhrases = [
     'has',
     'have',
     'carrying',
     'carries',
     'holds?',
     'possesses?',
+    'takes?',
+    'grabs?',
+    'gets?',
+    'gives?',
     'in (?:your|their|his|her) (?:pack|inventory|bag|backpack|pouch)',
-    'adds? to (?:inventory|pack)',
   ];
   
-  const receivePattern = new RegExp(
-    `(?:${receivePhrases.join('|')})\\s+(?:a\\s+|an\\s+|the\\s+|\\d+\\s*x?\\s*)?([a-zA-Z][a-zA-Z\\s'-]+?)(?:\\s*\\(|\\s*,|\\s*\\.|\\s*!|\\s*and\\s|$)`,
+  const acquisitionPattern = new RegExp(
+    `(?:${acquisitionPhrases.join('|')})\\s+(?:a\\s+|an\\s+|the\\s+|\\d+\\s*x?\\s*)?([a-zA-Z][a-zA-Z\\s'-]+?)(?:\\s*\\(|\\s*,|\\s*\\.|\\s*!|\\s*and\\s|$)`,
     'gi'
   );
   
-  // Also check for quantity patterns like "2x healing potion" or "3 healing potions"
+  const descriptivePattern = new RegExp(
+    `(?:${descriptivePhrases.join('|')})\\s+(?:a\\s+|an\\s+|the\\s+|\\d+\\s*x?\\s*)?([a-zA-Z][a-zA-Z\\s'-]+?)(?:\\s*\\(|\\s*,|\\s*\\.|\\s*!|\\s*and\\s|$)`,
+    'gi'
+  );
+  
+  // Quantity patterns like "2x healing potion" or "3 healing potions" - always allow
   const quantityPattern = /(\d+)\s*x?\s+([a-zA-Z][a-zA-Z\s'-]+?)(?:\s*\(|\s*,|\s*\.|\s*!|\s*and\s|$)/gi;
   
   const seenItems = new Set<string>();
   
-  // Check direct item mentions with quantity
-  let match;
-  while ((match = quantityPattern.exec(response)) !== null) {
-    const quantity = parseInt(match[1], 10);
-    const potentialItemName = match[2].trim().toLowerCase();
-    
-    // Try to match against known items
-    for (const [lowerName, originalName] of itemNameMap.entries()) {
-      if (potentialItemName.includes(lowerName) || lowerName.includes(potentialItemName)) {
-        if (!seenItems.has(originalName) && !existingItemNames.has(originalName.toLowerCase())) {
-          seenItems.add(originalName);
-          detectedItems.push({ itemName: originalName, quantity });
-        }
-        break;
-      }
-    }
-  }
-  
-  // Check for single item mentions
-  while ((match = receivePattern.exec(response)) !== null) {
-    const potentialItemName = match[1].trim().toLowerCase();
+  // Helper to match and add items
+  const matchItem = (potentialItemName: string, quantity: number, allowExisting: boolean): boolean => {
+    const lowerPotential = potentialItemName.toLowerCase();
     
     // Skip if it's gold (handled separately)
-    if (potentialItemName.includes('gold') || potentialItemName.includes(' gp')) continue;
+    if (lowerPotential.includes('gold') || lowerPotential.includes(' gp')) return false;
     
     // Try exact match first
-    if (itemNameMap.has(potentialItemName)) {
-      const originalName = itemNameMap.get(potentialItemName)!;
-      if (!seenItems.has(originalName) && !existingItemNames.has(originalName.toLowerCase())) {
-        seenItems.add(originalName);
-        detectedItems.push({ itemName: originalName, quantity: 1 });
+    if (itemNameMap.has(lowerPotential)) {
+      const originalName = itemNameMap.get(lowerPotential)!;
+      if (!seenItems.has(originalName)) {
+        if (allowExisting || !existingItemNames.has(originalName.toLowerCase())) {
+          seenItems.add(originalName);
+          detectedItems.push({ itemName: originalName, quantity });
+          return true;
+        }
       }
-      continue;
+      return false;
     }
     
     // Try partial match
     for (const [lowerName, originalName] of itemNameMap.entries()) {
-      // Match if the potential name contains the item name or vice versa
-      const words = potentialItemName.split(/\s+/);
+      const words = lowerPotential.split(/\s+/);
       const itemWords = lowerName.split(/\s+/);
       
       // Check if main words match (e.g., "holy symbol" matches "holy symbol")
@@ -310,12 +312,35 @@ async function detectItemMentions(
         itemWords.some(iw => iw === w && w.length > 3)
       );
       
-      if (mainWordMatch && !seenItems.has(originalName) && !existingItemNames.has(originalName.toLowerCase())) {
-        seenItems.add(originalName);
-        detectedItems.push({ itemName: originalName, quantity: 1 });
-        break;
+      if (mainWordMatch && !seenItems.has(originalName)) {
+        if (allowExisting || !existingItemNames.has(originalName.toLowerCase())) {
+          seenItems.add(originalName);
+          detectedItems.push({ itemName: originalName, quantity });
+          return true;
+        }
       }
     }
+    return false;
+  };
+  
+  // Check quantity patterns - these always allow stacking
+  let match;
+  while ((match = quantityPattern.exec(response)) !== null) {
+    const quantity = parseInt(match[1], 10);
+    const potentialItemName = match[2].trim();
+    matchItem(potentialItemName, quantity, true);
+  }
+  
+  // Check acquisition verbs - allow stacking (already-owned items)
+  while ((match = acquisitionPattern.exec(response)) !== null) {
+    const potentialItemName = match[1].trim();
+    matchItem(potentialItemName, 1, true);
+  }
+  
+  // Check descriptive verbs - only add NEW items
+  while ((match = descriptivePattern.exec(response)) !== null) {
+    const potentialItemName = match[1].trim();
+    matchItem(potentialItemName, 1, false);
   }
   
   return detectedItems;
@@ -340,7 +365,7 @@ async function parseNaturalLanguageItems(
     });
   }
   
-  // Detect item mentions
+  // Detect item mentions - acquisition verbs allow stacking, descriptive only add new
   const itemMentions = await detectItemMentions(response, characterName, existingItemNames);
   for (const item of itemMentions) {
     actions.push({
