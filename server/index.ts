@@ -1,4 +1,4 @@
-import '../src/migrate-on-startup.ts';
+import 'client/src/migrate-on-startup.ts';
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
