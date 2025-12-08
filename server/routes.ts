@@ -308,11 +308,40 @@ async function executeGameActions(
           if (!action.playerName || !action.itemName) break;
           const char = findCharacter(action.playerName);
           if (char) {
-            // Try to find item by name (case-insensitive)
-            const allItems = await storage.getItems();
-            const item = allItems.find(i => 
-              i.name.toLowerCase() === action.itemName!.toLowerCase()
-            );
+            // Normalize item name: trim and collapse whitespace
+            const normalizedName = action.itemName!.trim().replace(/\s+/g, ' ');
+            
+            // Efficient lookup by name (case-insensitive)
+            let item = await storage.getItemByName(normalizedName);
+            
+            // If item doesn't exist, create it as a custom DM-created item
+            if (!item) {
+              // Create a slug from the normalized name, fallback to UUID if empty
+              const slug = normalizedName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+              const itemId = slug ? `custom-${slug}` : `custom-${randomUUID().slice(0, 8)}`;
+              
+              // Check if this custom item already exists (in case of race condition or prior creation)
+              item = await storage.getItem(itemId);
+              
+              if (!item) {
+                try {
+                  item = await storage.createItem({
+                    id: itemId,
+                    name: normalizedName,
+                    category: "other",
+                    type: "Custom Item",
+                    description: `A custom item created by the Dungeon Master: ${normalizedName}`,
+                    rarity: "uncommon",
+                    gameSystem: room?.gameSystem || "dnd",
+                  });
+                  console.log(`[DM Action] Created custom item "${normalizedName}" in database`);
+                } catch (createError) {
+                  console.error(`[DM Action] Failed to create custom item "${normalizedName}":`, createError);
+                  break;
+                }
+              }
+            }
+            
             if (item) {
               await storage.addToSavedInventory({
                 characterId: char.id,
@@ -326,9 +355,7 @@ async function executeGameActions(
                 itemName: item.name,
                 quantity: action.quantity || 1,
               });
-              console.log(`[DM Action] Added ${action.quantity || 1}x "${action.itemName}" to ${action.playerName}`);
-            } else {
-              console.log(`[DM Action] Item "${action.itemName}" not found in database, skipping add`);
+              console.log(`[DM Action] Added ${action.quantity || 1}x "${item.name}" to ${action.playerName}`);
             }
           }
           break;

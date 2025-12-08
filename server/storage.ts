@@ -83,8 +83,10 @@ export interface IStorage {
 
   // Items
   getItem(id: string): Promise<Item | undefined>;
+  getItemByName(name: string): Promise<Item | undefined>;
   getItems(category?: typeof itemCategoryEnum.enumValues[number], rarity?: typeof itemRarityEnum.enumValues[number]): Promise<Item[]>;
   searchItems(query: string): Promise<Item[]>;
+  createItem(item: { id: string; name: string; category: typeof itemCategoryEnum.enumValues[number]; type: string; description: string; rarity?: typeof itemRarityEnum.enumValues[number]; gameSystem?: string }): Promise<Item>;
   getInventoryWithDetails(characterId: string): Promise<(InventoryItem & { item: Item })[]>;
   addToInventory(insert: InsertInventoryItem): Promise<InventoryItem>;
 
@@ -385,6 +387,12 @@ class DatabaseStorage implements IStorage {
     return await db.query.items.findFirst({ where: eq(items.id, id) });
   }
 
+  async getItemByName(name: string): Promise<Item | undefined> {
+    return await db.query.items.findFirst({ 
+      where: ilike(items.name, name) 
+    });
+  }
+
   async getItems(
     category?: typeof itemCategoryEnum.enumValues[number],
     rarity?: typeof itemRarityEnum.enumValues[number]
@@ -400,6 +408,30 @@ class DatabaseStorage implements IStorage {
     return await db.select().from(items)
       .where(ilike(items.name, `%${query}%`))
       .limit(50);
+  }
+
+  async createItem(item: { 
+    id: string; 
+    name: string; 
+    category: typeof itemCategoryEnum.enumValues[number]; 
+    type: string; 
+    description: string; 
+    rarity?: typeof itemRarityEnum.enumValues[number];
+    gameSystem?: string;
+  }): Promise<Item> {
+    const result = await db.insert(items)
+      .values({
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        type: item.type,
+        description: item.description,
+        rarity: item.rarity || "common",
+        gameSystem: item.gameSystem || "dnd",
+        source: "DM-Created",
+      })
+      .returning();
+    return result[0];
   }
 
   async getInventoryWithDetails(characterId: string): Promise<(InventoryItem & { item: Item })[]> {
