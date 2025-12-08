@@ -17,14 +17,18 @@ import {
   Trash2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { type Character, type InventoryItem, type Item } from "@shared/schema";
+import { type SavedCharacter, type InventoryItem, type Item, type CharacterStatusEffect } from "@shared/schema";
 
 type InventoryWithItem = InventoryItem & { item: Item };
 
+interface CharacterData {
+  roomCharacter: SavedCharacter;
+  savedCharacter: SavedCharacter;
+  statusEffects: CharacterStatusEffect[];
+}
+
 interface FloatingCharacterPanelProps {
-  characterId: string | undefined;
-  playerId: string;
-  playerName: string;
+  roomCode: string;
   isOpen: boolean;
   onClose: () => void;
   currentHp?: number;
@@ -34,9 +38,7 @@ interface FloatingCharacterPanelProps {
 }
 
 export function FloatingCharacterPanel({
-  characterId,
-  playerId,
-  playerName,
+  roomCode,
   isOpen,
   onClose,
   currentHp: propCurrentHp,
@@ -48,22 +50,22 @@ export function FloatingCharacterPanel({
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [spellsOpen, setSpellsOpen] = useState(false);
 
-  const { data: character } = useQuery<Character>({
-    queryKey: ["/api/characters", characterId],
-    enabled: !!characterId,
+  const { data: myCharacterData } = useQuery<CharacterData>({
+    queryKey: ["/api/rooms", roomCode, "my-character"],
+    enabled: !!roomCode && isOpen,
   });
 
-  const { data: inventoryWithDetails } = useQuery<(InventoryItem & { item: Item })[]>({
-    queryKey: ["inventory", characterId],
-    queryFn: async () => {
-      const res = await fetch(`/api/characters/${characterId}/inventory`);
-      if (!res.ok) throw new Error("Failed to fetch inventory");
-      return res.json();
-    },
-    enabled: !!characterId,
+  const character = myCharacterData?.savedCharacter;
+  const roomChar = myCharacterData?.roomCharacter;
+  const statusEffects = myCharacterData?.statusEffects || [];
+
+  const savedCharacterId = character?.id;
+  const { data: inventoryWithDetails } = useQuery<InventoryWithItem[]>({
+    queryKey: ["/api/saved-characters", savedCharacterId, "inventory"],
+    enabled: !!savedCharacterId && isOpen,
   });
 
-  const currentHp = propCurrentHp ?? character?.currentHp ?? 0;
+  const currentHp = propCurrentHp ?? roomChar?.currentHp ?? character?.currentHp ?? 0;
   const maxHp = propMaxHp ?? character?.maxHp ?? 1;
   const hpPercentage = Math.max(0, Math.min(100, (currentHp / maxHp) * 100));
 
@@ -109,6 +111,17 @@ export function FloatingCharacterPanel({
             <Progress value={hpPercentage} className="h-2" />
           </div>
 
+          {/* Status Effects */}
+          {statusEffects.length > 0 && (
+            <div className="mb-4 flex flex-wrap gap-1">
+              {statusEffects.map((effect) => (
+                <Badge key={effect.id} variant="secondary" className="text-xs">
+                  {effect.name}
+                </Badge>
+              ))}
+            </div>
+          )}
+
           {/* Basic Info */}
           <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
             <div>
@@ -128,6 +141,12 @@ export function FloatingCharacterPanel({
             </div>
             <div>
               <span className="font-medium">Initiative:</span> +{character?.initiativeModifier || 0}
+            </div>
+            <div>
+              <span className="font-medium">XP:</span> {character?.xp || 0}
+            </div>
+            <div>
+              <span className="font-medium">Gold:</span> {roomChar?.gold || 0}
             </div>
           </div>
 
@@ -251,12 +270,24 @@ export function FloatingCharacterPanel({
             <CollapsibleContent>
               <div className="pl-6 pr-2 py-2 space-y-1">
                 {inventoryWithDetails && inventoryWithDetails.length > 0 ? (
-                  inventoryWithDetails.map(({ id, quantity, equipped, item }) => (
-                    <div key={id} className="text-sm py-1 flex justify-between items-center">
-                      <span>{item.name} {quantity > 1 && `x${quantity}`}</span>
-                      <div className="flex gap-2">
-                        {equipped && <Badge variant="outline">Equipped</Badge>}
-                        {item.rarity !== "common" && <Badge variant="secondary">{item.rarity}</Badge>}
+                  inventoryWithDetails.map((invItem) => (
+                    <div key={invItem.id} className="text-sm py-1 flex justify-between items-center">
+                      <span>{invItem.item.name} {invItem.quantity > 1 && `x${invItem.quantity}`}</span>
+                      <div className="flex gap-2 items-center">
+                        {invItem.equipped && <Badge variant="outline">Equipped</Badge>}
+                        {invItem.item.rarity !== "common" && <Badge variant="secondary">{invItem.item.rarity}</Badge>}
+                        {onDropItem && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => onDropItem(invItem)}
+                            disabled={isDropping}
+                            data-testid={`button-drop-${invItem.id}`}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))

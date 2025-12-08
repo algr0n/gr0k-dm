@@ -1394,10 +1394,13 @@ export async function registerRoutes(
 
       const updatedCharacter = await storage.updateSavedCharacter(id, updates);
       
-      // Broadcast update to room
+      // Broadcast update to room with full character data for UI sync
       broadcastToRoom(roomCode, {
         type: "character_update",
         characterId: id,
+        playerId: character.userId,
+        currentHp: updatedCharacter?.currentHp ?? character.currentHp,
+        maxHp: updatedCharacter?.maxHp ?? character.maxHp,
         updates,
       });
 

@@ -204,6 +204,12 @@ export default function RoomPage() {
   
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const userIdRef = useRef<string | undefined>(user?.id);
+  
+  // Keep userIdRef up to date without triggering WebSocket reconnection
+  useEffect(() => {
+    userIdRef.current = user?.id;
+  }, [user?.id]);
   
   // Re-read session storage on mount to catch values written during navigation
   useEffect(() => {
@@ -228,12 +234,14 @@ export default function RoomPage() {
   // Use roomData.players for display (most up-to-date after refetch), fallback to state for WebSocket updates
   const displayPlayers = roomData?.players || players;
 
-  // Find current player's character from room data
-  const existingCharacter = allCharacters.find(c => c.playerId === playerId);
+  // Find current player's character from room data (unified model uses userId)
+  const existingCharacter = allCharacters.find(c => (c as any).userId === user?.id);
 
-  // Find character for viewed player
+  // Find character for viewed player (need to get the player's userId first)
   const viewingPlayer = displayPlayers.find(p => p.id === viewingPlayerId);
-  const viewedCharacter = viewingPlayerId ? allCharacters.find(c => c.playerId === viewingPlayerId) : undefined;
+  const viewedCharacter = viewingPlayer?.userId 
+    ? allCharacters.find(c => (c as any).userId === viewingPlayer.userId) 
+    : undefined;
   const isLoadingViewedCharacter = isLoading;
 
   // Fetch all items for item name detection in chat
@@ -596,7 +604,8 @@ export default function RoomPage() {
   }, [roomData, code]);
 
   useEffect(() => {
-    if (!code || !playerName) return;
+    // Wait for auth to resolve before connecting (prevents stale user?.id in closures)
+    if (!code || !playerName || isAuthLoading) return;
 
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 5;
@@ -691,10 +700,15 @@ export default function RoomPage() {
         } else if (data.type === "combat_update") {
           setCombatState(data.combat);
         } else if (data.type === "character_update") {
-          if (data.playerId === playerId) {
+          // Check if this update is for the current user's character using ref for latest value
+          const isMyCharacter = data.playerId === userIdRef.current;
+          if (isMyCharacter) {
             setLiveHp({ current: data.currentHp, max: data.maxHp });
-            queryClient.invalidateQueries({ queryKey: ["/api/characters", data.characterId] });
           }
+          // Always invalidate queries to update the UI for all viewers
+          queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "my-character"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "room-characters"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/rooms", code] });
         } else if (data.type === "error") {
           toast({
             title: "Error",
@@ -738,7 +752,7 @@ export default function RoomPage() {
         wsRef.current.close();
       }
     };
-  }, [code, playerName]);
+  }, [code, playerName, isAuthLoading]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -877,9 +891,9 @@ export default function RoomPage() {
                     <Eye className="h-3 w-3 mr-1 flex-shrink-0" />
                     <span className="truncate">
                       {player.name}
-                      {allCharacters?.find(c => c.playerId === player.id)?.characterName && (
+                      {allCharacters?.find(c => (c as any).userId === player.userId)?.characterName && (
                         <span className="text-muted-foreground ml-1">
-                          ({allCharacters.find(c => c.playerId === player.id)!.characterName})
+                          ({allCharacters.find(c => (c as any).userId === player.userId)!.characterName})
                         </span>
                       )}
                     </span>
@@ -1910,9 +1924,7 @@ export default function RoomPage() {
       </Dialog>
 
       <FloatingCharacterPanel
-        characterId={existingCharacter?.id}
-        playerId={playerId}
-        playerName={playerName}
+        roomCode={code || ""}
         isOpen={showCharacterPanel}
         onClose={() => setShowCharacterPanel(false)}
         currentHp={liveHp?.current}
