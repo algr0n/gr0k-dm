@@ -268,21 +268,44 @@ export async function registerRoutes(
     const room = await storage.getRoomByCode(roomCode);
     if (!room) return;
 
-    // Get characters for context
-    const characters = await storage.getCharactersByRoom(room.id);
-    const characterInfos: CharacterInfo[] = characters.map((char) => ({
-      name: char.characterName,
-      race: char.race || "unknown",
-      class: char.class || "unknown",
-      level: char.level,
-      currentHp: char.currentHp,
-      maxHp: char.maxHp,
-      ac: char.ac,
-      initiativeModifier: char.initiativeModifier,
-      backstory: char.backstory || "",
-      skills: char.skills as string[],
-      spells: char.spells as string[],
-    }));
+    // Get characters for context - use savedCharacters table via roomCode
+    const characters = await storage.getCharactersByRoomCode(roomCode);
+    const players = await storage.getPlayersByRoom(room.id);
+    
+    // Build character info with player names looked up
+    const characterInfos: CharacterInfo[] = await Promise.all(
+      characters.map(async (char) => {
+        // Try to find player name from players list or user record
+        let playerName = "Unknown Player";
+        const player = players.find(p => p.userId === char.userId);
+        if (player) {
+          playerName = player.name;
+        } else if (char.userId) {
+          const user = await storage.getUser(char.userId);
+          if (user) {
+            playerName = user.username || user.email || "Player";
+          }
+        }
+        
+        return {
+          playerName,
+          characterName: char.characterName,
+          stats: {
+            race: char.race || "unknown",
+            class: char.class || "unknown",
+            level: char.level,
+            currentHp: char.currentHp,
+            maxHp: char.maxHp,
+            ac: char.ac,
+            initiativeModifier: char.initiativeModifier,
+            skills: char.skills,
+            spells: char.spells,
+            ...(char.stats as Record<string, unknown> || {}),
+          },
+          notes: char.backstory || "",
+        };
+      })
+    );
 
     // Prepare batched messages
     const batchedMessages: BatchedMessage[] = batch.map((msg) => ({
@@ -1013,7 +1036,8 @@ export async function registerRoutes(
       }
 
       const players = await storage.getPlayersByRoom(room.id);
-      const characters = await storage.getCharactersByRoom(room.id);
+      // Use savedCharacters table via roomCode for correct character data
+      const characters = await storage.getCharactersByRoomCode(code);
 
       // Return room data merged with players and characters for frontend compatibility
       res.json({ ...room, players, characters });
@@ -1227,11 +1251,13 @@ export async function registerRoutes(
       if (!room) return res.status(404).json({ error: "Room not found" });
 
       const players = await storage.getPlayersByRoom(room.id);
-      const characters = await storage.getCharactersByRoom(room.id);
+      // Use savedCharacters table via roomCode for correct character data
+      const characters = await storage.getCharactersByRoomCode(code);
 
       const initiatives: InitiativeEntry[] = [];
       for (const char of characters) {
-        const player = players.find((p) => p.id === char.playerId);
+        // Match character via userId since savedCharacters uses userId, not playerId
+        const player = players.find((p) => p.userId === char.userId);
         if (!player) continue;
 
         // Simulate initiative roll: d20 + modifier
@@ -1412,8 +1438,8 @@ export async function registerRoutes(
         pdfDoc.moveDown(0.5);
       }
 
-      // Characters section
-      const characters = await storage.getCharactersByRoom(room.id);
+      // Characters section - use savedCharacters table via roomCode
+      const characters = await storage.getCharactersByRoomCode(code);
       pdfDoc.addPage().fontSize(20).fillColor("black").text("Characters");
       for (const char of characters) {
         pdfDoc.fontSize(14).text(char.characterName);
