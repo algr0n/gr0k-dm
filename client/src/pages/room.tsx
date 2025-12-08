@@ -280,6 +280,7 @@ export default function RoomPage() {
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const userIdRef = useRef<string | undefined>(user?.id);
+  const savedCharacterIdRef = useRef<string | undefined>(undefined);
   
   // Keep userIdRef up to date without triggering WebSocket reconnection
   useEffect(() => {
@@ -345,6 +346,12 @@ export default function RoomPage() {
   // Fetch inventory for current character from saved character (with joined item details)
   type InventoryWithItem = InventoryItem & { item: Item };
   const savedCharacterId = myCharacterData?.savedCharacter?.id;
+  
+  // Keep savedCharacterIdRef up to date for WebSocket handler
+  useEffect(() => {
+    savedCharacterIdRef.current = savedCharacterId;
+  }, [savedCharacterId]);
+  
   const { data: inventory, isLoading: isLoadingInventory, refetch: refetchInventory } = useQuery<InventoryWithItem[]>({
     queryKey: ["/api/saved-characters", savedCharacterId, "inventory"],
     enabled: !!savedCharacterId,
@@ -773,8 +780,10 @@ export default function RoomPage() {
             description: "The host has ended this game session.",
           });
         } else if (data.type === "inventory_update") {
-          if (data.characterId === savedCharacterId) {
-            queryClient.invalidateQueries({ queryKey: ["/api/saved-characters", savedCharacterId, "inventory"] });
+          // Use ref for latest value to avoid stale closure issues
+          const currentSavedCharacterId = savedCharacterIdRef.current;
+          if (data.characterId === currentSavedCharacterId) {
+            queryClient.invalidateQueries({ queryKey: ["/api/saved-characters", currentSavedCharacterId, "inventory"] });
           }
         } else if (data.type === "player_left") {
           setPlayers((prev) => prev.filter((p) => p.id !== data.playerId));
