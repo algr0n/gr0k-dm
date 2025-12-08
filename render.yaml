@@ -8,4 +8,4 @@ services:
     buildCommand: npm install
     startCommand: npx drizzle-kit push
     envVars:
-      DATABASE_URL:
+
