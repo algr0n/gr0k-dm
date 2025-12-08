@@ -18,7 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, type CharacterStatusEffect, gameSystemLabels, type GameSystem, statusEffectDefinitions, getMaxSpellSlots, isSpellcaster, buildSkillStats, dndSkills, type DndSkill } from "@shared/schema";
+import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, type CharacterStatusEffect, gameSystemLabels, type GameSystem, statusEffectDefinitions, getMaxSpellSlots, isSpellcaster, buildSkillStats, dndSkills, type DndSkill, getSpellLimitInfo, getAbilityModifier, getSpellcastingAbility } from "@shared/schema";
 import { SpellBrowser } from "@/components/spell-browser";
 import { FloatingCharacterPanel } from "@/components/floating-character-panel";
 import { DMControlsPanel } from "@/components/dm-controls-panel";
@@ -1878,6 +1878,15 @@ export default function RoomPage() {
                   const charLevel = myCharacterData.savedCharacter.level || 1;
                   const maxSlots = getMaxSpellSlots(className, charLevel);
                   const currentSlots = characterStats.spellSlots?.current || maxSlots.slice();
+                  
+                  // Get spell limit info for this class using schema helper
+                  const stats = myCharacterData.savedCharacter.stats || {};
+                  const spellcastingAbilityName = getSpellcastingAbility(className);
+                  const abilityScore = spellcastingAbilityName && typeof stats[spellcastingAbilityName] === 'number' 
+                    ? stats[spellcastingAbilityName] as number 
+                    : 10;
+                  const abilityMod = getAbilityModifier(abilityScore);
+                  const spellLimits = getSpellLimitInfo(className, charLevel, abilityMod);
 
                   const findLowestSlot = (spellLevel: number): number | null => {
                     if (spellLevel === 0) return 0;
@@ -1925,15 +1934,45 @@ export default function RoomPage() {
                     return (
                       <Card>
                         <CardHeader className="pb-3">
-                          <CardTitle className="text-base flex items-center gap-2">
+                          <CardTitle className="text-base flex items-center gap-2 flex-wrap">
                             <Wand2 className="h-4 w-4" />
                             My Spells
+                            {spellLimits.type !== "none" && (
+                              <div className="flex items-center gap-2 ml-auto">
+                                {spellLimits.cantripsMax > 0 && (
+                                  <Badge variant="secondary" data-testid="badge-cantrips-limit">
+                                    Cantrips: 0/{spellLimits.cantripsMax}
+                                  </Badge>
+                                )}
+                                {spellLimits.spellbookSize !== null && (
+                                  <Badge variant="outline" data-testid="badge-spellbook-limit">
+                                    Spellbook: 0/{spellLimits.spellbookSize}
+                                  </Badge>
+                                )}
+                                {spellLimits.spellsKnownMax !== null && (
+                                  <Badge variant="secondary" data-testid="badge-spells-known-limit">
+                                    Spells: 0/{spellLimits.spellsKnownMax}
+                                  </Badge>
+                                )}
+                                {spellLimits.spellsPreparedMax !== null && (
+                                  <Badge variant="secondary" data-testid="badge-spells-prepared-limit">
+                                    Prepared: 0/{spellLimits.spellsPreparedMax}
+                                  </Badge>
+                                )}
+                              </div>
+                            )}
                           </CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <p className="text-sm text-muted-foreground text-center py-4">
-                            No spells learned yet. Use the Spell Browser below to add spells to your spellbook.
-                          </p>
+                          {spellLimits.type !== "none" ? (
+                            <p className="text-sm text-muted-foreground text-center py-4" data-testid="text-spell-description">
+                              {spellLimits.description} Use the Spell Browser below to add spells.
+                            </p>
+                          ) : (
+                            <p className="text-sm text-muted-foreground text-center py-4">
+                              This class doesn't cast spells.
+                            </p>
+                          )}
                         </CardContent>
                       </Card>
                     );
@@ -1942,11 +1981,69 @@ export default function RoomPage() {
                   return (
                     <Card>
                       <CardHeader className="pb-3">
-                        <CardTitle className="text-base flex items-center gap-2">
+                        <CardTitle className="text-base flex items-center gap-2 flex-wrap">
                           <Wand2 className="h-4 w-4" />
                           My Spells
-                          <Badge variant="secondary" className="ml-auto">{knownSpellsData.length} known</Badge>
+                          <div className="flex items-center gap-2 ml-auto">
+                            {spellLimits.cantripsMax > 0 && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge 
+                                    variant={cantrips.length >= spellLimits.cantripsMax ? "default" : "secondary"}
+                                    data-testid="badge-cantrips-count"
+                                  >
+                                    Cantrips: {cantrips.length}/{spellLimits.cantripsMax}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>Cantrips known (at will)</TooltipContent>
+                              </Tooltip>
+                            )}
+                            {spellLimits.spellsKnownMax !== null && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge 
+                                    variant={leveledSpells.length >= (spellLimits.spellsKnownMax || 0) ? "default" : "secondary"}
+                                    data-testid="badge-spells-known-count"
+                                  >
+                                    Spells: {leveledSpells.length}/{spellLimits.spellsKnownMax}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>Spells known (fixed selection)</TooltipContent>
+                              </Tooltip>
+                            )}
+                            {spellLimits.spellsPreparedMax !== null && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge 
+                                    variant={preparedSpellIds.length >= (spellLimits.spellsPreparedMax || 0) ? "default" : "secondary"}
+                                    data-testid="badge-spells-prepared-count"
+                                  >
+                                    Prepared: {preparedSpellIds.length}/{spellLimits.spellsPreparedMax}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>Spells you can cast today</TooltipContent>
+                              </Tooltip>
+                            )}
+                            {spellLimits.spellbookSize !== null && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge 
+                                    variant="outline"
+                                    data-testid="badge-spellbook-size"
+                                  >
+                                    Spellbook: {leveledSpells.length}/{spellLimits.spellbookSize}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent>Spells in your spellbook</TooltipContent>
+                              </Tooltip>
+                            )}
+                          </div>
                         </CardTitle>
+                        {spellLimits.type !== "none" && (
+                          <p className="text-xs text-muted-foreground mt-1" data-testid="text-spell-info">
+                            {spellLimits.description}
+                          </p>
+                        )}
                       </CardHeader>
                       <CardContent className="space-y-4">
                         {/* Cantrips - At Will */}
