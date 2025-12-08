@@ -18,7 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, type CharacterStatusEffect, gameSystemLabels, type GameSystem, statusEffectDefinitions, getMaxSpellSlots, isSpellcaster } from "@shared/schema";
+import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, type CharacterStatusEffect, gameSystemLabels, type GameSystem, statusEffectDefinitions, getMaxSpellSlots, isSpellcaster, buildSkillStats, dndSkills, type DndSkill } from "@shared/schema";
 import { SpellBrowser } from "@/components/spell-browser";
 import { FloatingCharacterPanel } from "@/components/floating-character-panel";
 import { DMControlsPanel } from "@/components/dm-controls-panel";
@@ -1699,47 +1699,25 @@ export default function RoomPage() {
                     </p>
                   </CardHeader>
                   <CardContent>
+                    {(() => {
+                      const skillBonuses = buildSkillStats({
+                        stats: characterStats,
+                        skills: Array.isArray(characterStats.skills) ? characterStats.skills : [],
+                        level: characterStats.level || 1,
+                        className: characterStats.class,
+                      });
+                      return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {[
-                        { name: "Acrobatics", stat: "dex" },
-                        { name: "Animal Handling", stat: "wis" },
-                        { name: "Arcana", stat: "int" },
-                        { name: "Athletics", stat: "str" },
-                        { name: "Deception", stat: "cha" },
-                        { name: "History", stat: "int" },
-                        { name: "Insight", stat: "wis" },
-                        { name: "Intimidation", stat: "cha" },
-                        { name: "Investigation", stat: "int" },
-                        { name: "Medicine", stat: "wis" },
-                        { name: "Nature", stat: "int" },
-                        { name: "Perception", stat: "wis" },
-                        { name: "Performance", stat: "cha" },
-                        { name: "Persuasion", stat: "cha" },
-                        { name: "Religion", stat: "int" },
-                        { name: "Sleight of Hand", stat: "dex" },
-                        { name: "Stealth", stat: "dex" },
-                        { name: "Survival", stat: "wis" },
-                      ].map((skill) => {
-                        const statNameMap: Record<string, string> = {
-                          str: "strength",
-                          dex: "dexterity", 
-                          con: "constitution",
-                          int: "intelligence",
-                          wis: "wisdom",
-                          cha: "charisma",
-                        };
-                        const fullStatName = statNameMap[skill.stat] || skill.stat;
-                        const statValue = characterStats[fullStatName] || characterStats[skill.stat] || 10;
-                        const modifier = Math.floor((statValue - 10) / 2);
-                        const proficiencyBonus = Math.ceil(1 + (characterStats.level || 1) / 4);
-                        const skillsArray = Array.isArray(characterStats.skills) ? characterStats.skills : [];
-                        const isProficient = skillsArray.includes(skill.name) || characterStats[`skill_${skill.name.replace(/\s/g, "_").toLowerCase()}`] || false;
-                        const totalMod = modifier + (isProficient ? proficiencyBonus : 0);
+                      {dndSkills.map((skillName) => {
+                        const skillData = skillBonuses[skillName];
+                        const abilityShort = skillData.ability.substring(0, 3).toUpperCase();
+                        const isProficient = skillData.isProficient;
+                        const totalMod = skillData.totalBonus;
                         return (
                           <div 
-                            key={skill.name} 
+                            key={skillName} 
                             className="flex items-center justify-between p-2 border rounded-md gap-2"
-                            data-testid={`skill-${skill.name.replace(/\s/g, "-").toLowerCase()}`}
+                            data-testid={`skill-${skillName.replace(/\s/g, "-").toLowerCase()}`}
                           >
                             <div className="flex items-center gap-2">
                               <Checkbox 
@@ -1750,23 +1728,23 @@ export default function RoomPage() {
                                     if (checked) {
                                       return {
                                         ...prev,
-                                        skills: currentSkills.includes(skill.name) 
+                                        skills: currentSkills.includes(skillName) 
                                           ? currentSkills 
-                                          : [...currentSkills, skill.name],
+                                          : [...currentSkills, skillName],
                                       };
                                     } else {
                                       return {
                                         ...prev,
-                                        skills: currentSkills.filter((s: string) => s !== skill.name),
+                                        skills: currentSkills.filter((s: string) => s !== skillName),
                                       };
                                     }
                                   });
                                 }}
-                                data-testid={`checkbox-skill-${skill.name.replace(/\s/g, "-").toLowerCase()}`}
+                                data-testid={`checkbox-skill-${skillName.replace(/\s/g, "-").toLowerCase()}`}
                               />
-                              <span className="text-sm">{skill.name}</span>
+                              <span className="text-sm">{skillName}</span>
                               <Badge variant="outline" className="text-xs">
-                                {skill.stat.toUpperCase()}
+                                {abilityShort}
                               </Badge>
                             </div>
                             <div className="flex items-center gap-2">
@@ -1782,17 +1760,17 @@ export default function RoomPage() {
                                     const total = roll + totalMod;
                                     wsRef.current.send(JSON.stringify({
                                       type: "action",
-                                      content: `*${characterName || playerName} attempts a ${skill.name} check* (Rolled d20: ${roll} + ${totalMod} = ${total})`,
+                                      content: `*${characterName || playerName} attempts a ${skillName} check* (Rolled d20: ${roll} + ${totalMod} = ${total})`,
                                     }));
                                     toast({
-                                      title: `${skill.name} Check`,
+                                      title: `${skillName} Check`,
                                       description: `Rolled d20 (${roll}) + ${totalMod} = ${total}`,
                                     });
                                     setActiveTab("chat");
                                   }
                                 }}
                                 disabled={!isConnected || gameEnded}
-                                data-testid={`button-use-skill-${skill.name.replace(/\s/g, "-").toLowerCase()}`}
+                                data-testid={`button-use-skill-${skillName.replace(/\s/g, "-").toLowerCase()}`}
                               >
                                 Use
                               </Button>
@@ -1801,6 +1779,8 @@ export default function RoomPage() {
                         );
                       })}
                     </div>
+                      );
+                    })()}
                   </CardContent>
                 </Card>
 
