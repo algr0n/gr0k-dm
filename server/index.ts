@@ -1,4 +1,7 @@
-import './migrate-on-startup';
+// server/index.ts
+await import('./migrate-on-startup');  // Wait for migrations to complete
+
+// ... rest of your server code
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
