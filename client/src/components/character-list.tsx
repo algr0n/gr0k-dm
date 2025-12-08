@@ -8,19 +8,19 @@ import { CharacterSheet } from "./character-sheet";
 import { CharacterCreator } from "./character-creator";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Character, InventoryItem } from "@shared/schema";
+import type { UnifiedCharacter, CharacterInventoryItem } from "@shared/schema";
 
 export function CharacterList() {
-  const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
+  const [selectedCharacter, setSelectedCharacter] = useState<UnifiedCharacter | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [creatorOpen, setCreatorOpen] = useState(false);
   const { toast } = useToast();
 
-  const { data: characters = [], isLoading } = useQuery<Character[]>({
+  const { data: characters = [], isLoading } = useQuery<UnifiedCharacter[]>({
     queryKey: ["/api/characters"],
   });
 
-  const { data: inventory = [] } = useQuery<InventoryItem[]>({
+  const { data: inventory = [] } = useQuery<CharacterInventoryItem[]>({
     queryKey: ["/api/characters", selectedCharacter?.id, "inventory"],
     enabled: !!selectedCharacter?.id && sheetOpen,
   });
@@ -45,7 +45,7 @@ export function CharacterList() {
     },
   });
 
-  const handleCharacterClick = (character: Character) => {
+  const handleCharacterClick = (character: UnifiedCharacter) => {
     setSelectedCharacter(character);
     setSheetOpen(true);
   };

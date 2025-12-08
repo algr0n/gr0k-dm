@@ -4,10 +4,32 @@ import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Shield, Heart, Sparkles, Trash2 } from "lucide-react";
-import type { Character, DndStats, CyberpunkStats } from "@shared/schema";
+import type { UnifiedCharacter } from "@shared/schema";
+
+interface DndStats {
+  strength: number;
+  dexterity: number;
+  constitution: number;
+  intelligence: number;
+  wisdom: number;
+  charisma: number;
+}
+
+interface CyberpunkStats {
+  int: number;
+  ref: number;
+  dex: number;
+  tech: number;
+  cool: number;
+  will: number;
+  luck: number;
+  move: number;
+  body: number;
+  emp: number;
+}
 
 interface CharacterCardProps {
-  character: Character;
+  character: UnifiedCharacter;
   onClick?: () => void;
   onDelete?: () => void;
 }
@@ -67,9 +89,10 @@ const GAME_SYSTEM_COLORS: Record<string, string> = {
 
 export function CharacterCard({ character, onClick, onDelete }: CharacterCardProps) {
   const hpPercentage = (character.currentHp / character.maxHp) * 100;
-  const classColor = CLASS_COLORS[character.characterClass.toLowerCase()] || "bg-muted text-muted-foreground";
+  const characterClass = character.class || "Unknown";
+  const classColor = CLASS_COLORS[characterClass.toLowerCase()] || "bg-muted text-muted-foreground";
   const gameSystemColor = GAME_SYSTEM_COLORS[character.gameSystem] || GAME_SYSTEM_COLORS.dnd;
-  const stats = character.stats as DndStats | CyberpunkStats;
+  const stats = (character.stats || {}) as DndStats | CyberpunkStats;
   const isCyberpunk = !isDndStats(stats);
 
   const handleDelete = (e: React.MouseEvent) => {
@@ -86,22 +109,22 @@ export function CharacterCard({ character, onClick, onDelete }: CharacterCardPro
       <CardHeader className="flex flex-row items-start gap-4 space-y-0 pb-2">
         <Avatar className="h-12 w-12 border-2 border-primary/20">
           <AvatarFallback className="bg-primary/10 text-primary font-serif font-semibold">
-            {getInitials(character.name)}
+            {getInitials(character.characterName)}
           </AvatarFallback>
         </Avatar>
         <div className="flex-1 min-w-0">
           <CardTitle className="font-serif text-lg truncate" data-testid="text-character-name">
-            {character.name}
+            {character.characterName}
           </CardTitle>
           <div className="flex flex-wrap items-center gap-2 mt-1">
             <Badge className={`text-xs ${gameSystemColor}`}>
               {character.gameSystem === "cyberpunk" ? "Cyberpunk" : "D&D"}
             </Badge>
             <Badge variant="outline" className="text-xs">
-              {character.race}
+              {character.race || "Unknown"}
             </Badge>
             <Badge className={`text-xs ${classColor}`}>
-              {character.characterClass}
+              {characterClass}
             </Badge>
             <Badge variant="secondary" className="text-xs">
               <Sparkles className="h-3 w-3 mr-1" />
@@ -138,7 +161,7 @@ export function CharacterCard({ character, onClick, onDelete }: CharacterCardPro
           <div className="flex items-center justify-between text-sm">
             <div className="flex items-center gap-1">
               <Shield className="h-4 w-4 text-muted-foreground" />
-              <span className="font-mono" data-testid="text-character-ac">{character.armorClass}</span>
+              <span className="font-mono" data-testid="text-character-ac">{character.ac}</span>
               <span className="text-muted-foreground">AC</span>
             </div>
           </div>

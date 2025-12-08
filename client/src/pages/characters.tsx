@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, Edit2, Loader2, Shield, Heart, Zap, LogIn, Sword, User, Dices, Package } from "lucide-react";
-import { gameSystems, gameSystemLabels, type GameSystem, type SavedCharacter, classDefinitions, raceDefinitions, subraceDefinitions, dndSkills, type DndSkill, type DndClass, type DndRace } from "@shared/schema";
+import { gameSystems, gameSystemLabels, type GameSystem, type SavedCharacter, classDefinitions, raceDefinitions, subraceDefinitions, dndSkills, type DndSkill, type DndClass, type DndRace, classSkillFeatures, type ClassLevelFeature } from "@shared/schema";
 import { Checkbox } from "@/components/ui/checkbox";
 import { dnd5eData, cyberpunkRedData } from "@/lib/gameData";
 import { ChevronDown, ChevronUp } from "lucide-react";
@@ -235,6 +235,7 @@ export default function Characters() {
   const [cyberpunkForm, setCyberpunkForm] = useState<CyberpunkFormData>(defaultCyberpunkForm);
   const [selectedClassSkills, setSelectedClassSkills] = useState<DndSkill[]>([]);
   const [selectedRaceBonusSkills, setSelectedRaceBonusSkills] = useState<DndSkill[]>([]);
+  const [expertiseSkills, setExpertiseSkills] = useState<Record<number, DndSkill[]>>({});
 
   const resetForm = () => {
     setDndForm(defaultDnDForm);
@@ -244,6 +245,41 @@ export default function Characters() {
     setEditingCharacter(null);
     setSelectedClassSkills([]);
     setSelectedRaceBonusSkills([]);
+    setExpertiseSkills({});
+  };
+
+  // Get expertise features available for the current class and level
+  const getExpertiseFeatures = (): ClassLevelFeature[] => {
+    const charClass = dndForm.class as DndClass;
+    if (!charClass || !classSkillFeatures[charClass]) return [];
+    
+    return classSkillFeatures[charClass]!.filter(
+      f => f.type === "expertise" && f.level <= dndForm.level
+    );
+  };
+
+  // Handle expertise skill toggle
+  const handleExpertiseToggle = (level: number, skill: DndSkill, checked: boolean, maxChoices: number) => {
+    const currentChoices = expertiseSkills[level] || [];
+    
+    if (checked) {
+      if (currentChoices.length < maxChoices) {
+        setExpertiseSkills({
+          ...expertiseSkills,
+          [level]: [...currentChoices, skill]
+        });
+      }
+    } else {
+      setExpertiseSkills({
+        ...expertiseSkills,
+        [level]: currentChoices.filter(s => s !== skill)
+      });
+    }
+  };
+
+  // Get all expertise skills as a flat array
+  const getAllExpertiseSkills = (): DndSkill[] => {
+    return Object.values(expertiseSkills).flat();
   };
 
   // Get race skill info for the selected race/subrace
@@ -427,6 +463,47 @@ export default function Characters() {
       return;
     }
 
+    // Build levelChoices for expertise
+    const levelChoices: Record<string, unknown>[] = [];
+    Object.entries(expertiseSkills).forEach(([levelStr, skills]) => {
+      if (skills.length > 0) {
+        levelChoices.push({
+          level: parseInt(levelStr),
+          feature: "expertise",
+          skills: skills,
+        });
+      }
+    });
+
+    // Build skill sources mapping (array to support multiple sources)
+    const { autoSkills } = getRaceSkillInfo();
+    const skillSources: Record<string, string[]> = {};
+    
+    // Helper to add source
+    const addSource = (skill: string, source: string) => {
+      if (!skillSources[skill]) {
+        skillSources[skill] = [];
+      }
+      if (!skillSources[skill].includes(source)) {
+        skillSources[skill].push(source);
+      }
+    };
+    
+    // Race auto-granted skills
+    autoSkills.forEach((skill) => {
+      addSource(skill, dndForm.subrace ? "Subrace" : "Race");
+    });
+    
+    // Race bonus choice skills
+    selectedRaceBonusSkills.forEach((skill) => {
+      addSource(skill, dndForm.subrace ? "Subrace" : "Race");
+    });
+    
+    // Class skills
+    selectedClassSkills.forEach((skill) => {
+      addSource(skill, "Class");
+    });
+
     const data = {
       characterName: dndForm.characterName,
       race: dndForm.subrace || dndForm.race,
@@ -440,8 +517,12 @@ export default function Characters() {
       initiativeModifier: dndForm.initiativeModifier,
       xp: dndForm.xp,
       backstory: dndForm.backstory,
-      stats: dndForm.stats,
+      stats: {
+        ...dndForm.stats,
+        skillSources,
+      },
       skills: getAllSelectedSkills(),
+      levelChoices: levelChoices,
       gameSystem: "dnd" as GameSystem,
     };
 
@@ -569,6 +650,16 @@ export default function Characters() {
         !classSkills.includes(s as DndSkill)
       ) as DndSkill[];
       setSelectedRaceBonusSkills(bonusSkills);
+      
+      // Load expertise from levelChoices
+      const storedLevelChoices = (character.levelChoices as Array<{ level: number; feature: string; skills: string[] }>) || [];
+      const loadedExpertise: Record<number, DndSkill[]> = {};
+      storedLevelChoices.forEach(choice => {
+        if (choice.feature === "expertise" && choice.skills) {
+          loadedExpertise[choice.level] = choice.skills as DndSkill[];
+        }
+      });
+      setExpertiseSkills(loadedExpertise);
     } else {
       const stats = character.stats as Record<string, number> | null;
       setCyberpunkForm({
@@ -932,6 +1023,53 @@ export default function Characters() {
                                 </div>
                               ))}
                             </div>
+                          </div>
+                        )}
+                        
+                        {/* Expertise selection (Rogue, Bard, Ranger) */}
+                        {getExpertiseFeatures().length > 0 && (
+                          <div className="border-t pt-3 mt-2">
+                            <p className="text-xs font-medium mb-2">Expertise (double proficiency bonus)</p>
+                            {getExpertiseFeatures().map(feature => {
+                              const currentLevelSkills = expertiseSkills[feature.level] || [];
+                              const proficientSkills = getAllSelectedSkills();
+                              const alreadyUsedExpertise = Object.entries(expertiseSkills)
+                                .filter(([lvl]) => parseInt(lvl) !== feature.level)
+                                .flatMap(([, skills]) => skills);
+                              
+                              return (
+                                <div key={`${feature.level}-${feature.name}`} className="mb-2">
+                                  <p className="text-xs text-muted-foreground mb-1">
+                                    Level {feature.level}: {feature.name} ({currentLevelSkills.length}/{feature.skillChoices || 2})
+                                  </p>
+                                  <div className="grid grid-cols-3 gap-2">
+                                    {proficientSkills.map(skill => {
+                                      const isSelected = currentLevelSkills.includes(skill as DndSkill);
+                                      const isUsedElsewhere = alreadyUsedExpertise.includes(skill as DndSkill);
+                                      return (
+                                        <div key={skill} className="flex items-center gap-2">
+                                          <Checkbox
+                                            id={`expertise-${feature.level}-${skill}`}
+                                            checked={isSelected}
+                                            onCheckedChange={(checked) => 
+                                              handleExpertiseToggle(feature.level, skill as DndSkill, !!checked, feature.skillChoices || 2)
+                                            }
+                                            disabled={isUsedElsewhere && !isSelected}
+                                            data-testid={`checkbox-expertise-${feature.level}-${skill}`}
+                                          />
+                                          <label 
+                                            htmlFor={`expertise-${feature.level}-${skill}`} 
+                                            className={`text-sm cursor-pointer ${isUsedElsewhere && !isSelected ? 'text-muted-foreground' : ''}`}
+                                          >
+                                            {skill}
+                                          </label>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                       </div>

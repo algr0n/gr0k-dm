@@ -3,15 +3,21 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { 
   Sparkles, Sword, Package, 
-  User, BookOpen, Coins
+  User, BookOpen, Coins, Target, Star, CheckCircle2
 } from "lucide-react";
-import type { Character, InventoryItem } from "@shared/schema";
+import type { UnifiedCharacter, CharacterInventoryItem } from "@shared/schema";
+import { 
+  dndSkills, skillAbilityMap, calculateSkillBonus, 
+  getProficiencyBonus, getAbilityModifier, classSkillFeatures,
+  raceDefinitions, classDefinitions, type DndClass, type DndRace, type DndSkill
+} from "@shared/schema";
 
 interface CharacterSheetProps {
-  character: Character | null;
-  inventory?: InventoryItem[];
+  character: UnifiedCharacter | null;
+  inventory?: CharacterInventoryItem[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
@@ -25,13 +31,86 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
+function formatModifier(mod: number): string {
+  return mod >= 0 ? `+${mod}` : `${mod}`;
+}
+
+function getSkillProficiencySources(
+  skill: DndSkill,
+  race: string,
+  characterClass: string,
+  skills: string[],
+  skillSources?: Record<string, string[]>
+): string[] {
+  if (!skills.includes(skill)) return [];
+  
+  // If we have stored skillSources (new format: arrays), use that
+  if (skillSources && Array.isArray(skillSources[skill])) {
+    return skillSources[skill];
+  }
+  
+  // Handle legacy format where skillSources might be a single string
+  if (skillSources && typeof skillSources[skill] === 'string') {
+    return [skillSources[skill] as unknown as string];
+  }
+  
+  // Fallback to inferring from race/class definitions for older characters
+  const sources: string[] = [];
+  
+  const raceKey = race as DndRace;
+  const raceDef = raceDefinitions[raceKey];
+  if (raceDef?.skillProficiencies?.includes(skill)) {
+    sources.push("Race");
+  }
+  
+  // Check class skill choices
+  const classKey = characterClass as DndClass;
+  const classDef = classDefinitions[classKey];
+  if (classDef?.skillChoices?.includes(skill)) {
+    sources.push("Class");
+  }
+  
+  // If no sources identified, don't show any badge (avoid misleading labels)
+  return sources;
+}
+
 export function CharacterSheet({ character, inventory = [], open, onOpenChange }: CharacterSheetProps) {
   if (!character) return null;
 
-  const stats = character.stats as Record<string, unknown>;
-  const race = (stats.race as string) || "Unknown";
-  const characterClass = (stats.class as string) || "Unknown";
-  const level = (stats.level as number) || 1;
+  const stats = character.stats as Record<string, number | unknown> || {};
+  const race = character.race || "Unknown";
+  const characterClass = character.class || "Unknown";
+  const level = character.level || 1;
+  const background = character.background;
+  const skills = (character.skills || []) as string[];
+  const levelChoices = (character.levelChoices || []) as Record<string, unknown>[];
+  const skillSources = (stats.skillSources as Record<string, string[]>) || undefined;
+  
+  const abilityScores = {
+    strength: (stats.strength as number) || 10,
+    dexterity: (stats.dexterity as number) || 10,
+    constitution: (stats.constitution as number) || 10,
+    intelligence: (stats.intelligence as number) || 10,
+    wisdom: (stats.wisdom as number) || 10,
+    charisma: (stats.charisma as number) || 10,
+  };
+  
+  const expertiseSkills: string[] = [];
+  levelChoices.forEach((choice) => {
+    if (choice.expertise && Array.isArray(choice.expertise)) {
+      expertiseSkills.push(...(choice.expertise as string[]));
+    }
+  });
+  
+  const classFeatures = classSkillFeatures[characterClass as DndClass] || [];
+  const hasJackOfAllTrades = classFeatures.some(
+    f => f.type === "jack_of_all_trades" && level >= f.level
+  );
+  const hasReliableTalent = classFeatures.some(
+    f => f.type === "reliable_talent" && level >= f.level
+  );
+  
+  const profBonus = getProficiencyBonus(level);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -40,11 +119,11 @@ export function CharacterSheet({ character, inventory = [], open, onOpenChange }
           <DialogTitle className="flex items-center gap-4">
             <Avatar className="h-16 w-16 border-2 border-primary/20">
               <AvatarFallback className="bg-primary/10 text-primary font-serif font-bold text-xl">
-                {getInitials(character.name)}
+                {getInitials(character.characterName)}
               </AvatarFallback>
             </Avatar>
             <div>
-              <h2 className="font-serif text-2xl">{character.name}</h2>
+              <h2 className="font-serif text-2xl">{character.characterName}</h2>
               <div className="flex items-center gap-2 flex-wrap mt-1">
                 <Badge variant="outline">{race}</Badge>
                 <Badge>{characterClass}</Badge>
@@ -56,7 +135,7 @@ export function CharacterSheet({ character, inventory = [], open, onOpenChange }
             </div>
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Character sheet for {character.name}
+            Character sheet for {character.characterName}
           </DialogDescription>
         </DialogHeader>
 
@@ -65,22 +144,125 @@ export function CharacterSheet({ character, inventory = [], open, onOpenChange }
             <div>
               <h3 className="flex items-center gap-2 font-serif text-lg mb-4">
                 <User className="h-5 w-5" />
-                Character Info
+                Ability Scores
               </h3>
-              <div className="grid grid-cols-2 gap-3">
-                {Object.entries(stats)
-                  .filter(([key]) => !["race", "class", "level"].includes(key))
-                  .map(([stat, value]) => (
+              <div className="grid grid-cols-3 gap-3">
+                {Object.entries(abilityScores).map(([ability, score]) => {
+                  const mod = getAbilityModifier(score);
+                  return (
                     <div 
-                      key={stat} 
+                      key={ability} 
                       className="p-3 rounded-md bg-muted/50 text-center border border-border/50"
+                      data-testid={`stat-${ability}`}
                     >
                       <p className="text-xs uppercase text-muted-foreground font-medium">
-                        {stat}
+                        {ability.slice(0, 3)}
                       </p>
-                      <p className="text-lg font-bold font-mono">{String(value)}</p>
+                      <p className="text-lg font-bold font-mono">{score}</p>
+                      <p className="text-sm text-muted-foreground font-mono">
+                        {formatModifier(mod)}
+                      </p>
                     </div>
-                  ))}
+                  );
+                })}
+              </div>
+            </div>
+
+            <Separator />
+
+            <div>
+              <h3 className="flex items-center gap-2 font-serif text-lg mb-2">
+                <Target className="h-5 w-5" />
+                Skills
+                <Badge variant="outline" className="ml-2 text-xs">
+                  Prof +{profBonus}
+                </Badge>
+              </h3>
+              
+              {hasJackOfAllTrades && (
+                <div className="flex items-center gap-2 mb-3 text-sm text-muted-foreground">
+                  <Star className="h-4 w-4 text-amber-500" />
+                  Jack of All Trades: +{Math.floor(profBonus / 2)} to non-proficient skills
+                </div>
+              )}
+              {hasReliableTalent && (
+                <div className="flex items-center gap-2 mb-3 text-sm text-muted-foreground">
+                  <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  Reliable Talent: Minimum 10 on proficient skill rolls
+                </div>
+              )}
+              
+              <div className="grid grid-cols-2 gap-2">
+                {dndSkills.map((skill) => {
+                  const ability = skillAbilityMap[skill];
+                  const abilityScore = abilityScores[ability as keyof typeof abilityScores] || 10;
+                  const isProficient = skills.includes(skill);
+                  const hasExpertise = expertiseSkills.includes(skill);
+                  
+                  const bonus = calculateSkillBonus(
+                    skill,
+                    abilityScore,
+                    level,
+                    isProficient,
+                    hasExpertise,
+                    hasJackOfAllTrades && !isProficient
+                  );
+                  
+                  const sources = getSkillProficiencySources(skill, race, characterClass, skills, skillSources);
+                  
+                  return (
+                    <Tooltip key={skill}>
+                      <TooltipTrigger asChild>
+                        <div 
+                          className={`flex items-center justify-between p-2 rounded-md border ${
+                            hasExpertise 
+                              ? "bg-amber-500/10 border-amber-500/30" 
+                              : isProficient 
+                                ? "bg-primary/10 border-primary/30" 
+                                : "bg-muted/30 border-border/50"
+                          }`}
+                          data-testid={`skill-${skill.toLowerCase().replace(/\s+/g, "-")}`}
+                        >
+                          <div className="flex items-center gap-2">
+                            {hasExpertise ? (
+                              <Star className="h-3 w-3 text-amber-500" />
+                            ) : isProficient ? (
+                              <CheckCircle2 className="h-3 w-3 text-primary" />
+                            ) : (
+                              <div className="h-3 w-3" />
+                            )}
+                            <span className={`text-sm ${isProficient ? "font-medium" : ""}`}>
+                              {skill}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {sources.map((source) => (
+                              <Badge key={source} variant="secondary" className="text-xs py-0">
+                                {source}
+                              </Badge>
+                            ))}
+                            <span className={`font-mono text-sm font-bold ml-1 ${
+                              bonus >= 0 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                            }`}>
+                              {formatModifier(bonus)}
+                            </span>
+                          </div>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <div className="text-sm">
+                          <p className="font-medium">{skill}</p>
+                          <p className="text-muted-foreground">
+                            {ability.charAt(0).toUpperCase() + ability.slice(1)} ({formatModifier(getAbilityModifier(abilityScore))})
+                            {isProficient && ` + Prof (${profBonus})`}
+                            {hasExpertise && ` x2 Expertise`}
+                            {hasJackOfAllTrades && !isProficient && ` + JoAT (${Math.floor(profBonus / 2)})`}
+                          </p>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                })}
               </div>
             </div>
 
@@ -104,17 +286,8 @@ export function CharacterSheet({ character, inventory = [], open, onOpenChange }
                       data-testid={`sheet-inventory-item-${item.id}`}
                     >
                       <div className="flex items-center gap-2">
-                        {item.name.toLowerCase().includes("gold") || item.name.toLowerCase().includes("coin") ? (
-                          <Coins className="h-4 w-4 text-yellow-500" />
-                        ) : item.name.toLowerCase().includes("sword") || item.name.toLowerCase().includes("weapon") ? (
-                          <Sword className="h-4 w-4 text-red-500" />
-                        ) : (
-                          <Package className="h-4 w-4 text-muted-foreground" />
-                        )}
-                        <span className="font-medium">{item.name}</span>
-                        {item.description && (
-                          <span className="text-sm text-muted-foreground">- {item.description}</span>
-                        )}
+                        <Package className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium">Item #{item.itemId}</span>
                       </div>
                       {item.quantity > 1 && (
                         <Badge variant="secondary" className="text-xs">
