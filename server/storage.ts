@@ -9,7 +9,8 @@ import {
   type SavedInventoryItem, type InsertSavedInventoryItem,
   type CharacterStatusEffect, type InsertStatusEffect,
   rooms, players, diceRolls, users, characters, inventoryItems,
-  savedCharacters, savedInventoryItems, characterStatusEffects
+  savedCharacters, savedInventoryItems, characterStatusEffects,
+  characterInventoryItems
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, lt, sql, count, isNotNull } from "drizzle-orm";
@@ -508,18 +509,18 @@ class DatabaseStorage implements IStorage {
   }
 
   async getSavedInventoryWithDetails(characterId: string): Promise<(SavedInventoryItem & { item: Item })[]> {
-    const results = await db.query.savedInventoryItems.findMany({
-      where: eq(savedInventoryItems.characterId, characterId),
+    const results = await db.query.characterInventoryItems.findMany({
+      where: eq(characterInventoryItems.characterId, characterId),
       with: { item: true },
     });
     return results;
   }
 
   async addToSavedInventory(insert: InsertSavedInventoryItem): Promise<SavedInventoryItem> {
-    const existing = await db.query.savedInventoryItems.findFirst({
+    const existing = await db.query.characterInventoryItems.findFirst({
       where: and(
-        eq(savedInventoryItems.characterId, insert.characterId),
-        eq(savedInventoryItems.itemId, insert.itemId)
+        eq(characterInventoryItems.characterId, insert.characterId),
+        eq(characterInventoryItems.itemId, insert.itemId)
       ),
     });
 
