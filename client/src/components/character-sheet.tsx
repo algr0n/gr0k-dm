@@ -97,7 +97,12 @@ export function CharacterSheet({ character, inventory = [], open, onOpenChange }
   
   const expertiseSkills: string[] = [];
   levelChoices.forEach((choice) => {
-    if (choice.expertise && Array.isArray(choice.expertise)) {
+    // Handle new format: { feature: "expertise", skills: [...] }
+    if (choice.feature === "expertise" && Array.isArray(choice.skills)) {
+      expertiseSkills.push(...(choice.skills as string[]));
+    }
+    // Handle legacy format: { expertise: [...] }
+    else if (choice.expertise && Array.isArray(choice.expertise)) {
       expertiseSkills.push(...(choice.expertise as string[]));
     }
   });

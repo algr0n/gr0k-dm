@@ -476,7 +476,6 @@ export default function Characters() {
     });
 
     // Build skill sources mapping (array to support multiple sources)
-    const { autoSkills } = getRaceSkillInfo();
     const skillSources: Record<string, string[]> = {};
     
     // Helper to add source
@@ -489,14 +488,27 @@ export default function Characters() {
       }
     };
     
-    // Race auto-granted skills
-    autoSkills.forEach((skill) => {
-      addSource(skill, dndForm.subrace ? "Subrace" : "Race");
+    // Get base race skills separately from subrace skills
+    const race = dndForm.race as DndRace;
+    const baseRaceSkills = race && raceDefinitions[race] ? [...raceDefinitions[race].skillProficiencies] : [];
+    const subraceSkills = dndForm.subrace && subraceDefinitions[dndForm.subrace]?.skillProficiencies 
+      ? [...subraceDefinitions[dndForm.subrace].skillProficiencies] 
+      : [];
+    
+    // Base race auto-granted skills
+    baseRaceSkills.forEach((skill) => {
+      addSource(skill, "Race");
     });
     
-    // Race bonus choice skills
+    // Subrace auto-granted skills
+    subraceSkills.forEach((skill) => {
+      addSource(skill, "Subrace");
+    });
+    
+    // Race/Subrace bonus choice skills - check where the bonus choice came from
+    const hasSubraceBonusChoice = dndForm.subrace && subraceDefinitions[dndForm.subrace]?.bonusSkillChoices;
     selectedRaceBonusSkills.forEach((skill) => {
-      addSource(skill, dndForm.subrace ? "Subrace" : "Race");
+      addSource(skill, hasSubraceBonusChoice ? "Subrace" : "Race");
     });
     
     // Class skills
