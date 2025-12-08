@@ -155,12 +155,14 @@ export function FloatingCharacterPanel({
             <div className="mb-4">
               <h3 className="text-sm font-medium mb-2">Stats</h3>
               <div className="grid grid-cols-3 gap-2 text-sm">
-                {Object.entries(stats).map(([stat, value]) => (
-                  <div key={stat} className="flex justify-between">
-                    <span className="capitalize">{stat}:</span>
-                    <span>{value} ({Math.floor((value - 10) / 2)})</span>
-                  </div>
-                ))}
+                {["strength", "dexterity", "constitution", "intelligence", "wisdom", "charisma"]
+                  .filter(stat => typeof stats[stat] === "number")
+                  .map((stat) => (
+                    <div key={stat} className="flex justify-between">
+                      <span className="capitalize">{stat.slice(0, 3)}:</span>
+                      <span>{stats[stat]} ({Math.floor((stats[stat] - 10) / 2) >= 0 ? "+" : ""}{Math.floor((stats[stat] - 10) / 2)})</span>
+                    </div>
+                  ))}
               </div>
             </div>
           )}

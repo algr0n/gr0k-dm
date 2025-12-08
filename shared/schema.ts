@@ -194,6 +194,48 @@ export const itemsRelations = relations(items, ({ many }) => ({
 export type Item = typeof items.$inferSelect;
 export type InsertItem = typeof items.$inferInsert;
 
+// Spell school enum
+export const spellSchoolEnum = pgEnum("spell_school", [
+  "Abjuration",
+  "Conjuration",
+  "Divination",
+  "Enchantment",
+  "Evocation",
+  "Illusion",
+  "Necromancy",
+  "Transmutation",
+]);
+
+// Master spells table (D&D 5e SRD spells compendium)
+export const spells = pgTable("spells", {
+  id: varchar("id", { length: 64 }).primaryKey(),
+  name: text("name").notNull(),
+  level: integer("level").notNull().default(0),
+  school: spellSchoolEnum("school").notNull(),
+  castingTime: text("casting_time").notNull(),
+  range: text("range").notNull(),
+  components: jsonb("components").$type<{
+    verbal: boolean;
+    somatic: boolean;
+    material: string | null;
+  }>().notNull(),
+  duration: text("duration").notNull(),
+  concentration: boolean("concentration").notNull().default(false),
+  ritual: boolean("ritual").notNull().default(false),
+  description: text("description").notNull(),
+  higherLevels: text("higher_levels"),
+  classes: text("classes").array().notNull().default([]),
+  source: text("source").default("SRD"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_spells_name").on(table.name),
+  index("idx_spells_level").on(table.level),
+  index("idx_spells_school").on(table.school),
+]);
+
+export type Spell = typeof spells.$inferSelect;
+export type InsertSpell = typeof spells.$inferInsert;
+
 // Character inventory (references master items)
 export const inventoryItems = pgTable("inventory_items", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

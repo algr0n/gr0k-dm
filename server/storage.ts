@@ -17,7 +17,8 @@ import { eq, desc, and, lt, sql, count, isNotNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { 
   items, Item,
-  itemCategoryEnum, itemRarityEnum 
+  itemCategoryEnum, itemRarityEnum,
+  spells, type Spell
 } from "@shared/schema";
 import { ilike } from "drizzle-orm";
 
@@ -113,6 +114,11 @@ export interface IStorage {
   createStatusEffect(effect: InsertStatusEffect): Promise<CharacterStatusEffect>;
   deleteStatusEffect(id: string): Promise<boolean>;
   deleteStatusEffectsByCharacter(characterId: string): Promise<boolean>;
+
+  // Spells
+  getSpells(level?: number, school?: string, classFilter?: string): Promise<Spell[]>;
+  getSpell(id: string): Promise<Spell | undefined>;
+  searchSpells(query: string): Promise<Spell[]>;
 }
 
 class DatabaseStorage implements IStorage {
@@ -573,6 +579,41 @@ class DatabaseStorage implements IStorage {
   async deleteStatusEffectsByCharacter(characterId: string): Promise<boolean> {
     await db.delete(characterStatusEffects).where(eq(characterStatusEffects.characterId, characterId));
     return true;
+  }
+
+  // Spells
+  async getSpells(level?: number, school?: string, classFilter?: string): Promise<Spell[]> {
+    let query = db.select().from(spells);
+    const conditions = [];
+    
+    if (level !== undefined) {
+      conditions.push(eq(spells.level, level));
+    }
+    if (school) {
+      conditions.push(eq(spells.school, school as any));
+    }
+    
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as typeof query;
+    }
+    
+    const results = await query.orderBy(spells.level, spells.name);
+    
+    // Filter by class in memory since it's an array column
+    if (classFilter) {
+      return results.filter(spell => spell.classes.includes(classFilter));
+    }
+    return results;
+  }
+
+  async getSpell(id: string): Promise<Spell | undefined> {
+    return await db.query.spells.findFirst({ where: eq(spells.id, id) });
+  }
+
+  async searchSpells(query: string): Promise<Spell[]> {
+    return await db.select().from(spells)
+      .where(ilike(spells.name, `%${query}%`))
+      .orderBy(spells.level, spells.name);
   }
 }
 

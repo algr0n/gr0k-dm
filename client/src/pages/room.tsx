@@ -371,6 +371,8 @@ export default function RoomPage() {
       level: savedChar.level,
       background: savedChar.background,
       alignment: savedChar.alignment,
+      skills: savedChar.skills || [],
+      spells: savedChar.spells || [],
     });
     setCharacterNotes(savedChar.backstory || "");
     setShowLoadCharacterDialog(false);
@@ -384,7 +386,11 @@ export default function RoomPage() {
   useEffect(() => {
     if (existingCharacter) {
       setCharacterName(existingCharacter.characterName);
-      setCharacterStats(existingCharacter.stats || {});
+      setCharacterStats({
+        ...(existingCharacter.stats || {}),
+        skills: (existingCharacter as any).skills || [],
+        spells: (existingCharacter as any).spells || [],
+      });
       setCharacterNotes(existingCharacter.backstory || "");
     }
   }, [existingCharacter]);
@@ -1714,10 +1720,20 @@ export default function RoomPage() {
                         { name: "Stealth", stat: "dex" },
                         { name: "Survival", stat: "wis" },
                       ].map((skill) => {
-                        const statValue = characterStats[skill.stat] || 10;
+                        const statNameMap: Record<string, string> = {
+                          str: "strength",
+                          dex: "dexterity", 
+                          con: "constitution",
+                          int: "intelligence",
+                          wis: "wisdom",
+                          cha: "charisma",
+                        };
+                        const fullStatName = statNameMap[skill.stat] || skill.stat;
+                        const statValue = characterStats[fullStatName] || characterStats[skill.stat] || 10;
                         const modifier = Math.floor((statValue - 10) / 2);
                         const proficiencyBonus = Math.ceil(1 + (characterStats.level || 1) / 4);
-                        const isProficient = characterStats[`skill_${skill.name.replace(/\s/g, "_").toLowerCase()}`] || false;
+                        const skillsArray = Array.isArray(characterStats.skills) ? characterStats.skills : [];
+                        const isProficient = skillsArray.includes(skill.name) || characterStats[`skill_${skill.name.replace(/\s/g, "_").toLowerCase()}`] || false;
                         const totalMod = modifier + (isProficient ? proficiencyBonus : 0);
                         return (
                           <div 
@@ -1729,10 +1745,22 @@ export default function RoomPage() {
                               <Checkbox 
                                 checked={isProficient}
                                 onCheckedChange={(checked) => {
-                                  setCharacterStats(prev => ({
-                                    ...prev,
-                                    [`skill_${skill.name.replace(/\s/g, "_").toLowerCase()}`]: checked,
-                                  }));
+                                  setCharacterStats(prev => {
+                                    const currentSkills = Array.isArray(prev.skills) ? prev.skills : [];
+                                    if (checked) {
+                                      return {
+                                        ...prev,
+                                        skills: currentSkills.includes(skill.name) 
+                                          ? currentSkills 
+                                          : [...currentSkills, skill.name],
+                                      };
+                                    } else {
+                                      return {
+                                        ...prev,
+                                        skills: currentSkills.filter((s: string) => s !== skill.name),
+                                      };
+                                    }
+                                  });
                                 }}
                                 data-testid={`checkbox-skill-${skill.name.replace(/\s/g, "-").toLowerCase()}`}
                               />
