@@ -1166,12 +1166,6 @@ export default function RoomPage() {
                 <Package className="h-4 w-4" />
                 Inventory
               </TabsTrigger>
-              {roomData?.gameSystem === "dnd" && (
-                <TabsTrigger value="skills" className="gap-2" data-testid="tab-skills">
-                  <Swords className="h-4 w-4" />
-                  Skills & Spells
-                </TabsTrigger>
-              )}
               {isHost && (
                 <TabsTrigger value="dm" className="gap-2" data-testid="tab-dm-controls">
                   <Shield className="h-4 w-4" />
@@ -1500,37 +1494,267 @@ export default function RoomPage() {
                       </>
                     )}
 
-                    {myCharacterData.savedCharacter.skills && (myCharacterData.savedCharacter.skills as string[]).length > 0 && (
+                    {/* Interactive Skills Section */}
+                    {roomData?.gameSystem === "dnd" && (
                       <>
                         <Separator />
                         <div>
-                          <h4 className="text-sm font-medium mb-3">Skills</h4>
-                          <div className="flex flex-wrap gap-2">
-                            {(myCharacterData.savedCharacter.skills as string[]).map((skill, idx) => (
-                              <Badge key={idx} variant="outline" data-testid={`badge-skill-${idx}`}>
-                                {skill}
-                              </Badge>
-                            ))}
-                          </div>
+                          <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                            <Swords className="h-4 w-4" />
+                            Skills
+                          </h4>
+                          <p className="text-xs text-muted-foreground mb-3">
+                            Click "Use" to tell the AI DM you're attempting that skill check.
+                          </p>
+                          {(() => {
+                            const skillBonuses = buildSkillStats({
+                              stats: myCharacterData.savedCharacter.stats as Record<string, number>,
+                              skills: Array.isArray(myCharacterData.savedCharacter.skills) ? myCharacterData.savedCharacter.skills as string[] : [],
+                              level: myCharacterData.savedCharacter.level || 1,
+                              className: myCharacterData.savedCharacter.class || undefined,
+                            });
+                            return (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                {dndSkills.map((skillName) => {
+                                  const skillData = skillBonuses[skillName];
+                                  const abilityShort = skillData.ability.substring(0, 3).toUpperCase();
+                                  const isProficient = skillData.isProficient;
+                                  const totalMod = skillData.totalBonus;
+                                  return (
+                                    <div 
+                                      key={skillName} 
+                                      className="flex items-center justify-between p-2 border rounded-md gap-2"
+                                      data-testid={`skill-row-${skillName.replace(/\s/g, "-").toLowerCase()}`}
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <div className={`w-2 h-2 rounded-full ${isProficient ? "bg-primary" : "bg-muted"}`} />
+                                        <span className="text-sm">{skillName}</span>
+                                        <Badge variant="outline" className="text-xs">
+                                          {abilityShort}
+                                        </Badge>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-mono text-sm">
+                                          {totalMod >= 0 ? "+" : ""}{totalMod}
+                                        </span>
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          onClick={() => {
+                                            if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !gameEnded) {
+                                              const roll = Math.floor(Math.random() * 20) + 1;
+                                              const total = roll + totalMod;
+                                              const charName = myCharacterData.savedCharacter.characterName || playerName;
+                                              wsRef.current.send(JSON.stringify({
+                                                type: "action",
+                                                content: `*${charName} attempts a ${skillName} check* (Rolled d20: ${roll} + ${totalMod} = ${total})`,
+                                              }));
+                                              toast({
+                                                title: `${skillName} Check`,
+                                                description: `Rolled d20 (${roll}) + ${totalMod} = ${total}`,
+                                              });
+                                              setActiveTab("chat");
+                                            }
+                                          }}
+                                          disabled={!isConnected || gameEnded}
+                                          data-testid={`button-use-skill-${skillName.replace(/\s/g, "-").toLowerCase()}`}
+                                        >
+                                          Use
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
                         </div>
                       </>
                     )}
 
-                    {myCharacterData.savedCharacter.spells && (myCharacterData.savedCharacter.spells as string[]).length > 0 && (
+                    {/* Spell Slots Section */}
+                    {roomData?.gameSystem === "dnd" && myCharacterData.savedCharacter.class && isSpellcaster(myCharacterData.savedCharacter.class) && (
+                      <>
+                        <Separator />
+                        <div>
+                          <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                            <Flame className="h-4 w-4" />
+                            Spell Slots
+                          </h4>
+                          <p className="text-xs text-muted-foreground mb-3">
+                            Track your available spell slots. Click to use or recover.
+                          </p>
+                          {(() => {
+                            const className = myCharacterData.savedCharacter.class || "";
+                            const level = myCharacterData.savedCharacter.level || 1;
+                            const maxSlots = getMaxSpellSlots(className, level);
+                            const currentSlots = characterStats.spellSlots?.current || maxSlots.slice();
+                            
+                            return (
+                              <div className="space-y-3">
+                                {maxSlots.map((max: number, slotLevel: number) => {
+                                  if (slotLevel === 0 || max === 0) return null;
+                                  const current = currentSlots[slotLevel] ?? max;
+                                  
+                                  return (
+                                    <div key={slotLevel} className="flex items-center gap-3">
+                                      <span className="w-20 text-sm font-medium">
+                                        {slotLevel === 1 ? "1st" : slotLevel === 2 ? "2nd" : slotLevel === 3 ? "3rd" : `${slotLevel}th`} Level
+                                      </span>
+                                      <div className="flex gap-1">
+                                        {Array.from({ length: max }).map((_, i) => (
+                                          <button
+                                            key={i}
+                                            className={`w-6 h-6 rounded-full border-2 transition-colors ${
+                                              i < current
+                                                ? "bg-primary border-primary"
+                                                : "bg-background border-muted-foreground/30"
+                                            }`}
+                                            onClick={() => {
+                                              setCharacterStats(prev => {
+                                                const newSlots = [...(prev.spellSlots?.current || maxSlots.slice())];
+                                                newSlots[slotLevel] = i < current ? current - 1 : current + 1;
+                                                return {
+                                                  ...prev,
+                                                  spellSlots: {
+                                                    current: newSlots,
+                                                    max: maxSlots,
+                                                  },
+                                                };
+                                              });
+                                            }}
+                                            data-testid={`spell-slot-${slotLevel}-${i}`}
+                                          />
+                                        ))}
+                                      </div>
+                                      <span className="text-sm text-muted-foreground">
+                                        {current}/{max}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="mt-2"
+                                  onClick={() => {
+                                    const className = myCharacterData.savedCharacter.class || "";
+                                    const level = myCharacterData.savedCharacter.level || 1;
+                                    const maxSlots = getMaxSpellSlots(className, level);
+                                    setCharacterStats(prev => ({
+                                      ...prev,
+                                      spellSlots: {
+                                        current: maxSlots.slice(),
+                                        max: maxSlots,
+                                      },
+                                    }));
+                                    toast({
+                                      title: "Spell Slots Restored",
+                                      description: "All spell slots have been recovered (long rest).",
+                                    });
+                                  }}
+                                  data-testid="button-restore-spell-slots"
+                                >
+                                  Long Rest (Restore All)
+                                </Button>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Spell Browser Section */}
+                    {roomData?.gameSystem === "dnd" && myCharacterData.savedCharacter.class && isSpellcaster(myCharacterData.savedCharacter.class) && (
                       <>
                         <Separator />
                         <div>
                           <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
                             <Sparkles className="h-4 w-4" />
-                            Spells
+                            Spell Browser
                           </h4>
-                          <div className="flex flex-wrap gap-2">
-                            {(myCharacterData.savedCharacter.spells as string[]).map((spell, idx) => (
-                              <Badge key={idx} variant="secondary" data-testid={`badge-spell-${idx}`}>
-                                {spell}
-                              </Badge>
-                            ))}
-                          </div>
+                          <p className="text-xs text-muted-foreground mb-3">
+                            Browse and manage your spells. Click a spell for details.
+                          </p>
+                          <SpellBrowser
+                            characterClass={myCharacterData.savedCharacter.class}
+                            knownSpells={characterStats.knownSpells || []}
+                            preparedSpells={characterStats.preparedSpells || []}
+                            onAddKnownSpell={(spellId) => {
+                              setCharacterStats(prev => {
+                                const known = prev.knownSpells || [];
+                                if (known.includes(spellId)) {
+                                  return prev;
+                                }
+                                return {
+                                  ...prev,
+                                  knownSpells: [...known, spellId],
+                                };
+                              });
+                              toast({
+                                title: "Spell Added",
+                                description: "Added spell to your known spells.",
+                              });
+                            }}
+                            onRemoveKnownSpell={(spellId) => {
+                              setCharacterStats(prev => ({
+                                ...prev,
+                                knownSpells: (prev.knownSpells || []).filter((id: string) => id !== spellId),
+                                preparedSpells: (prev.preparedSpells || []).filter((id: string) => id !== spellId),
+                              }));
+                              toast({
+                                title: "Spell Removed",
+                                description: "Removed spell from your known spells.",
+                              });
+                            }}
+                            onTogglePreparedSpell={(spellId) => {
+                              setCharacterStats(prev => {
+                                const prepared = prev.preparedSpells || [];
+                                if (prepared.includes(spellId)) {
+                                  return {
+                                    ...prev,
+                                    preparedSpells: prepared.filter((id: string) => id !== spellId),
+                                  };
+                                } else {
+                                  return {
+                                    ...prev,
+                                    preparedSpells: [...prepared, spellId],
+                                  };
+                                }
+                              });
+                            }}
+                            onCastSpell={(spell) => {
+                              if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !gameEnded) {
+                                const charName = myCharacterData.savedCharacter.characterName || playerName;
+                                wsRef.current.send(JSON.stringify({
+                                  type: "action",
+                                  content: `*${charName} casts ${spell.name}!* (${spell.level === 0 ? "Cantrip" : `Level ${spell.level}`} ${spell.school} - ${spell.castingTime}, Range: ${spell.range})`,
+                                }));
+                                
+                                const slotInfo = spell.level > 0 
+                                  ? ` (Used 1 level ${spell.level} slot)` 
+                                  : "";
+                                toast({
+                                  title: "Spell Cast",
+                                  description: `You cast ${spell.name}!${slotInfo}`,
+                                });
+                                setActiveTab("chat");
+                              }
+                            }}
+                            onRollSpellDice={(spell, diceExpression) => {
+                              if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !gameEnded) {
+                                wsRef.current.send(JSON.stringify({
+                                  type: "chat",
+                                  content: `/roll ${diceExpression} for ${spell.name}`,
+                                }));
+                                toast({
+                                  title: "Rolling Dice",
+                                  description: `Rolling ${diceExpression} for ${spell.name}`,
+                                });
+                                setActiveTab("chat");
+                              }
+                            }}
+                          />
                         </div>
                       </>
                     )}
@@ -1684,316 +1908,6 @@ export default function RoomPage() {
               </Card>
             </div>
           </TabsContent>
-
-          {roomData?.gameSystem === "dnd" && (
-            <TabsContent value="skills" className="flex-1 mt-0 overflow-auto data-[state=inactive]:hidden">
-              <div className="max-w-2xl mx-auto space-y-4 p-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="font-serif flex items-center gap-2">
-                      <Swords className="h-5 w-5" />
-                      Skills
-                    </CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                      Click "Use" to tell the AI DM you're attempting that skill check.
-                    </p>
-                  </CardHeader>
-                  <CardContent>
-                    {(() => {
-                      const skillBonuses = buildSkillStats({
-                        stats: characterStats,
-                        skills: Array.isArray(characterStats.skills) ? characterStats.skills : [],
-                        level: characterStats.level || 1,
-                        className: characterStats.class,
-                      });
-                      return (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {dndSkills.map((skillName) => {
-                        const skillData = skillBonuses[skillName];
-                        const abilityShort = skillData.ability.substring(0, 3).toUpperCase();
-                        const isProficient = skillData.isProficient;
-                        const totalMod = skillData.totalBonus;
-                        return (
-                          <div 
-                            key={skillName} 
-                            className="flex items-center justify-between p-2 border rounded-md gap-2"
-                            data-testid={`skill-${skillName.replace(/\s/g, "-").toLowerCase()}`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <Checkbox 
-                                checked={isProficient}
-                                onCheckedChange={(checked) => {
-                                  setCharacterStats(prev => {
-                                    const currentSkills = Array.isArray(prev.skills) ? prev.skills : [];
-                                    if (checked) {
-                                      return {
-                                        ...prev,
-                                        skills: currentSkills.includes(skillName) 
-                                          ? currentSkills 
-                                          : [...currentSkills, skillName],
-                                      };
-                                    } else {
-                                      return {
-                                        ...prev,
-                                        skills: currentSkills.filter((s: string) => s !== skillName),
-                                      };
-                                    }
-                                  });
-                                }}
-                                data-testid={`checkbox-skill-${skillName.replace(/\s/g, "-").toLowerCase()}`}
-                              />
-                              <span className="text-sm">{skillName}</span>
-                              <Badge variant="outline" className="text-xs">
-                                {abilityShort}
-                              </Badge>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-sm">
-                                {totalMod >= 0 ? "+" : ""}{totalMod}
-                              </span>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !gameEnded) {
-                                    const roll = Math.floor(Math.random() * 20) + 1;
-                                    const total = roll + totalMod;
-                                    wsRef.current.send(JSON.stringify({
-                                      type: "action",
-                                      content: `*${characterName || playerName} attempts a ${skillName} check* (Rolled d20: ${roll} + ${totalMod} = ${total})`,
-                                    }));
-                                    toast({
-                                      title: `${skillName} Check`,
-                                      description: `Rolled d20 (${roll}) + ${totalMod} = ${total}`,
-                                    });
-                                    setActiveTab("chat");
-                                  }
-                                }}
-                                disabled={!isConnected || gameEnded}
-                                data-testid={`button-use-skill-${skillName.replace(/\s/g, "-").toLowerCase()}`}
-                              >
-                                Use
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                      );
-                    })()}
-                  </CardContent>
-                </Card>
-
-                {/* Spell Slots Section */}
-                {characterStats.class && isSpellcaster(characterStats.class) && (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="font-serif flex items-center gap-2">
-                        <Flame className="h-5 w-5" />
-                        Spell Slots
-                      </CardTitle>
-                      <p className="text-sm text-muted-foreground">
-                        Track your available spell slots. Click to use or recover.
-                      </p>
-                    </CardHeader>
-                    <CardContent>
-                      {(() => {
-                        const className = characterStats.class || "";
-                        const level = characterStats.level || 1;
-                        const maxSlots = getMaxSpellSlots(className, level);
-                        const currentSlots = characterStats.spellSlots?.current || maxSlots.slice();
-                        
-                        return (
-                          <div className="space-y-3">
-                            {maxSlots.map((max: number, slotLevel: number) => {
-                              if (slotLevel === 0 || max === 0) return null;
-                              const current = currentSlots[slotLevel] ?? max;
-                              
-                              return (
-                                <div key={slotLevel} className="flex items-center gap-3">
-                                  <span className="w-20 text-sm font-medium">
-                                    {slotLevel === 1 ? "1st" : slotLevel === 2 ? "2nd" : slotLevel === 3 ? "3rd" : `${slotLevel}th`} Level
-                                  </span>
-                                  <div className="flex gap-1">
-                                    {Array.from({ length: max }).map((_, i) => (
-                                      <button
-                                        key={i}
-                                        className={`w-6 h-6 rounded-full border-2 transition-colors ${
-                                          i < current
-                                            ? "bg-primary border-primary"
-                                            : "bg-background border-muted-foreground/30"
-                                        }`}
-                                        onClick={() => {
-                                          setCharacterStats(prev => {
-                                            const newSlots = [...(prev.spellSlots?.current || maxSlots.slice())];
-                                            newSlots[slotLevel] = i < current ? current - 1 : current + 1;
-                                            return {
-                                              ...prev,
-                                              spellSlots: {
-                                                current: newSlots,
-                                                max: maxSlots,
-                                              },
-                                            };
-                                          });
-                                        }}
-                                        data-testid={`spell-slot-${slotLevel}-${i}`}
-                                      />
-                                    ))}
-                                  </div>
-                                  <span className="text-sm text-muted-foreground">
-                                    {current}/{max}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="mt-4"
-                              onClick={() => {
-                                const className = characterStats.class || "";
-                                const level = characterStats.level || 1;
-                                const maxSlots = getMaxSpellSlots(className, level);
-                                setCharacterStats(prev => ({
-                                  ...prev,
-                                  spellSlots: {
-                                    current: maxSlots.slice(),
-                                    max: maxSlots,
-                                  },
-                                }));
-                                toast({
-                                  title: "Spell Slots Restored",
-                                  description: "All spell slots have been recovered (long rest).",
-                                });
-                              }}
-                              data-testid="button-restore-spell-slots"
-                            >
-                              Long Rest (Restore All)
-                            </Button>
-                          </div>
-                        );
-                      })()}
-                    </CardContent>
-                  </Card>
-                )}
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="font-serif flex items-center gap-2">
-                      <Sparkles className="h-5 w-5" />
-                      Spell Browser
-                    </CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                      Browse and manage your spells. Click a spell for details.
-                    </p>
-                  </CardHeader>
-                  <CardContent className="p-0">
-                    <SpellBrowser
-                      characterClass={characterStats.class}
-                      knownSpells={characterStats.knownSpells || []}
-                      preparedSpells={characterStats.preparedSpells || []}
-                      onAddKnownSpell={(spellId) => {
-                        setCharacterStats(prev => {
-                          const known = prev.knownSpells || [];
-                          if (known.includes(spellId)) {
-                            return prev;
-                          }
-                          return {
-                            ...prev,
-                            knownSpells: [...known, spellId],
-                          };
-                        });
-                        toast({
-                          title: "Spell Added",
-                          description: "Added spell to your known spells.",
-                        });
-                      }}
-                      onRemoveKnownSpell={(spellId) => {
-                        setCharacterStats(prev => ({
-                          ...prev,
-                          knownSpells: (prev.knownSpells || []).filter((id: string) => id !== spellId),
-                          preparedSpells: (prev.preparedSpells || []).filter((id: string) => id !== spellId),
-                        }));
-                        toast({
-                          title: "Spell Removed",
-                          description: "Removed spell from your known spells.",
-                        });
-                      }}
-                      onTogglePreparedSpell={(spellId) => {
-                        setCharacterStats(prev => {
-                          const prepared = prev.preparedSpells || [];
-                          if (prepared.includes(spellId)) {
-                            return {
-                              ...prev,
-                              preparedSpells: prepared.filter((id: string) => id !== spellId),
-                            };
-                          } else {
-                            return {
-                              ...prev,
-                              preparedSpells: [...prepared, spellId],
-                            };
-                          }
-                        });
-                      }}
-                      onCastSpell={(spell) => {
-                        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !gameEnded) {
-                          // Check spell slot availability for non-cantrips
-                          if (spell.level > 0) {
-                            const usedKey = `spellSlots${spell.level}Used`;
-                            const totalKey = `spellSlots${spell.level}Total`;
-                            const used = characterStats[usedKey] || 0;
-                            const total = characterStats[totalKey] || 0;
-                            
-                            if (used >= total) {
-                              toast({
-                                title: "No Spell Slots",
-                                description: `You have no level ${spell.level} spell slots remaining.`,
-                                variant: "destructive",
-                              });
-                              return;
-                            }
-                            
-                            // Consume spell slot
-                            setCharacterStats(prev => ({
-                              ...prev,
-                              [usedKey]: (prev[usedKey] || 0) + 1,
-                            }));
-                          }
-                          
-                          wsRef.current.send(JSON.stringify({
-                            type: "action",
-                            content: `*${characterName || playerName} casts ${spell.name}!* (${spell.level === 0 ? "Cantrip" : `Level ${spell.level}`} ${spell.school} - ${spell.castingTime}, Range: ${spell.range})`,
-                          }));
-                          
-                          const slotInfo = spell.level > 0 
-                            ? ` (Used 1 level ${spell.level} slot)` 
-                            : "";
-                          toast({
-                            title: "Spell Cast",
-                            description: `You cast ${spell.name}!${slotInfo}`,
-                          });
-                          setActiveTab("chat");
-                        }
-                      }}
-                      onRollSpellDice={(spell, diceExpression) => {
-                        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !gameEnded) {
-                          wsRef.current.send(JSON.stringify({
-                            type: "chat",
-                            content: `/roll ${diceExpression} for ${spell.name}`,
-                          }));
-                          toast({
-                            title: "Rolling Dice",
-                            description: `Rolling ${diceExpression} for ${spell.name}`,
-                          });
-                          setActiveTab("chat");
-                        }
-                      }}
-                    />
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-          )}
 
           {isHost && (
             <TabsContent value="dm" className="flex-1 mt-0 overflow-auto data-[state=inactive]:hidden">
