@@ -1269,6 +1269,222 @@ export function isSpellcaster(className: string): boolean {
 }
 
 // =============================================================================
+// D&D 5e Cantrips Known by Class and Level
+// =============================================================================
+
+// Cantrips known progression by level for each class
+const cantripsKnownByClass: Record<string, Record<number, number>> = {
+  wizard: {
+    1: 3, 2: 3, 3: 3, 4: 4, 5: 4, 6: 4, 7: 4, 8: 4, 9: 4, 10: 5,
+    11: 5, 12: 5, 13: 5, 14: 5, 15: 5, 16: 5, 17: 5, 18: 5, 19: 5, 20: 5
+  },
+  sorcerer: {
+    1: 4, 2: 4, 3: 4, 4: 5, 5: 5, 6: 5, 7: 5, 8: 5, 9: 5, 10: 6,
+    11: 6, 12: 6, 13: 6, 14: 6, 15: 6, 16: 6, 17: 6, 18: 6, 19: 6, 20: 6
+  },
+  bard: {
+    1: 2, 2: 2, 3: 2, 4: 3, 5: 3, 6: 3, 7: 3, 8: 3, 9: 3, 10: 4,
+    11: 4, 12: 4, 13: 4, 14: 4, 15: 4, 16: 4, 17: 4, 18: 4, 19: 4, 20: 4
+  },
+  cleric: {
+    1: 3, 2: 3, 3: 3, 4: 4, 5: 4, 6: 4, 7: 4, 8: 4, 9: 4, 10: 5,
+    11: 5, 12: 5, 13: 5, 14: 5, 15: 5, 16: 5, 17: 5, 18: 5, 19: 5, 20: 5
+  },
+  druid: {
+    1: 2, 2: 2, 3: 2, 4: 3, 5: 3, 6: 3, 7: 3, 8: 3, 9: 3, 10: 4,
+    11: 4, 12: 4, 13: 4, 14: 4, 15: 4, 16: 4, 17: 4, 18: 4, 19: 4, 20: 4
+  },
+  warlock: {
+    1: 2, 2: 2, 3: 2, 4: 3, 5: 3, 6: 3, 7: 3, 8: 3, 9: 3, 10: 4,
+    11: 4, 12: 4, 13: 4, 14: 4, 15: 4, 16: 4, 17: 4, 18: 4, 19: 4, 20: 4
+  },
+};
+
+// Get max cantrips known for a class at a given level
+export function getMaxCantripsKnown(className: string, level: number): number {
+  const normalizedClass = className.toLowerCase();
+  const clampedLevel = Math.max(1, Math.min(20, level));
+  
+  const classCantrips = cantripsKnownByClass[normalizedClass];
+  if (classCantrips) {
+    return classCantrips[clampedLevel] || 0;
+  }
+  
+  // Paladin and Ranger don't get cantrips
+  return 0;
+}
+
+// =============================================================================
+// D&D 5e Spells Known by Class and Level (for "known" spellcasters)
+// =============================================================================
+
+// Spells known progression for classes that learn a fixed number of spells
+const spellsKnownByClass: Record<string, Record<number, number>> = {
+  bard: {
+    1: 4, 2: 5, 3: 6, 4: 7, 5: 8, 6: 9, 7: 10, 8: 11, 9: 12, 10: 14,
+    11: 15, 12: 15, 13: 16, 14: 18, 15: 19, 16: 19, 17: 20, 18: 22, 19: 22, 20: 22
+  },
+  sorcerer: {
+    1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 11,
+    11: 12, 12: 12, 13: 13, 14: 13, 15: 14, 16: 14, 17: 15, 18: 15, 19: 15, 20: 15
+  },
+  warlock: {
+    1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 10,
+    11: 11, 12: 11, 13: 12, 14: 12, 15: 13, 16: 13, 17: 14, 18: 14, 19: 15, 20: 15
+  },
+  ranger: {
+    1: 0, 2: 2, 3: 3, 4: 3, 5: 4, 6: 4, 7: 5, 8: 5, 9: 6, 10: 6,
+    11: 7, 12: 7, 13: 8, 14: 8, 15: 9, 16: 9, 17: 10, 18: 10, 19: 11, 20: 11
+  },
+};
+
+// Get max spells known for "known" caster classes
+export function getMaxSpellsKnown(className: string, level: number): number | null {
+  const normalizedClass = className.toLowerCase();
+  const clampedLevel = Math.max(1, Math.min(20, level));
+  
+  const classSpells = spellsKnownByClass[normalizedClass];
+  if (classSpells) {
+    return classSpells[clampedLevel];
+  }
+  
+  // Prepared casters and non-casters return null (they don't use "spells known")
+  return null;
+}
+
+// =============================================================================
+// D&D 5e Wizard Spellbook Size
+// =============================================================================
+
+// Wizards start with 6 spells in their spellbook and add 2 per level
+export function getWizardSpellbookSize(level: number): number {
+  const clampedLevel = Math.max(1, Math.min(20, level));
+  // 6 spells at level 1, +2 for each level after
+  return 6 + (clampedLevel - 1) * 2;
+}
+
+// =============================================================================
+// D&D 5e Spells Prepared Calculation (for "prepared" spellcasters)
+// =============================================================================
+
+export type SpellcastingType = "known" | "prepared" | "spellbook" | "pact" | "none";
+
+// Determine what type of spellcasting a class uses
+export function getSpellcastingType(className: string): SpellcastingType {
+  const normalizedClass = className.toLowerCase();
+  
+  if (normalizedClass === "wizard") return "spellbook";
+  if (normalizedClass === "warlock") return "pact";
+  if (["bard", "sorcerer", "ranger"].includes(normalizedClass)) return "known";
+  if (["cleric", "druid", "paladin"].includes(normalizedClass)) return "prepared";
+  
+  return "none";
+}
+
+// Get the spellcasting ability for a class
+export function getSpellcastingAbility(className: string): string | null {
+  const normalizedClass = className.toLowerCase();
+  
+  switch (normalizedClass) {
+    case "wizard": return "intelligence";
+    case "cleric": case "druid": case "ranger": return "wisdom";
+    case "bard": case "sorcerer": case "warlock": case "paladin": return "charisma";
+    default: return null;
+  }
+}
+
+// Calculate max prepared spells for prepared casters
+// Cleric: Wisdom mod + cleric level (min 1)
+// Druid: Wisdom mod + druid level (min 1)
+// Paladin: Charisma mod + half paladin level, rounded down (min 1)
+// Wizard: Intelligence mod + wizard level (min 1)
+export function getMaxSpellsPrepared(
+  className: string, 
+  level: number, 
+  abilityModifier: number
+): number | null {
+  const normalizedClass = className.toLowerCase();
+  const clampedLevel = Math.max(1, Math.min(20, level));
+  
+  switch (normalizedClass) {
+    case "cleric":
+    case "druid":
+    case "wizard":
+      return Math.max(1, abilityModifier + clampedLevel);
+    case "paladin":
+      return Math.max(1, abilityModifier + Math.floor(clampedLevel / 2));
+    default:
+      // Known casters don't prepare spells
+      return null;
+  }
+}
+
+// =============================================================================
+// Unified Spell Limit Info
+// =============================================================================
+
+export interface SpellLimitInfo {
+  type: SpellcastingType;
+  cantripsMax: number;
+  spellsKnownMax: number | null;      // For known casters (Bard, Sorcerer, Warlock, Ranger)
+  spellsPreparedMax: number | null;   // For prepared casters (Cleric, Druid, Paladin, Wizard)
+  spellbookSize: number | null;       // For Wizard only
+  spellcastingAbility: string | null;
+  description: string;                // User-friendly explanation
+}
+
+export function getSpellLimitInfo(
+  className: string,
+  level: number,
+  abilityModifier: number = 0
+): SpellLimitInfo {
+  const normalizedClass = className.toLowerCase();
+  const type = getSpellcastingType(normalizedClass);
+  const cantripsMax = getMaxCantripsKnown(normalizedClass, level);
+  const spellsKnownMax = getMaxSpellsKnown(normalizedClass, level);
+  const spellsPreparedMax = getMaxSpellsPrepared(normalizedClass, level, abilityModifier);
+  const spellbookSize = normalizedClass === "wizard" ? getWizardSpellbookSize(level) : null;
+  const spellcastingAbility = getSpellcastingAbility(normalizedClass);
+  
+  let description = "";
+  
+  switch (type) {
+    case "spellbook":
+      description = `Wizards record spells in a spellbook. You can have up to ${spellbookSize} spells in your spellbook. Each day, prepare ${spellsPreparedMax} spells from your spellbook to cast. You know ${cantripsMax} cantrips.`;
+      break;
+    case "known":
+      if (normalizedClass === "ranger") {
+        description = `Rangers learn spells as they level. You can know up to ${spellsKnownMax} spells. Rangers don't get cantrips.`;
+      } else {
+        description = `You learn a fixed number of spells. You can know up to ${spellsKnownMax} spells and ${cantripsMax} cantrips.`;
+      }
+      break;
+    case "prepared":
+      if (normalizedClass === "paladin") {
+        description = `Paladins prepare spells from the full Paladin list. You can prepare up to ${spellsPreparedMax} spells (Charisma modifier + half your level). Paladins don't get cantrips.`;
+      } else {
+        description = `You can prepare any spell from the ${className} spell list. Prepare up to ${spellsPreparedMax} spells (${spellcastingAbility} modifier + your level). You know ${cantripsMax} cantrips.`;
+      }
+      break;
+    case "pact":
+      description = `Warlocks learn spells through their pact. You can know up to ${spellsKnownMax} spells and ${cantripsMax} cantrips. Your spell slots recover on short rest.`;
+      break;
+    default:
+      description = "This class doesn't cast spells.";
+  }
+  
+  return {
+    type,
+    cantripsMax,
+    spellsKnownMax,
+    spellsPreparedMax,
+    spellbookSize,
+    spellcastingAbility,
+    description,
+  };
+}
+
+// =============================================================================
 // Skill Bonus Calculation Helper
 // =============================================================================
 
