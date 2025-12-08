@@ -14,7 +14,8 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, Edit2, Loader2, Shield, Heart, Zap, LogIn, Sword, User, Dices, Package } from "lucide-react";
-import { gameSystems, gameSystemLabels, type GameSystem, type SavedCharacter } from "@shared/schema";
+import { gameSystems, gameSystemLabels, type GameSystem, type SavedCharacter, classDefinitions, raceDefinitions, subraceDefinitions, dndSkills, type DndSkill, type DndClass, type DndRace } from "@shared/schema";
+import { Checkbox } from "@/components/ui/checkbox";
 import { dnd5eData, cyberpunkRedData } from "@/lib/gameData";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
@@ -136,6 +137,7 @@ interface DnDFormData {
     wisdom: number;
     charisma: number;
   };
+  skills: string[];
 }
 
 interface CyberpunkFormData {
@@ -188,6 +190,7 @@ const defaultDnDForm: DnDFormData = {
     wisdom: 10,
     charisma: 10,
   },
+  skills: [],
 };
 
 const defaultCyberpunkForm: CyberpunkFormData = {
@@ -230,6 +233,8 @@ export default function Characters() {
   
   const [dndForm, setDndForm] = useState<DnDFormData>(defaultDnDForm);
   const [cyberpunkForm, setCyberpunkForm] = useState<CyberpunkFormData>(defaultCyberpunkForm);
+  const [selectedClassSkills, setSelectedClassSkills] = useState<DndSkill[]>([]);
+  const [selectedRaceBonusSkills, setSelectedRaceBonusSkills] = useState<DndSkill[]>([]);
 
   const resetForm = () => {
     setDndForm(defaultDnDForm);
@@ -237,6 +242,76 @@ export default function Characters() {
     setFormStep("system");
     setSelectedSystem(null);
     setEditingCharacter(null);
+    setSelectedClassSkills([]);
+    setSelectedRaceBonusSkills([]);
+  };
+
+  // Get race skill info for the selected race/subrace
+  const getRaceSkillInfo = () => {
+    const race = dndForm.race as DndRace;
+    if (!race || !raceDefinitions[race]) return { autoSkills: [], bonusChoices: null };
+    
+    const raceDef = raceDefinitions[race];
+    let autoSkills = [...raceDef.skillProficiencies];
+    let bonusChoices = raceDef.bonusSkillChoices;
+    
+    // Check subrace for additional skills
+    if (dndForm.subrace && subraceDefinitions[dndForm.subrace]) {
+      const subraceDef = subraceDefinitions[dndForm.subrace];
+      if (subraceDef.skillProficiencies) {
+        autoSkills = [...autoSkills, ...subraceDef.skillProficiencies];
+      }
+      if (subraceDef.bonusSkillChoices) {
+        bonusChoices = subraceDef.bonusSkillChoices;
+      }
+    }
+    
+    return { autoSkills, bonusChoices };
+  };
+
+  // Handle class skill toggle
+  const handleClassSkillToggle = (skill: DndSkill, checked: boolean) => {
+    const className = dndForm.class as DndClass;
+    if (!className || !classDefinitions[className]) return;
+    
+    const classDef = classDefinitions[className];
+    const { autoSkills } = getRaceSkillInfo();
+    
+    if (checked) {
+      // Prevent selecting skills already granted by race auto or chosen as race bonus
+      if (selectedClassSkills.length < classDef.numSkillChoices && 
+          !autoSkills.includes(skill) && 
+          !selectedRaceBonusSkills.includes(skill)) {
+        setSelectedClassSkills([...selectedClassSkills, skill]);
+      }
+    } else {
+      setSelectedClassSkills(selectedClassSkills.filter(s => s !== skill));
+    }
+  };
+
+  // Handle race bonus skill toggle
+  const handleRaceBonusSkillToggle = (skill: DndSkill, checked: boolean) => {
+    const { bonusChoices, autoSkills } = getRaceSkillInfo();
+    if (!bonusChoices) return;
+    
+    if (checked) {
+      if (selectedRaceBonusSkills.length < bonusChoices.count && !autoSkills.includes(skill) && !selectedClassSkills.includes(skill)) {
+        setSelectedRaceBonusSkills([...selectedRaceBonusSkills, skill]);
+      }
+    } else {
+      setSelectedRaceBonusSkills(selectedRaceBonusSkills.filter(s => s !== skill));
+    }
+  };
+
+  // Get all selected skills combined
+  const getAllSelectedSkills = (): string[] => {
+    const { autoSkills } = getRaceSkillInfo();
+    const allSkills = new Set<string>([
+      ...autoSkills,
+      ...selectedRaceBonusSkills,
+      ...selectedClassSkills
+    ]);
+    return Array.from(allSkills);
   };
 
   const openCreateDialog = () => {
@@ -366,6 +441,7 @@ export default function Characters() {
       xp: dndForm.xp,
       backstory: dndForm.backstory,
       stats: dndForm.stats,
+      skills: getAllSelectedSkills(),
       gameSystem: "dnd" as GameSystem,
     };
 
@@ -425,10 +501,25 @@ export default function Characters() {
 
     if (system === "dnd") {
       const stats = character.stats as Record<string, number> | null;
+      const existingSkills = (character.skills as string[] | null) || [];
+      
+      // Check if the stored race is actually a subrace
+      const storedRace = character.race || "";
+      let baseRace = storedRace;
+      let subrace = "";
+      
+      // Check if storedRace is in subraceDefinitions
+      if (subraceDefinitions[storedRace]) {
+        // It's a subrace - find the parent race
+        const subraceDef = subraceDefinitions[storedRace];
+        baseRace = subraceDef.parentRace;
+        subrace = storedRace;
+      }
+      
       setDndForm({
         characterName: character.characterName,
-        race: character.race || "",
-        subrace: "",
+        race: baseRace,
+        subrace: subrace,
         class: character.class || "",
         level: character.level || 1,
         background: character.background || "",
@@ -447,7 +538,37 @@ export default function Characters() {
           wisdom: stats?.wisdom ?? 10,
           charisma: stats?.charisma ?? 10,
         },
+        skills: existingSkills,
       });
+      
+      // Load skill selections from existing character
+      const charClass = character.class as DndClass;
+      
+      // First calculate class skills
+      let classSkills: DndSkill[] = [];
+      if (charClass && classDefinitions[charClass]) {
+        const classSkillChoices = classDefinitions[charClass].skillChoices;
+        classSkills = existingSkills.filter(s => classSkillChoices.includes(s as DndSkill)) as DndSkill[];
+        setSelectedClassSkills(classSkills);
+      } else {
+        setSelectedClassSkills([]);
+      }
+      
+      // Calculate all auto skills from race and subrace
+      let autoSkills: DndSkill[] = [];
+      if (raceDefinitions[baseRace as DndRace]) {
+        autoSkills = [...raceDefinitions[baseRace as DndRace].skillProficiencies];
+      }
+      if (subrace && subraceDefinitions[subrace]?.skillProficiencies) {
+        autoSkills = [...autoSkills, ...subraceDefinitions[subrace].skillProficiencies];
+      }
+      
+      // Race bonus skills are any stored skills that are NOT auto-granted and NOT class skills
+      const bonusSkills = existingSkills.filter(s => 
+        !autoSkills.includes(s as DndSkill) && 
+        !classSkills.includes(s as DndSkill)
+      ) as DndSkill[];
+      setSelectedRaceBonusSkills(bonusSkills);
     } else {
       const stats = character.stats as Record<string, number> | null;
       setCyberpunkForm({
@@ -750,6 +871,71 @@ export default function Characters() {
                         ))}
                       </div>
                     </div>
+
+                    {/* Skill Proficiencies */}
+                    {(dndForm.race || dndForm.class) && (
+                      <div className="space-y-3">
+                        <Label>Skill Proficiencies</Label>
+                        
+                        {/* Racial auto-skills */}
+                        {getRaceSkillInfo().autoSkills.length > 0 && (
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">From Race</p>
+                            <div className="flex flex-wrap gap-1">
+                              {getRaceSkillInfo().autoSkills.map(skill => (
+                                <Badge key={skill} variant="secondary">{skill}</Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Race bonus skill choices */}
+                        {getRaceSkillInfo().bonusChoices && (
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">
+                              Choose {getRaceSkillInfo().bonusChoices!.count} from Race ({selectedRaceBonusSkills.length}/{getRaceSkillInfo().bonusChoices!.count})
+                            </p>
+                            <div className="grid grid-cols-3 gap-2">
+                              {(getRaceSkillInfo().bonusChoices!.from === "any" ? dndSkills : getRaceSkillInfo().bonusChoices!.from as DndSkill[]).map(skill => (
+                                <div key={skill} className="flex items-center gap-2">
+                                  <Checkbox
+                                    id={`race-skill-${skill}`}
+                                    checked={selectedRaceBonusSkills.includes(skill as DndSkill)}
+                                    onCheckedChange={(checked) => handleRaceBonusSkillToggle(skill as DndSkill, !!checked)}
+                                    disabled={getRaceSkillInfo().autoSkills.includes(skill as DndSkill) || selectedClassSkills.includes(skill as DndSkill)}
+                                    data-testid={`checkbox-race-skill-${skill}`}
+                                  />
+                                  <label htmlFor={`race-skill-${skill}`} className="text-sm cursor-pointer">{skill}</label>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Class skill choices */}
+                        {dndForm.class && classDefinitions[dndForm.class as DndClass] && (
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">
+                              Choose {classDefinitions[dndForm.class as DndClass].numSkillChoices} from Class ({selectedClassSkills.length}/{classDefinitions[dndForm.class as DndClass].numSkillChoices})
+                            </p>
+                            <div className="grid grid-cols-3 gap-2">
+                              {classDefinitions[dndForm.class as DndClass].skillChoices.map(skill => (
+                                <div key={skill} className="flex items-center gap-2">
+                                  <Checkbox
+                                    id={`class-skill-${skill}`}
+                                    checked={selectedClassSkills.includes(skill)}
+                                    onCheckedChange={(checked) => handleClassSkillToggle(skill, !!checked)}
+                                    disabled={getRaceSkillInfo().autoSkills.includes(skill) || selectedRaceBonusSkills.includes(skill)}
+                                    data-testid={`checkbox-class-skill-${skill}`}
+                                  />
+                                  <label htmlFor={`class-skill-${skill}`} className="text-sm cursor-pointer">{skill}</label>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-4 gap-4">
                       <div className="space-y-2">

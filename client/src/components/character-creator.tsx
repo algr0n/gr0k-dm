@@ -12,8 +12,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Wand2, ChevronLeft, ChevronRight, Dices, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { GameSystem, DndClass, DndSkill } from "@shared/schema";
-import { classDefinitions, skillAbilityMap } from "@shared/schema";
+import type { GameSystem, DndClass, DndSkill, DndRace } from "@shared/schema";
+import { classDefinitions, skillAbilityMap, raceDefinitions, dndSkills } from "@shared/schema";
 import {
   applyDndRaceBonuses,
   applyCyberpunkBonuses,
@@ -60,7 +60,8 @@ interface CharacterCreatorProps {
 
 export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) {
   const [step, setStep] = useState(0);
-  const [selectedSkills, setSelectedSkills] = useState<DndSkill[]>([]);
+  const [selectedClassSkills, setSelectedClassSkills] = useState<DndSkill[]>([]);
+  const [selectedRaceBonusSkills, setSelectedRaceBonusSkills] = useState<DndSkill[]>([]);
   const [formData, setFormData] = useState({
     gameSystem: "dnd" as GameSystem,
     name: "",
@@ -124,6 +125,16 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
         maxHp = 10 + (stats.body || 5);
       }
       
+      const allSkills: DndSkill[] = [];
+      if (formData.gameSystem === "dnd") {
+        const raceDef = raceDefinitions[formData.race as DndRace];
+        if (raceDef?.skillProficiencies) {
+          allSkills.push(...raceDef.skillProficiencies);
+        }
+        allSkills.push(...selectedRaceBonusSkills);
+        allSkills.push(...selectedClassSkills);
+      }
+      
       const result = await apiRequest("POST", "/api/saved-characters", {
         characterName: formData.name,
         race: formData.race,
@@ -132,7 +143,7 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
         stats,
         maxHp,
         currentHp: maxHp,
-        skills: formData.gameSystem === "dnd" ? selectedSkills : [],
+        skills: allSkills,
         backstory: formData.backstory || undefined,
       });
       return result.json();
@@ -159,7 +170,8 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
 
   const resetForm = () => {
     setStep(0);
-    setSelectedSkills([]);
+    setSelectedClassSkills([]);
+    setSelectedRaceBonusSkills([]);
     setFormData({
       gameSystem: "dnd" as GameSystem,
       name: "",
@@ -226,15 +238,43 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
     return classDef || null;
   };
 
-  const handleSkillToggle = (skill: DndSkill) => {
+  const handleClassSkillToggle = (skill: DndSkill) => {
     const classInfo = getClassSkillInfo();
     if (!classInfo) return;
     
-    if (selectedSkills.includes(skill)) {
-      setSelectedSkills(selectedSkills.filter(s => s !== skill));
-    } else if (selectedSkills.length < classInfo.numSkillChoices) {
-      setSelectedSkills([...selectedSkills, skill]);
+    if (selectedClassSkills.includes(skill)) {
+      setSelectedClassSkills(selectedClassSkills.filter(s => s !== skill));
+    } else if (selectedClassSkills.length < classInfo.numSkillChoices) {
+      setSelectedClassSkills([...selectedClassSkills, skill]);
     }
+  };
+
+  const handleRaceBonusSkillToggle = (skill: DndSkill) => {
+    const raceDef = formData.race ? raceDefinitions[formData.race as DndRace] : null;
+    if (!raceDef?.bonusSkillChoices) return;
+    
+    if (selectedRaceBonusSkills.includes(skill)) {
+      setSelectedRaceBonusSkills(selectedRaceBonusSkills.filter(s => s !== skill));
+    } else if (selectedRaceBonusSkills.length < raceDef.bonusSkillChoices.count) {
+      setSelectedRaceBonusSkills([...selectedRaceBonusSkills, skill]);
+    }
+  };
+
+  const getRaceSkillInfo = () => {
+    if (formData.gameSystem !== "dnd" || !formData.race) return null;
+    const raceDef = raceDefinitions[formData.race as DndRace];
+    return raceDef || null;
+  };
+
+  const getAllSelectedSkills = (): DndSkill[] => {
+    const skills: DndSkill[] = [];
+    const raceDef = formData.race ? raceDefinitions[formData.race as DndRace] : null;
+    if (raceDef?.skillProficiencies) {
+      skills.push(...raceDef.skillProficiencies);
+    }
+    skills.push(...selectedRaceBonusSkills);
+    skills.push(...selectedClassSkills);
+    return skills;
   };
 
   const canProceed = () => {
@@ -244,9 +284,14 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
     if (step === 2) {
       if (formData.gameSystem === "dnd") {
         const classInfo = getClassSkillInfo();
-        if (classInfo) {
-          return selectedSkills.length === classInfo.numSkillChoices;
-        }
+        const raceInfo = getRaceSkillInfo();
+        
+        const classSkillsValid = classInfo ? selectedClassSkills.length === classInfo.numSkillChoices : true;
+        const raceBonusSkillsValid = raceInfo?.bonusSkillChoices 
+          ? selectedRaceBonusSkills.length === raceInfo.bonusSkillChoices.count 
+          : true;
+        
+        return classSkillsValid && raceBonusSkillsValid;
       }
       return true;
     }
@@ -314,7 +359,10 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
                 <Label htmlFor="race">{formData.gameSystem === "dnd" ? "Race" : "Background"}</Label>
                 <Select 
                   value={formData.race} 
-                  onValueChange={(value) => setFormData({ ...formData, race: value })}
+                  onValueChange={(value) => {
+                    setFormData({ ...formData, race: value });
+                    setSelectedRaceBonusSkills([]);
+                  }}
                 >
                   <SelectTrigger data-testid="select-race">
                     <SelectValue placeholder={formData.gameSystem === "dnd" ? "Choose a race" : "Choose a background"} />
@@ -339,7 +387,7 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
                   value={formData.characterClass} 
                   onValueChange={(value) => {
                     setFormData({ ...formData, characterClass: value });
-                    setSelectedSkills([]);
+                    setSelectedClassSkills([]);
                   }}
                 >
                   <SelectTrigger data-testid="select-class">
@@ -471,46 +519,122 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
           {step === 2 && (
             <>
               {formData.gameSystem === "dnd" ? (
-                <div className="space-y-4">
+                <div className="space-y-4 max-h-80 overflow-y-auto">
                   {(() => {
                     const classInfo = getClassSkillInfo();
+                    const raceInfo = getRaceSkillInfo();
                     if (!classInfo) return <p className="text-muted-foreground">Select a class first</p>;
+                    
+                    const racialSkills = raceInfo?.skillProficiencies || [];
+                    const hasBonusSkillChoices = raceInfo?.bonusSkillChoices;
+                    const bonusSkillsFrom = hasBonusSkillChoices?.from === "any" 
+                      ? [...dndSkills] 
+                      : (hasBonusSkillChoices?.from || []);
+                    
                     return (
                       <>
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm text-muted-foreground">
-                            Choose {classInfo.numSkillChoices} skill proficiencies
+                        {racialSkills.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-sm font-medium">
+                              Racial Skills <Badge variant="secondary" className="ml-2">{formData.race}</Badge>
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {racialSkills.map((skill) => (
+                                <Badge key={skill} variant="default" data-testid={`racial-skill-${skill.toLowerCase().replace(/\s+/g, "-")}`}>
+                                  {skill}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {hasBonusSkillChoices && (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-sm font-medium">
+                                Bonus Skills <Badge variant="secondary" className="ml-2">{formData.race}</Badge>
+                              </p>
+                              <Badge variant="outline" data-testid="badge-race-bonus-skills-count">
+                                {selectedRaceBonusSkills.length} / {hasBonusSkillChoices.count}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Choose {hasBonusSkillChoices.count} additional skill{hasBonusSkillChoices.count > 1 ? "s" : ""} from {hasBonusSkillChoices.from === "any" ? "any skill" : "the list below"}
+                            </p>
+                            <div className="grid grid-cols-2 gap-2">
+                              {bonusSkillsFrom.filter(skill => !racialSkills.includes(skill)).map((skill) => {
+                                const isSelected = selectedRaceBonusSkills.includes(skill);
+                                const isDisabled = !isSelected && selectedRaceBonusSkills.length >= hasBonusSkillChoices.count;
+                                const abilityShort = skillAbilityMap[skill]?.slice(0, 3).toUpperCase() || "";
+                                return (
+                                  <div
+                                    key={`race-bonus-${skill}`}
+                                    className={`flex items-center gap-2 p-2 rounded-md border ${
+                                      isSelected ? "bg-accent/50 border-accent" : "border-border"
+                                    } ${isDisabled ? "opacity-50" : "cursor-pointer hover-elevate"}`}
+                                    onClick={() => !isDisabled && handleRaceBonusSkillToggle(skill)}
+                                    data-testid={`race-bonus-skill-${skill.toLowerCase().replace(/\s+/g, "-")}`}
+                                  >
+                                    <Checkbox
+                                      checked={isSelected}
+                                      disabled={isDisabled}
+                                      onCheckedChange={() => handleRaceBonusSkillToggle(skill)}
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <span className="text-sm font-medium truncate">{skill}</span>
+                                      <span className="text-xs text-muted-foreground ml-1">({abilityShort})</span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-medium">
+                              Class Skills <Badge variant="secondary" className="ml-2">{formData.characterClass}</Badge>
+                            </p>
+                            <Badge variant="outline" data-testid="badge-class-skills-count">
+                              {selectedClassSkills.length} / {classInfo.numSkillChoices}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Choose {classInfo.numSkillChoices} skill{classInfo.numSkillChoices > 1 ? "s" : ""} from your class list
                           </p>
-                          <Badge variant="outline" data-testid="badge-skills-count">
-                            {selectedSkills.length} / {classInfo.numSkillChoices}
-                          </Badge>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
-                          {classInfo.skillChoices.map((skill) => {
-                            const isSelected = selectedSkills.includes(skill);
-                            const isDisabled = !isSelected && selectedSkills.length >= classInfo.numSkillChoices;
-                            const abilityShort = skillAbilityMap[skill]?.slice(0, 3).toUpperCase() || "";
-                            return (
-                              <div
-                                key={skill}
-                                className={`flex items-center gap-2 p-2 rounded-md border ${
-                                  isSelected ? "bg-primary/10 border-primary" : "border-border"
-                                } ${isDisabled ? "opacity-50" : "cursor-pointer hover-elevate"}`}
-                                onClick={() => !isDisabled && handleSkillToggle(skill)}
-                                data-testid={`skill-${skill.toLowerCase().replace(/\s+/g, "-")}`}
-                              >
-                                <Checkbox
-                                  checked={isSelected}
-                                  disabled={isDisabled}
-                                  onCheckedChange={() => handleSkillToggle(skill)}
-                                />
-                                <div className="flex-1 min-w-0">
-                                  <span className="text-sm font-medium truncate">{skill}</span>
-                                  <span className="text-xs text-muted-foreground ml-1">({abilityShort})</span>
+                          <div className="grid grid-cols-2 gap-2">
+                            {classInfo.skillChoices.map((skill) => {
+                              const isAlreadyFromRace = racialSkills.includes(skill) || selectedRaceBonusSkills.includes(skill);
+                              const isSelected = selectedClassSkills.includes(skill);
+                              const isDisabled = isAlreadyFromRace || (!isSelected && selectedClassSkills.length >= classInfo.numSkillChoices);
+                              const abilityShort = skillAbilityMap[skill]?.slice(0, 3).toUpperCase() || "";
+                              return (
+                                <div
+                                  key={`class-${skill}`}
+                                  className={`flex items-center gap-2 p-2 rounded-md border ${
+                                    isAlreadyFromRace ? "bg-muted/50 border-muted" : 
+                                    isSelected ? "bg-primary/10 border-primary" : "border-border"
+                                  } ${isDisabled ? "opacity-50" : "cursor-pointer hover-elevate"}`}
+                                  onClick={() => !isDisabled && handleClassSkillToggle(skill)}
+                                  data-testid={`class-skill-${skill.toLowerCase().replace(/\s+/g, "-")}`}
+                                >
+                                  <Checkbox
+                                    checked={isSelected || isAlreadyFromRace}
+                                    disabled={isDisabled}
+                                    onCheckedChange={() => !isAlreadyFromRace && handleClassSkillToggle(skill)}
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <span className="text-sm font-medium truncate">{skill}</span>
+                                    <span className="text-xs text-muted-foreground ml-1">({abilityShort})</span>
+                                    {isAlreadyFromRace && (
+                                      <Badge variant="outline" className="ml-1 text-xs">Race</Badge>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            );
-                          })}
+                              );
+                            })}
+                          </div>
                         </div>
                       </>
                     );
