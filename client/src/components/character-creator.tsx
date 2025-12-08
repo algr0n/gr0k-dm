@@ -8,10 +8,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Wand2, ChevronLeft, ChevronRight, Dices, Loader2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { GameSystem } from "@shared/schema";
+import type { GameSystem, DndClass, DndSkill } from "@shared/schema";
+import { classDefinitions, skillAbilityMap } from "@shared/schema";
 import {
   applyDndRaceBonuses,
   applyCyberpunkBonuses,
@@ -49,7 +51,7 @@ const CYBERPUNK_ROLES = [
   "Nomad", "Fixer", "Cop", "Exec", "Medtech"
 ];
 
-const STEPS = ["Basics", "Attributes", "Backstory"];
+const STEPS = ["Basics", "Attributes", "Skills", "Backstory"];
 
 interface CharacterCreatorProps {
   open: boolean;
@@ -58,6 +60,7 @@ interface CharacterCreatorProps {
 
 export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) {
   const [step, setStep] = useState(0);
+  const [selectedSkills, setSelectedSkills] = useState<DndSkill[]>([]);
   const [formData, setFormData] = useState({
     gameSystem: "dnd" as GameSystem,
     name: "",
@@ -121,18 +124,21 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
         maxHp = 10 + (stats.body || 5);
       }
       
-      const result = await apiRequest("POST", "/api/characters", {
-        name: formData.name,
+      const result = await apiRequest("POST", "/api/saved-characters", {
+        characterName: formData.name,
         race: formData.race,
-        characterClass: formData.characterClass,
+        class: formData.characterClass,
         gameSystem: formData.gameSystem,
         stats,
         maxHp,
+        currentHp: maxHp,
+        skills: formData.gameSystem === "dnd" ? selectedSkills : [],
         backstory: formData.backstory || undefined,
       });
       return result.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/saved-characters"] });
       queryClient.invalidateQueries({ queryKey: ["/api/characters"] });
       queryClient.invalidateQueries({ queryKey: ["/api/bot/status"] });
       toast({
@@ -153,6 +159,7 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
 
   const resetForm = () => {
     setStep(0);
+    setSelectedSkills([]);
     setFormData({
       gameSystem: "dnd" as GameSystem,
       name: "",
@@ -213,9 +220,35 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
     }
   };
 
+  const getClassSkillInfo = () => {
+    if (formData.gameSystem !== "dnd" || !formData.characterClass) return null;
+    const classDef = classDefinitions[formData.characterClass as DndClass];
+    return classDef || null;
+  };
+
+  const handleSkillToggle = (skill: DndSkill) => {
+    const classInfo = getClassSkillInfo();
+    if (!classInfo) return;
+    
+    if (selectedSkills.includes(skill)) {
+      setSelectedSkills(selectedSkills.filter(s => s !== skill));
+    } else if (selectedSkills.length < classInfo.numSkillChoices) {
+      setSelectedSkills([...selectedSkills, skill]);
+    }
+  };
+
   const canProceed = () => {
     if (step === 0) {
       return formData.name.trim() && formData.race && formData.characterClass;
+    }
+    if (step === 2) {
+      if (formData.gameSystem === "dnd") {
+        const classInfo = getClassSkillInfo();
+        if (classInfo) {
+          return selectedSkills.length === classInfo.numSkillChoices;
+        }
+      }
+      return true;
     }
     return true;
   };
@@ -304,7 +337,10 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
                 <Label htmlFor="class">{formData.gameSystem === "dnd" ? "Class" : "Role"}</Label>
                 <Select 
                   value={formData.characterClass} 
-                  onValueChange={(value) => setFormData({ ...formData, characterClass: value })}
+                  onValueChange={(value) => {
+                    setFormData({ ...formData, characterClass: value });
+                    setSelectedSkills([]);
+                  }}
                 >
                   <SelectTrigger data-testid="select-class">
                     <SelectValue placeholder={formData.gameSystem === "dnd" ? "Choose a class" : "Choose a role"} />
@@ -433,6 +469,63 @@ export function CharacterCreator({ open, onOpenChange }: CharacterCreatorProps) 
           )}
 
           {step === 2 && (
+            <>
+              {formData.gameSystem === "dnd" ? (
+                <div className="space-y-4">
+                  {(() => {
+                    const classInfo = getClassSkillInfo();
+                    if (!classInfo) return <p className="text-muted-foreground">Select a class first</p>;
+                    return (
+                      <>
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm text-muted-foreground">
+                            Choose {classInfo.numSkillChoices} skill proficiencies
+                          </p>
+                          <Badge variant="outline" data-testid="badge-skills-count">
+                            {selectedSkills.length} / {classInfo.numSkillChoices}
+                          </Badge>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+                          {classInfo.skillChoices.map((skill) => {
+                            const isSelected = selectedSkills.includes(skill);
+                            const isDisabled = !isSelected && selectedSkills.length >= classInfo.numSkillChoices;
+                            const abilityShort = skillAbilityMap[skill]?.slice(0, 3).toUpperCase() || "";
+                            return (
+                              <div
+                                key={skill}
+                                className={`flex items-center gap-2 p-2 rounded-md border ${
+                                  isSelected ? "bg-primary/10 border-primary" : "border-border"
+                                } ${isDisabled ? "opacity-50" : "cursor-pointer hover-elevate"}`}
+                                onClick={() => !isDisabled && handleSkillToggle(skill)}
+                                data-testid={`skill-${skill.toLowerCase().replace(/\s+/g, "-")}`}
+                              >
+                                <Checkbox
+                                  checked={isSelected}
+                                  disabled={isDisabled}
+                                  onCheckedChange={() => handleSkillToggle(skill)}
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-sm font-medium truncate">{skill}</span>
+                                  <span className="text-xs text-muted-foreground ml-1">({abilityShort})</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <div className="text-center text-muted-foreground py-8">
+                  <p>Skill proficiencies are specific to D&D 5e.</p>
+                  <p className="text-sm mt-2">Continue to the next step.</p>
+                </div>
+              )}
+            </>
+          )}
+
+          {step === 3 && (
             <div className="space-y-2">
               <Label htmlFor="backstory">Backstory (Optional)</Label>
               <Textarea
