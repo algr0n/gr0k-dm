@@ -90,23 +90,41 @@ function CharacterInventory({ characterId }: { characterId: string }) {
         <p className="text-xs text-muted-foreground italic px-2">No items in inventory</p>
       ) : (
         <div className="space-y-1 max-h-32 overflow-y-auto">
-          {inventory.map((invItem) => (
-            <div
-              key={invItem.id}
-              className="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded bg-muted/50"
-              data-testid={`inventory-item-${invItem.id}`}
-            >
-              <span className="truncate flex-1" title={invItem.item.name}>
-                {invItem.item.name}
-                {invItem.quantity > 1 && ` (x${invItem.quantity})`}
-              </span>
-              {invItem.equipped && (
-                <Badge variant="outline" className="text-[10px] px-1 py-0">
-                  Equipped
-                </Badge>
-              )}
-            </div>
-          ))}
+          {inventory.map((invItem) => {
+            const props = invItem.item.properties as Record<string, unknown> | null;
+            const damage = props?.damage as { damage_dice?: string; damage_type?: { name?: string } } | undefined;
+            const armorClass = props?.armor_class as { base?: number } | undefined;
+            
+            return (
+              <div
+                key={invItem.id}
+                className="flex items-center justify-between gap-2 text-xs px-2 py-1 rounded bg-muted/50"
+                data-testid={`inventory-item-${invItem.id}`}
+              >
+                <div className="flex items-center gap-1.5 truncate flex-1">
+                  <span className="truncate" title={invItem.item.name}>
+                    {invItem.item.name}
+                    {invItem.quantity > 1 && ` (x${invItem.quantity})`}
+                  </span>
+                  {damage?.damage_dice && (
+                    <Badge variant="secondary" className="text-[10px] px-1 py-0 shrink-0">
+                      {damage.damage_dice} {damage.damage_type?.name || ""}
+                    </Badge>
+                  )}
+                  {armorClass?.base && (
+                    <Badge variant="secondary" className="text-[10px] px-1 py-0 shrink-0">
+                      AC {armorClass.base}
+                    </Badge>
+                  )}
+                </div>
+                {invItem.equipped && (
+                  <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0">
+                    Equipped
+                  </Badge>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

@@ -11,7 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download, FolderOpen } from "lucide-react";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download, FolderOpen, Coins, Weight, Zap } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
@@ -106,6 +107,61 @@ function parseMessageForItems(content: string, itemNameMap: Map<string, Item>): 
   return parts.length > 0 ? parts : [{ type: "text", content }];
 }
 
+function ItemTooltipContent({ item }: { item: Item }) {
+  const properties = item.properties as any;
+  
+  const damageDice = properties?.damage?.damage_dice;
+  const damageType = properties?.damage?.damage_type?.name;
+  const armorBase = properties?.armor_class?.base;
+  const armorDexBonus = properties?.armor_class?.dex_bonus;
+  const armorMaxBonus = properties?.armor_class?.max_bonus;
+  const cost = properties?.cost;
+  const weight = properties?.weight;
+  const weaponProperties = properties?.properties as Array<{ name: string }> | undefined;
+  
+  const hasWeaponInfo = damageDice && typeof damageDice === 'string';
+  const hasArmorInfo = typeof armorBase === 'number';
+  const hasCost = cost && typeof cost.quantity === 'number' && cost.unit;
+  const hasWeight = typeof weight === 'number';
+  const hasProperties = weaponProperties && Array.isArray(weaponProperties) && weaponProperties.length > 0;
+
+  return (
+    <div className="space-y-1 text-xs" data-testid={`item-tooltip-${item.id}`}>
+      <div className="font-medium">{item.name}</div>
+      {hasWeaponInfo && (
+        <div className="flex items-center gap-1 text-muted-foreground">
+          <Swords className="h-3 w-3" />
+          <span>{damageDice}{damageType ? ` ${damageType}` : ""}</span>
+        </div>
+      )}
+      {hasArmorInfo && (
+        <div className="flex items-center gap-1 text-muted-foreground">
+          <Shield className="h-3 w-3" />
+          <span>AC {armorBase}{armorDexBonus ? ` + DEX${armorMaxBonus ? ` (max ${armorMaxBonus})` : ""}` : ""}</span>
+        </div>
+      )}
+      {hasProperties && (
+        <div className="flex items-center gap-1 text-muted-foreground">
+          <Zap className="h-3 w-3" />
+          <span>{weaponProperties.filter(p => p?.name).map(p => p.name).join(", ")}</span>
+        </div>
+      )}
+      {hasWeight && (
+        <div className="flex items-center gap-1 text-muted-foreground">
+          <Weight className="h-3 w-3" />
+          <span>{weight} lb</span>
+        </div>
+      )}
+      {hasCost && (
+        <div className="flex items-center gap-1 text-muted-foreground">
+          <Coins className="h-3 w-3" />
+          <span>{cost.quantity} {cost.unit}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface MessageContentProps {
   content: string;
   itemNameMap: Map<string, Item>;
@@ -128,34 +184,53 @@ function MessageContent({ content, itemNameMap, isDmMessage, onPickupItem, canPi
         if (part.type === "text") {
           return <span key={index}>{part.content}</span>;
         }
+        const badge = (
+          <Badge
+            variant="outline"
+            className={cn(
+              "font-medium cursor-default border-primary/50 bg-primary/10 text-primary",
+              isDmMessage && canPickup && "cursor-pointer"
+            )}
+            data-testid={`item-badge-${part.item?.id}`}
+          >
+            <Package className="h-3 w-3 mr-1" />
+            {part.content}
+            {isDmMessage && canPickup && part.item && (
+              <span
+                className="inline-flex items-center justify-center ml-1 cursor-pointer hover-elevate active-elevate-2 rounded-sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!isPickingUp) onPickupItem(part.item!);
+                }}
+                data-testid={`button-pickup-${part.item.id}`}
+              >
+                <Plus className="h-3 w-3" />
+              </span>
+            )}
+          </Badge>
+        );
+
+        if (!part.item) {
+          return (
+            <span key={index} className="inline-flex items-center gap-1">
+              {badge}
+            </span>
+          );
+        }
+
         return (
           <span 
             key={index}
             className="inline-flex items-center gap-1"
           >
-            <Badge
-              variant="outline"
-              className={cn(
-                "font-medium cursor-default border-primary/50 bg-primary/10 text-primary",
-                isDmMessage && canPickup && "cursor-pointer"
-              )}
-              data-testid={`item-badge-${part.item?.id}`}
-            >
-              <Package className="h-3 w-3 mr-1" />
-              {part.content}
-              {isDmMessage && canPickup && part.item && (
-                <span
-                  className="inline-flex items-center justify-center ml-1 cursor-pointer hover-elevate active-elevate-2 rounded-sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (!isPickingUp) onPickupItem(part.item!);
-                  }}
-                  data-testid={`button-pickup-${part.item.id}`}
-                >
-                  <Plus className="h-3 w-3" />
-                </span>
-              )}
-            </Badge>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {badge}
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs">
+                <ItemTooltipContent item={part.item} />
+              </TooltipContent>
+            </Tooltip>
           </span>
         );
       })}

@@ -391,6 +391,7 @@ export const insertCharacterInventoryItemSchema = createInsertSchema(characterIn
   });
 export type InsertCharacterInventoryItem = z.infer<typeof insertCharacterInventoryItemSchema>;
 export type CharacterInventoryItem = typeof characterInventoryItems.$inferSelect;
+export type CharacterInventoryItemWithDetails = CharacterInventoryItem & { item: Item };
 
 // Backward compatibility aliases for saved inventory
 export const savedInventoryItems = characterInventoryItems;

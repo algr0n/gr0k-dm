@@ -8,7 +8,7 @@ import {
   Sparkles, Sword, Package, 
   User, BookOpen, Coins, Target, Star, CheckCircle2
 } from "lucide-react";
-import type { UnifiedCharacter, CharacterInventoryItem } from "@shared/schema";
+import type { UnifiedCharacter, CharacterInventoryItemWithDetails } from "@shared/schema";
 import { 
   dndSkills, skillAbilityMap, calculateSkillBonus, 
   getProficiencyBonus, getAbilityModifier, classSkillFeatures,
@@ -17,7 +17,7 @@ import {
 
 interface CharacterSheetProps {
   character: UnifiedCharacter | null;
-  inventory?: CharacterInventoryItem[];
+  inventory?: CharacterInventoryItemWithDetails[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
@@ -284,23 +284,56 @@ export function CharacterSheet({ character, inventory = [], open, onOpenChange }
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {inventory.map((item) => (
-                    <div 
-                      key={item.id}
-                      className="flex items-center justify-between p-2 rounded-md bg-muted/30"
-                      data-testid={`sheet-inventory-item-${item.id}`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Package className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium">Item #{item.itemId}</span>
+                  {inventory.map((invItem) => {
+                    const props = invItem.item.properties as Record<string, unknown> | null;
+                    const damage = props?.damage as { damage_dice?: string; damage_type?: { name?: string } } | undefined;
+                    const armorClass = props?.armor_class as { base?: number; dex_bonus?: boolean; max_bonus?: number } | undefined;
+                    const weaponProps = props?.properties as { name?: string }[] | undefined;
+                    
+                    return (
+                      <div 
+                        key={invItem.id}
+                        className="flex items-center justify-between p-2 rounded-md bg-muted/30"
+                        data-testid={`sheet-inventory-item-${invItem.id}`}
+                      >
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          {damage ? (
+                            <Sword className="h-4 w-4 text-muted-foreground shrink-0" />
+                          ) : (
+                            <Package className="h-4 w-4 text-muted-foreground shrink-0" />
+                          )}
+                          <span className="font-medium truncate">{invItem.item.name}</span>
+                          {invItem.quantity > 1 && (
+                            <Badge variant="secondary" className="text-xs shrink-0">
+                              x{invItem.quantity}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {damage?.damage_dice && (
+                            <Badge variant="outline" className="text-xs">
+                              {damage.damage_dice} {damage.damage_type?.name || ""}
+                            </Badge>
+                          )}
+                          {weaponProps && weaponProps.length > 0 && (
+                            <Badge variant="secondary" className="text-xs">
+                              {weaponProps.map(p => p.name).join(", ")}
+                            </Badge>
+                          )}
+                          {armorClass?.base && (
+                            <Badge variant="outline" className="text-xs">
+                              AC {armorClass.base}{armorClass.dex_bonus ? (armorClass.max_bonus ? ` +Dex (max ${armorClass.max_bonus})` : " +Dex") : ""}
+                            </Badge>
+                          )}
+                          {invItem.equipped && (
+                            <Badge className="text-xs">
+                              Equipped
+                            </Badge>
+                          )}
+                        </div>
                       </div>
-                      {item.quantity > 1 && (
-                        <Badge variant="secondary" className="text-xs">
-                          x{item.quantity}
-                        </Badge>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
