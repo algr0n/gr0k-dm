@@ -1,4 +1,4 @@
-import '../src/migrate-on-startup';
+import '../migrate-on-startup';  // ← correct (stays in src/)
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
