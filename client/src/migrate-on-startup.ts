@@ -1,5 +1,7 @@
-import { execSync } from 'child_process';
-import { Client } from 'pg';
+// server/migrate-on-startup.ts
+import { drizzle } from "drizzle-orm/node-postgres";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { Client } from "pg";
 
 async function runMigrationsIfNeeded() {
   if (!process.env.DATABASE_URL) {
@@ -8,21 +10,33 @@ async function runMigrationsIfNeeded() {
   }
 
   const client = new Client({ connectionString: process.env.DATABASE_URL });
+
   try {
     await client.connect();
+    
+    // Check if users table exists
     const res = await client.query("SELECT to_regclass('public.users')");
+    
     if (res.rows[0].to_regclass) {
-      console.log('users table already exists — skipping migration');
+      console.log('✓ Database tables already exist — skipping migration');
+      await client.end();
       return;
     }
 
-    console.log('Running drizzle-kit push:pg...');
-    execSync('npx drizzle-kit push:pg', { stdio: 'inherit' });
-    console.log('All tables created!');
-  } catch (err) {
-    console.error('Migration failed:', err);
-  } finally {
+    console.log('Running database migrations...');
     await client.end();
+
+    // Create drizzle instance for migrations
+    const db = drizzle(client);
+    
+    // Run migrations from the migrations folder
+    await migrate(db, { migrationsFolder: "./migrations" });
+    
+    console.log('✓ All migrations completed successfully!');
+    
+  } catch (err) {
+    console.error('✗ Migration failed:', err);
+    process.exit(1);
   }
 }
 
