@@ -1,5 +1,7 @@
 # Copilot Instructions for Grok DM
 
+> **Note**: This is a browser-based TTRPG platform powered by Grok AI, not a Discord bot.
+
 ## Project Overview
 
 Grok DM is an AI-powered Dungeon Master platform for tabletop role-playing games (TTRPG). Players create or join game rooms directly in the browser, where Grok AI serves as an intelligent Dungeon Master that narrates stories, manages combat, interprets dice rolls, and brings adventures to life.
@@ -73,7 +75,7 @@ The system provides a real-time multiplayer TTRPG experience with support for mu
 - Files: kebab-case for non-components (e.g., `dice-roller.ts`)
 - Functions: camelCase (e.g., `rollDice`)
 - Constants: UPPER_SNAKE_CASE for true constants (e.g., `MAX_PLAYERS`)
-- Database tables: snake_case (e.g., `game_rooms`)
+- Database tables: snake_case (e.g., `rooms`, `dice_rolls`, `inventory_items`)
 
 ## Design Guidelines
 
