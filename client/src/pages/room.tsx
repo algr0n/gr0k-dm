@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download, FolderOpen, Coins, Weight, Zap, Flame } from "lucide-react";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download, FolderOpen, Coins, Weight, Zap, Flame, Wand2 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -323,6 +323,27 @@ export default function RoomPage() {
   // Fetch all items for item name detection in chat
   const { data: allItems } = useQuery<Item[]>({
     queryKey: ["/api/items"],
+    staleTime: 1000 * 60 * 10,
+  });
+
+  // Fetch all spells for My Spells section
+  interface SpellData {
+    id: string;
+    name: string;
+    level: number;
+    school: string;
+    castingTime: string;
+    range: string;
+    components: { verbal: boolean; somatic: boolean; material: string | null };
+    duration: string;
+    concentration: boolean;
+    ritual: boolean;
+    description: string;
+    higherLevels: string | null;
+    classes: string[];
+  }
+  const { data: allSpells = [] } = useQuery<SpellData[]>({
+    queryKey: ["/api/spells"],
     staleTime: 1000 * 60 * 10,
   });
 
@@ -1845,6 +1866,185 @@ export default function RoomPage() {
                     })()}
                   </CardContent>
                 </Card>
+
+                {/* My Spells Section - Known spells organized for quick access */}
+                {(() => {
+                  const knownSpellIds = characterStats.knownSpells || [];
+                  const preparedSpellIds = characterStats.preparedSpells || [];
+                  const knownSpellsData = allSpells.filter(s => knownSpellIds.includes(s.id));
+                  const cantrips = knownSpellsData.filter(s => s.level === 0);
+                  const leveledSpells = knownSpellsData.filter(s => s.level > 0);
+                  const className = myCharacterData.savedCharacter.class || "";
+                  const charLevel = myCharacterData.savedCharacter.level || 1;
+                  const maxSlots = getMaxSpellSlots(className, charLevel);
+                  const currentSlots = characterStats.spellSlots?.current || maxSlots.slice();
+
+                  const findLowestSlot = (spellLevel: number): number | null => {
+                    if (spellLevel === 0) return 0;
+                    for (let lvl = spellLevel; lvl <= 9; lvl++) {
+                      if ((currentSlots[lvl] ?? 0) > 0) return lvl;
+                    }
+                    return null;
+                  };
+
+                  const handleCastSpell = (spell: SpellData, slotLevel?: number) => {
+                    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !gameEnded) {
+                      const charName = myCharacterData.savedCharacter.characterName || playerName;
+                      const levelInfo = spell.level === 0 
+                        ? "Cantrip" 
+                        : slotLevel && slotLevel > spell.level 
+                          ? `Level ${spell.level} spell using Level ${slotLevel} slot` 
+                          : `Level ${slotLevel || spell.level}`;
+                      wsRef.current.send(JSON.stringify({
+                        type: "action",
+                        content: `*${charName} casts ${spell.name}!* (${levelInfo} ${spell.school} - ${spell.castingTime}, Range: ${spell.range})`,
+                      }));
+                      
+                      if (spell.level > 0 && slotLevel && slotLevel > 0) {
+                        setCharacterStats(prev => {
+                          const newSlots = [...(prev.spellSlots?.current || maxSlots.slice())];
+                          if (newSlots[slotLevel] > 0) {
+                            newSlots[slotLevel] -= 1;
+                          }
+                          return {
+                            ...prev,
+                            spellSlots: { current: newSlots, max: maxSlots },
+                          };
+                        });
+                      }
+                      
+                      toast({
+                        title: "Spell Cast",
+                        description: `You cast ${spell.name}!${spell.level > 0 && slotLevel ? ` (Used 1 level ${slotLevel} slot)` : ""}`,
+                      });
+                      setActiveTab("chat");
+                    }
+                  };
+
+                  if (knownSpellsData.length === 0) {
+                    return (
+                      <Card>
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-base flex items-center gap-2">
+                            <Wand2 className="h-4 w-4" />
+                            My Spells
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            No spells learned yet. Use the Spell Browser below to add spells to your spellbook.
+                          </p>
+                        </CardContent>
+                      </Card>
+                    );
+                  }
+
+                  return (
+                    <Card>
+                      <CardHeader className="pb-3">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <Wand2 className="h-4 w-4" />
+                          My Spells
+                          <Badge variant="secondary" className="ml-auto">{knownSpellsData.length} known</Badge>
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        {/* Cantrips - At Will */}
+                        {cantrips.length > 0 && (
+                          <div>
+                            <h4 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
+                              <Sparkles className="h-3 w-3" />
+                              Cantrips (At Will)
+                            </h4>
+                            <div className="grid gap-2">
+                              {cantrips.map(spell => (
+                                <div 
+                                  key={spell.id}
+                                  className="flex items-center justify-between gap-2 p-2 rounded-md bg-muted/50"
+                                  data-testid={`my-spell-${spell.id}`}
+                                >
+                                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                                    <span className="font-medium truncate">{spell.name}</span>
+                                    <Badge variant="outline" className="text-xs shrink-0">{spell.school}</Badge>
+                                    {spell.concentration && <Badge variant="secondary" className="text-xs shrink-0">C</Badge>}
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    onClick={() => handleCastSpell(spell)}
+                                    data-testid={`button-cast-cantrip-${spell.id}`}
+                                  >
+                                    <Zap className="h-3 w-3 mr-1" />
+                                    Cast
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Leveled Spells */}
+                        {leveledSpells.length > 0 && (
+                          <div>
+                            <h4 className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
+                              <Flame className="h-3 w-3" />
+                              Leveled Spells
+                            </h4>
+                            <div className="grid gap-2">
+                              {leveledSpells.sort((a, b) => a.level - b.level).map(spell => {
+                                const isPrepared = preparedSpellIds.includes(spell.id);
+                                const availableSlot = findLowestSlot(spell.level);
+                                const canCast = availableSlot !== null;
+                                const levelSuffix = spell.level === 1 ? "st" : spell.level === 2 ? "nd" : spell.level === 3 ? "rd" : "th";
+
+                                return (
+                                  <div 
+                                    key={spell.id}
+                                    className={cn(
+                                      "flex items-center justify-between gap-2 p-2 rounded-md",
+                                      isPrepared ? "bg-primary/10 border border-primary/20" : "bg-muted/50"
+                                    )}
+                                    data-testid={`my-spell-${spell.id}`}
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                                      <Checkbox
+                                        checked={isPrepared}
+                                        onCheckedChange={() => {
+                                          setCharacterStats(prev => {
+                                            const prepared = prev.preparedSpells || [];
+                                            if (prepared.includes(spell.id)) {
+                                              return { ...prev, preparedSpells: prepared.filter((id: string) => id !== spell.id) };
+                                            }
+                                            return { ...prev, preparedSpells: [...prepared, spell.id] };
+                                          });
+                                        }}
+                                        data-testid={`checkbox-prepare-${spell.id}`}
+                                      />
+                                      <span className="font-medium truncate">{spell.name}</span>
+                                      <Badge variant="secondary" className="text-xs shrink-0">{spell.level}{levelSuffix}</Badge>
+                                      <Badge variant="outline" className="text-xs shrink-0">{spell.school}</Badge>
+                                      {spell.concentration && <Badge variant="secondary" className="text-xs shrink-0">C</Badge>}
+                                      {spell.ritual && <Badge variant="outline" className="text-xs shrink-0">R</Badge>}
+                                    </div>
+                                    <Button
+                                      size="sm"
+                                      variant={canCast ? "default" : "secondary"}
+                                      disabled={!canCast}
+                                      onClick={() => canCast && handleCastSpell(spell, availableSlot)}
+                                      data-testid={`button-cast-spell-${spell.id}`}
+                                    >
+                                      <Zap className="h-3 w-3 mr-1" />
+                                      {canCast ? `Cast (L${availableSlot})` : "No Slots"}
+                                    </Button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })()}
 
                 {/* Spell Browser */}
                 <Card>
