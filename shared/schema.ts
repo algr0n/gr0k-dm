@@ -501,3 +501,347 @@ export const updateRoomCharacterSchema = updateUnifiedCharacterSchema;
 export type UpdateRoomCharacter = UpdateUnifiedCharacter;
 export const updateCharacterStatsSchema = updateUnifiedCharacterSchema;
 export type UpdateCharacterStats = UpdateUnifiedCharacter;
+
+// =============================================================================
+// D&D 5e Class and Race Constants
+// =============================================================================
+
+// D&D 5e Skills
+export const dndSkills = [
+  "Acrobatics", "Animal Handling", "Arcana", "Athletics", "Deception",
+  "History", "Insight", "Intimidation", "Investigation", "Medicine",
+  "Nature", "Perception", "Performance", "Persuasion", "Religion",
+  "Sleight of Hand", "Stealth", "Survival"
+] as const;
+export type DndSkill = typeof dndSkills[number];
+
+// Skill to ability mapping
+export const skillAbilityMap: Record<DndSkill, string> = {
+  "Acrobatics": "dexterity",
+  "Animal Handling": "wisdom",
+  "Arcana": "intelligence",
+  "Athletics": "strength",
+  "Deception": "charisma",
+  "History": "intelligence",
+  "Insight": "wisdom",
+  "Intimidation": "charisma",
+  "Investigation": "intelligence",
+  "Medicine": "wisdom",
+  "Nature": "intelligence",
+  "Perception": "wisdom",
+  "Performance": "charisma",
+  "Persuasion": "charisma",
+  "Religion": "intelligence",
+  "Sleight of Hand": "dexterity",
+  "Stealth": "dexterity",
+  "Survival": "wisdom",
+};
+
+// D&D 5e Class definitions
+export const dndClasses = [
+  "Barbarian", "Bard", "Cleric", "Druid", "Fighter", "Monk",
+  "Paladin", "Ranger", "Rogue", "Sorcerer", "Warlock", "Wizard"
+] as const;
+export type DndClass = typeof dndClasses[number];
+
+export interface ClassDefinition {
+  name: DndClass;
+  hitDie: number;
+  primaryAbility: string[];
+  savingThrows: string[];
+  skillChoices: DndSkill[];
+  numSkillChoices: number;
+  armorProficiencies: string[];
+  weaponProficiencies: string[];
+}
+
+export const classDefinitions: Record<DndClass, ClassDefinition> = {
+  Barbarian: {
+    name: "Barbarian",
+    hitDie: 12,
+    primaryAbility: ["strength"],
+    savingThrows: ["strength", "constitution"],
+    skillChoices: ["Animal Handling", "Athletics", "Intimidation", "Nature", "Perception", "Survival"],
+    numSkillChoices: 2,
+    armorProficiencies: ["Light armor", "Medium armor", "Shields"],
+    weaponProficiencies: ["Simple weapons", "Martial weapons"],
+  },
+  Bard: {
+    name: "Bard",
+    hitDie: 8,
+    primaryAbility: ["charisma"],
+    savingThrows: ["dexterity", "charisma"],
+    skillChoices: ["Acrobatics", "Animal Handling", "Arcana", "Athletics", "Deception", "History", "Insight", "Intimidation", "Investigation", "Medicine", "Nature", "Perception", "Performance", "Persuasion", "Religion", "Sleight of Hand", "Stealth", "Survival"],
+    numSkillChoices: 3,
+    armorProficiencies: ["Light armor"],
+    weaponProficiencies: ["Simple weapons", "Hand crossbows", "Longswords", "Rapiers", "Shortswords"],
+  },
+  Cleric: {
+    name: "Cleric",
+    hitDie: 8,
+    primaryAbility: ["wisdom"],
+    savingThrows: ["wisdom", "charisma"],
+    skillChoices: ["History", "Insight", "Medicine", "Persuasion", "Religion"],
+    numSkillChoices: 2,
+    armorProficiencies: ["Light armor", "Medium armor", "Shields"],
+    weaponProficiencies: ["Simple weapons"],
+  },
+  Druid: {
+    name: "Druid",
+    hitDie: 8,
+    primaryAbility: ["wisdom"],
+    savingThrows: ["intelligence", "wisdom"],
+    skillChoices: ["Arcana", "Animal Handling", "Insight", "Medicine", "Nature", "Perception", "Religion", "Survival"],
+    numSkillChoices: 2,
+    armorProficiencies: ["Light armor", "Medium armor", "Shields (non-metal)"],
+    weaponProficiencies: ["Clubs", "Daggers", "Darts", "Javelins", "Maces", "Quarterstaffs", "Scimitars", "Sickles", "Slings", "Spears"],
+  },
+  Fighter: {
+    name: "Fighter",
+    hitDie: 10,
+    primaryAbility: ["strength", "dexterity"],
+    savingThrows: ["strength", "constitution"],
+    skillChoices: ["Acrobatics", "Animal Handling", "Athletics", "History", "Insight", "Intimidation", "Perception", "Survival"],
+    numSkillChoices: 2,
+    armorProficiencies: ["All armor", "Shields"],
+    weaponProficiencies: ["Simple weapons", "Martial weapons"],
+  },
+  Monk: {
+    name: "Monk",
+    hitDie: 8,
+    primaryAbility: ["dexterity", "wisdom"],
+    savingThrows: ["strength", "dexterity"],
+    skillChoices: ["Acrobatics", "Athletics", "History", "Insight", "Religion", "Stealth"],
+    numSkillChoices: 2,
+    armorProficiencies: [],
+    weaponProficiencies: ["Simple weapons", "Shortswords"],
+  },
+  Paladin: {
+    name: "Paladin",
+    hitDie: 10,
+    primaryAbility: ["strength", "charisma"],
+    savingThrows: ["wisdom", "charisma"],
+    skillChoices: ["Athletics", "Insight", "Intimidation", "Medicine", "Persuasion", "Religion"],
+    numSkillChoices: 2,
+    armorProficiencies: ["All armor", "Shields"],
+    weaponProficiencies: ["Simple weapons", "Martial weapons"],
+  },
+  Ranger: {
+    name: "Ranger",
+    hitDie: 10,
+    primaryAbility: ["dexterity", "wisdom"],
+    savingThrows: ["strength", "dexterity"],
+    skillChoices: ["Animal Handling", "Athletics", "Insight", "Investigation", "Nature", "Perception", "Stealth", "Survival"],
+    numSkillChoices: 3,
+    armorProficiencies: ["Light armor", "Medium armor", "Shields"],
+    weaponProficiencies: ["Simple weapons", "Martial weapons"],
+  },
+  Rogue: {
+    name: "Rogue",
+    hitDie: 8,
+    primaryAbility: ["dexterity"],
+    savingThrows: ["dexterity", "intelligence"],
+    skillChoices: ["Acrobatics", "Athletics", "Deception", "Insight", "Intimidation", "Investigation", "Perception", "Performance", "Persuasion", "Sleight of Hand", "Stealth"],
+    numSkillChoices: 4,
+    armorProficiencies: ["Light armor"],
+    weaponProficiencies: ["Simple weapons", "Hand crossbows", "Longswords", "Rapiers", "Shortswords"],
+  },
+  Sorcerer: {
+    name: "Sorcerer",
+    hitDie: 6,
+    primaryAbility: ["charisma"],
+    savingThrows: ["constitution", "charisma"],
+    skillChoices: ["Arcana", "Deception", "Insight", "Intimidation", "Persuasion", "Religion"],
+    numSkillChoices: 2,
+    armorProficiencies: [],
+    weaponProficiencies: ["Daggers", "Darts", "Slings", "Quarterstaffs", "Light crossbows"],
+  },
+  Warlock: {
+    name: "Warlock",
+    hitDie: 8,
+    primaryAbility: ["charisma"],
+    savingThrows: ["wisdom", "charisma"],
+    skillChoices: ["Arcana", "Deception", "History", "Intimidation", "Investigation", "Nature", "Religion"],
+    numSkillChoices: 2,
+    armorProficiencies: ["Light armor"],
+    weaponProficiencies: ["Simple weapons"],
+  },
+  Wizard: {
+    name: "Wizard",
+    hitDie: 6,
+    primaryAbility: ["intelligence"],
+    savingThrows: ["intelligence", "wisdom"],
+    skillChoices: ["Arcana", "History", "Insight", "Investigation", "Medicine", "Religion"],
+    numSkillChoices: 2,
+    armorProficiencies: [],
+    weaponProficiencies: ["Daggers", "Darts", "Slings", "Quarterstaffs", "Light crossbows"],
+  },
+};
+
+// D&D 5e Race definitions
+export const dndRaces = [
+  "Human", "Elf", "Dwarf", "Halfling", "Dragonborn",
+  "Gnome", "Half-Elf", "Half-Orc", "Tiefling"
+] as const;
+export type DndRace = typeof dndRaces[number];
+
+export interface RaceDefinition {
+  name: DndRace;
+  abilityScoreIncreases: Record<string, number>;
+  selectableAbilityBonuses?: {
+    count: number;
+    amount: number;
+    eligible: string[];
+  };
+  speed: number;
+  size: "Small" | "Medium";
+  traits: string[];
+  languages: string[];
+  darkvision: number;
+}
+
+export const raceDefinitions: Record<DndRace, RaceDefinition> = {
+  Human: {
+    name: "Human",
+    abilityScoreIncreases: { strength: 1, dexterity: 1, constitution: 1, intelligence: 1, wisdom: 1, charisma: 1 },
+    speed: 30,
+    size: "Medium",
+    traits: ["Extra Language"],
+    languages: ["Common", "One extra language"],
+    darkvision: 0,
+  },
+  Elf: {
+    name: "Elf",
+    abilityScoreIncreases: { dexterity: 2 },
+    speed: 30,
+    size: "Medium",
+    traits: ["Darkvision", "Keen Senses", "Fey Ancestry", "Trance"],
+    languages: ["Common", "Elvish"],
+    darkvision: 60,
+  },
+  Dwarf: {
+    name: "Dwarf",
+    abilityScoreIncreases: { constitution: 2 },
+    speed: 25,
+    size: "Medium",
+    traits: ["Darkvision", "Dwarven Resilience", "Stonecunning"],
+    languages: ["Common", "Dwarvish"],
+    darkvision: 60,
+  },
+  Halfling: {
+    name: "Halfling",
+    abilityScoreIncreases: { dexterity: 2 },
+    speed: 25,
+    size: "Small",
+    traits: ["Lucky", "Brave", "Halfling Nimbleness"],
+    languages: ["Common", "Halfling"],
+    darkvision: 0,
+  },
+  Dragonborn: {
+    name: "Dragonborn",
+    abilityScoreIncreases: { strength: 2, charisma: 1 },
+    speed: 30,
+    size: "Medium",
+    traits: ["Draconic Ancestry", "Breath Weapon", "Damage Resistance"],
+    languages: ["Common", "Draconic"],
+    darkvision: 0,
+  },
+  Gnome: {
+    name: "Gnome",
+    abilityScoreIncreases: { intelligence: 2 },
+    speed: 25,
+    size: "Small",
+    traits: ["Darkvision", "Gnome Cunning"],
+    languages: ["Common", "Gnomish"],
+    darkvision: 60,
+  },
+  "Half-Elf": {
+    name: "Half-Elf",
+    abilityScoreIncreases: { charisma: 2 },
+    selectableAbilityBonuses: {
+      count: 2,
+      amount: 1,
+      eligible: ["strength", "dexterity", "constitution", "intelligence", "wisdom"],
+    },
+    speed: 30,
+    size: "Medium",
+    traits: ["Darkvision", "Fey Ancestry", "Skill Versatility"],
+    languages: ["Common", "Elvish", "One extra language"],
+    darkvision: 60,
+  },
+  "Half-Orc": {
+    name: "Half-Orc",
+    abilityScoreIncreases: { strength: 2, constitution: 1 },
+    speed: 30,
+    size: "Medium",
+    traits: ["Darkvision", "Menacing", "Relentless Endurance", "Savage Attacks"],
+    languages: ["Common", "Orc"],
+    darkvision: 60,
+  },
+  Tiefling: {
+    name: "Tiefling",
+    abilityScoreIncreases: { intelligence: 1, charisma: 2 },
+    speed: 30,
+    size: "Medium",
+    traits: ["Darkvision", "Hellish Resistance", "Infernal Legacy"],
+    languages: ["Common", "Infernal"],
+    darkvision: 60,
+  },
+};
+
+// XP thresholds for each level (D&D 5e)
+export const xpThresholds: Record<number, number> = {
+  1: 0,
+  2: 300,
+  3: 900,
+  4: 2700,
+  5: 6500,
+  6: 14000,
+  7: 23000,
+  8: 34000,
+  9: 48000,
+  10: 64000,
+  11: 85000,
+  12: 100000,
+  13: 120000,
+  14: 140000,
+  15: 165000,
+  16: 195000,
+  17: 225000,
+  18: 265000,
+  19: 305000,
+  20: 355000,
+};
+
+// Calculate level from XP
+export function getLevelFromXP(xp: number): number {
+  for (let level = 20; level >= 1; level--) {
+    if (xp >= xpThresholds[level]) {
+      return level;
+    }
+  }
+  return 1;
+}
+
+// Calculate starting HP for a class at level 1
+export function calculateStartingHP(className: DndClass, constitutionModifier: number): number {
+  const classDef = classDefinitions[className];
+  return classDef.hitDie + constitutionModifier;
+}
+
+// Calculate HP gain on level up (average method)
+export function calculateLevelUpHP(className: DndClass, constitutionModifier: number): number {
+  const classDef = classDefinitions[className];
+  const averageRoll = Math.floor(classDef.hitDie / 2) + 1;
+  return averageRoll + constitutionModifier;
+}
+
+// Calculate ability modifier from score
+export function getAbilityModifier(score: number): number {
+  return Math.floor((score - 10) / 2);
+}
+
+// Proficiency bonus by level
+export function getProficiencyBonus(level: number): number {
+  return Math.floor((level - 1) / 4) + 2;
+}
