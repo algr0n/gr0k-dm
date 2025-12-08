@@ -314,9 +314,9 @@ export const unifiedCharacters = pgTable("unified_characters", {
     charisma?: number;
     [key: string]: unknown;
   }>(),
-  skills: jsonb("skills").$type<string[]>().default([]),
-  proficiencies: jsonb("proficiencies").$type<string[]>().default([]),
-  spells: jsonb("spells").$type<string[]>().default([]),
+  skills: text("skills").array().default([]),
+  proficiencies: text("proficiencies").array().default([]),
+  spells: text("spells").array().default([]),
   hitDice: text("hit_dice"),
   maxHp: integer("max_hp").notNull().default(10),
   currentHp: integer("current_hp").notNull().default(10),
