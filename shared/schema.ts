@@ -1267,3 +1267,75 @@ export function isSpellcaster(className: string): boolean {
   const normalizedClass = className.toLowerCase();
   return ["bard", "cleric", "druid", "sorcerer", "wizard", "warlock", "paladin", "ranger"].includes(normalizedClass);
 }
+
+// =============================================================================
+// Skill Bonus Calculation Helper
+// =============================================================================
+
+export interface SkillBonus {
+  skillName: DndSkill;
+  ability: string;
+  abilityModifier: number;
+  isProficient: boolean;
+  hasExpertise: boolean;
+  totalBonus: number;
+}
+
+export interface SkillBonusOptions {
+  stats: Record<string, number | unknown>;
+  skills: string[];
+  level: number;
+  className?: string;
+  expertise?: string[];
+}
+
+/**
+ * Build skill bonuses for all D&D 5e skills based on character data.
+ * Takes into account ability modifiers, proficiency, expertise, and class features.
+ */
+export function buildSkillStats(options: SkillBonusOptions): Record<DndSkill, SkillBonus> {
+  const { stats, skills, level, className, expertise = [] } = options;
+  const proficiencyBonus = getProficiencyBonus(level);
+  
+  const result = {} as Record<DndSkill, SkillBonus>;
+  
+  for (const skillName of dndSkills) {
+    const ability = skillAbilityMap[skillName];
+    const abilityScore = typeof stats[ability] === 'number' ? stats[ability] as number : 10;
+    const abilityModifier = getAbilityModifier(abilityScore);
+    const isProficient = skills.includes(skillName);
+    const hasExpertise = expertise.includes(skillName);
+    
+    let totalBonus = abilityModifier;
+    
+    if (hasExpertise && isProficient) {
+      totalBonus += proficiencyBonus * 2;
+    } else if (isProficient) {
+      totalBonus += proficiencyBonus;
+    } else if (className?.toLowerCase() === 'bard' && level >= 2) {
+      totalBonus += Math.floor(proficiencyBonus / 2);
+    }
+    
+    result[skillName] = {
+      skillName,
+      ability,
+      abilityModifier,
+      isProficient,
+      hasExpertise,
+      totalBonus,
+    };
+  }
+  
+  return result;
+}
+
+/**
+ * Get skill bonus for a single skill
+ */
+export function getSkillBonus(
+  skillName: DndSkill,
+  options: SkillBonusOptions
+): SkillBonus {
+  const allSkills = buildSkillStats(options);
+  return allSkills[skillName];
+}
