@@ -6,6 +6,6 @@ services:
     region: oregon
     plan: free
     buildCommand: npm install
-    startCommand: npx drizzle-kit push --preview
+    startCommand: npx drizzle-kit push --force
     envVars:
 
