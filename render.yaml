@@ -10,5 +10,5 @@ services:
     envVars:
       DATABASE_URL:
         fromDatabase:
-          name: gr0k-dm-db
+          name: gr0k-dm-db   # ← must match EXACTLY (lowercase "db")
           property: connectionString
