@@ -2,6 +2,34 @@
 
 > **Note**: This is a browser-based TTRPG platform powered by Grok AI, not a Discord bot.
 
+## Getting Started
+
+For comprehensive project documentation, see:
+- [DESIGN_DOCUMENT.md](../DESIGN_DOCUMENT.md) - Complete architecture and design details
+- [QUICK_REFERENCE.md](../QUICK_REFERENCE.md) - Quick overview and environment setup
+- [design_guidelines.md](../design_guidelines.md) - UI/UX design specifications
+
+### Environment Setup
+
+Required environment variables (see QUICK_REFERENCE.md for details):
+- `TURSO_DATABASE_URL` - Turso database connection URL
+- `TURSO_AUTH_TOKEN` - Turso authentication token
+- `XAI_API_KEY` - xAI Grok API key for AI integration
+- `SESSION_SECRET` - Express session secret (random string)
+- `GCP_SERVICE_ACCOUNT_KEY` - Google Cloud Storage credentials (optional)
+- `NODE_ENV` - Set to `development` or `production`
+- `PORT` - Server port (default: 5000)
+
+### Quick Start
+
+```bash
+npm install             # Install dependencies
+npm run dev             # Start development server with HMR
+npm run check           # TypeScript type checking
+npm run build           # Build for production
+npm run db:push         # Push database schema changes
+```
+
 ## Project Overview
 
 Grok DM is an AI-powered Dungeon Master platform for tabletop role-playing games (TTRPG). Players create or join game rooms directly in the browser, where Grok AI serves as an intelligent Dungeon Master that narrates stories, manages combat, interprets dice rolls, and brings adventures to life.
@@ -137,10 +165,14 @@ When adding new game system features, ensure compatibility across all systems or
 
 ## Testing Guidelines
 
+**Current Status**: The project currently has no automated test suite. When adding tests:
+
 - Write tests for critical business logic (dice rolling, game state)
 - Mock external dependencies (database, AI API)
 - Use descriptive test names that explain the scenario
 - Test error cases and edge cases, not just happy paths
+- Consider using Vitest for unit tests and React Testing Library for component tests
+- Add test scripts to package.json when implementing tests
 
 ## Common Tasks
 
@@ -195,3 +227,29 @@ Prefer simple, everyday language in code comments and documentation. Avoid overl
 - Check that existing functionality still works
 - Review database queries for performance
 - Verify AI integration still works if modified
+
+## Troubleshooting
+
+### Common Issues
+
+- **TypeScript errors**: Run `npm run check` to identify type issues
+- **Database connection issues**: Verify `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are set correctly
+- **AI responses not working**: Check `XAI_API_KEY` is valid and you have API credits
+- **WebSocket connection failures**: Ensure no firewall blocking and server is running on correct port
+- **Build failures**: Clear `node_modules` and `dist` directories, then run `npm install` and `npm run build`
+
+### Development Tips
+
+- Use browser DevTools Network tab to debug WebSocket connections
+- Check server console logs for API errors and stack traces
+- Use React DevTools to inspect component state and props
+- Monitor database queries in development using Drizzle's logging
+- Test with multiple browser tabs to simulate multiplayer scenarios
+
+## Contribution Workflow
+
+1. **Branch naming**: Use descriptive names (e.g., `feat/character-spells`, `fix/dice-rolling`)
+2. **Commit messages**: Use conventional commit format (e.g., `feat:`, `fix:`, `docs:`)
+3. **Pull requests**: Include description of changes, testing performed, and any breaking changes
+4. **Code review**: Address feedback promptly and keep changes focused
+5. **Documentation**: Update relevant docs when changing functionality
