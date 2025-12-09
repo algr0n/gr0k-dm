@@ -688,15 +688,29 @@ async function grantStartingItems(
     const classKey = (characterClass || "default").toLowerCase();
     const itemIds = dndStartingItems[classKey] || dndStartingItems.default;
     
+    console.log(`[grantStartingItems] Granting starting items`, {
+      savedCharacterId,
+      gameSystem,
+      characterClass: characterClass || "default",
+      itemCount: itemIds.length
+    });
+
     for (const itemId of itemIds) {
+      const quantity = itemId === "rations-1-day" ? 5 : itemId === "torch" ? 5 : 1;
       try {
         await storage.addToSavedInventory({
           characterId: savedCharacterId,
           itemId,
-          quantity: itemId === "rations-1-day" ? 5 : itemId === "torch" ? 5 : 1,
+          quantity,
         });
       } catch (error) {
-        console.error(`Failed to add starting item ${itemId}:`, error);
+        console.error(`[grantStartingItems] Failed to add starting item`, {
+          savedCharacterId,
+          characterClass: characterClass || "default",
+          itemId,
+          quantity,
+          error: error instanceof Error ? error.message : String(error)
+        });
       }
     }
   }

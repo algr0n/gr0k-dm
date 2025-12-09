@@ -560,6 +560,32 @@ class DatabaseStorage implements IStorage {
   }
 
   async addToSavedInventory(insert: InsertSavedInventoryItem): Promise<SavedInventoryItem> {
+    // Validate that the character exists
+    const character = await this.getSavedCharacter(insert.characterId);
+    if (!character) {
+      const errorMsg = `Character not found: ${insert.characterId}`;
+      console.error(`[addToSavedInventory] ${errorMsg}`, {
+        characterId: insert.characterId,
+        itemId: insert.itemId,
+        quantity: insert.quantity || 1
+      });
+      throw new Error(errorMsg);
+    }
+
+    // Validate that the item exists in the master items table
+    const item = await this.getItem(insert.itemId);
+    if (!item) {
+      const errorMsg = `Item not found in items table: ${insert.itemId}`;
+      console.error(`[addToSavedInventory] ${errorMsg}`, {
+        characterId: insert.characterId,
+        characterName: character.characterName,
+        itemId: insert.itemId,
+        quantity: insert.quantity || 1
+      });
+      throw new Error(errorMsg);
+    }
+
+    // Check if the item already exists in the character's inventory
     const existing = await db.query.characterInventoryItems.findFirst({
       where: and(
         eq(characterInventoryItems.characterId, insert.characterId),
@@ -568,17 +594,48 @@ class DatabaseStorage implements IStorage {
     });
 
     if (existing) {
+      const newQuantity = existing.quantity + (insert.quantity || 1);
+      console.log(`[addToSavedInventory] Incrementing existing inventory item`, {
+        characterId: insert.characterId,
+        characterName: character.characterName,
+        itemId: insert.itemId,
+        itemName: item.name,
+        previousQuantity: existing.quantity,
+        addedQuantity: insert.quantity || 1,
+        newQuantity
+      });
       return await db.update(savedInventoryItems)
-        .set({ quantity: existing.quantity + (insert.quantity || 1) })
+        .set({ quantity: newQuantity })
         .where(eq(savedInventoryItems.id, existing.id))
         .returning()
         .then(rows => rows[0]);
     }
 
-    return await db.insert(savedInventoryItems)
-      .values(insert)
-      .returning()
-      .then(rows => rows[0]);
+    // Insert new inventory item
+    console.log(`[addToSavedInventory] Adding new inventory item`, {
+      characterId: insert.characterId,
+      characterName: character.characterName,
+      itemId: insert.itemId,
+      itemName: item.name,
+      quantity: insert.quantity || 1
+    });
+
+    try {
+      return await db.insert(savedInventoryItems)
+        .values(insert)
+        .returning()
+        .then(rows => rows[0]);
+    } catch (error) {
+      console.error(`[addToSavedInventory] Failed to insert inventory item`, {
+        characterId: insert.characterId,
+        characterName: character.characterName,
+        itemId: insert.itemId,
+        itemName: item.name,
+        quantity: insert.quantity || 1,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
   }
 
   async updateSavedInventoryItem(id: string, updates: Partial<SavedInventoryItem>): Promise<SavedInventoryItem | undefined> {
