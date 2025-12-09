@@ -1,12 +1,12 @@
 {
   "version": "7",
-  "dialect": "postgresql",
+  "dialect": "sqlite",
   "entries": [
     {
       "idx": 0,
-      "version": "7",
-      "when": 1765099442125,
-      "tag": "0000_brief_ben_parker",
+      "version": "6",
+      "when": 1765243516945,
+      "tag": "0000_familiar_inertia",
       "breakpoints": true
     }
   ]
