@@ -112,9 +112,419 @@ export interface Storage {
   [key: string]: any;
 }
 
-// If this file contained an implementation, ensure it matches the Storage interface.
-// If the concrete implementation lives in another module, export it as `storage` from there.
-// To keep build-time type checking consistent, we declare an exported storage value here.
-// Replace the following `declare` with a real implementation if you move this interface only.
-declare const storage: Storage;
-export { storage };
+// DatabaseStorage: Concrete implementation of the Storage interface using Drizzle ORM
+import { db } from "./db";
+import { randomUUID } from "crypto";
+import { 
+  rooms, players, diceRolls, items, spells,
+  savedCharacters, characterInventoryItems, characterStatusEffects, users,
+} from "@shared/schema";
+import type { 
+  Room, Player, DiceRollRecord, Item, Spell,
+  SavedCharacter, InsertSavedCharacter,
+  SavedInventoryItem, InsertInventoryItem,
+  CharacterInventoryItemWithDetails, User, InsertUser
+} from "@shared/schema";
+import { eq, and, like, desc, sql, lt } from "drizzle-orm";
+
+class DatabaseStorage implements Storage {
+  // ==============================================================================
+  // Rooms
+  // ==============================================================================
+  async createRoom(room: any): Promise<Room> {
+    const id = randomUUID();
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const [created] = await db.insert(rooms).values({
+      ...room,
+      id,
+      code,
+    }).returning();
+    return created;
+  }
+
+  async getRoom(id: string): Promise<Room | undefined> {
+    return await db.query.rooms.findFirst({ where: eq(rooms.id, id) });
+  }
+
+  async getRoomByCode(code: string): Promise<Room | undefined> {
+    return await db.query.rooms.findFirst({ where: eq(rooms.code, code) });
+  }
+
+  async updateRoom(id: string, updates: Partial<Room>): Promise<Room | undefined> {
+    const [updated] = await db.update(rooms)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(rooms.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteRoom(id: string): Promise<boolean> {
+    await db.delete(rooms).where(eq(rooms.id, id));
+    return true;
+  }
+
+  async getPublicRooms(gameSystem?: string): Promise<Array<Room & { playerCount: number }>> {
+    const query = db.select({
+      room: rooms,
+      playerCount: sql<number>`count(${players.id})`,
+    })
+      .from(rooms)
+      .leftJoin(players, eq(rooms.id, players.roomId))
+      .where(
+        and(
+          eq(rooms.isPublic, true),
+          eq(rooms.isActive, true),
+          gameSystem ? eq(rooms.gameSystem, gameSystem) : undefined
+        )
+      )
+      .groupBy(rooms.id);
+    
+    const results = await query;
+    return results.map(r => ({ ...r.room, playerCount: r.playerCount }));
+  }
+
+  async updateRoomActivity(id: string): Promise<Room | undefined> {
+    return await this.updateRoom(id, { lastActivityAt: new Date() });
+  }
+
+  async deleteRoomWithAllData(roomId: string): Promise<boolean> {
+    // Cascade delete should handle related data
+    await this.deleteRoom(roomId);
+    return true;
+  }
+
+  async getStaleInactiveRooms(hoursOld: number): Promise<Room[]> {
+    const cutoffDate = new Date(Date.now() - hoursOld * 60 * 60 * 1000);
+    return await db.select().from(rooms)
+      .where(
+        and(
+          eq(rooms.isActive, false),
+          lt(rooms.lastActivityAt, cutoffDate)
+        )
+      );
+  }
+
+  // ==============================================================================
+  // Players
+  // ==============================================================================
+  async getPlayer(id: string): Promise<Player | undefined> {
+    return await db.query.players.findFirst({ where: eq(players.id, id) });
+  }
+
+  async getPlayersByRoom(roomId: string): Promise<Player[]> {
+    return await db.select().from(players).where(eq(players.roomId, roomId));
+  }
+
+  async createPlayer(player: any): Promise<Player> {
+    const id = randomUUID();
+    const [created] = await db.insert(players).values({ ...player, id }).returning();
+    return created;
+  }
+
+  async deletePlayer(id: string): Promise<boolean> {
+    await db.delete(players).where(eq(players.id, id));
+    return true;
+  }
+
+  async deletePlayersByRoom(roomId: string): Promise<boolean> {
+    await db.delete(players).where(eq(players.roomId, roomId));
+    return true;
+  }
+
+  // ==============================================================================
+  // Dice Rolls
+  // ==============================================================================
+  async getDiceRollsByRoom(roomId: string): Promise<DiceRollRecord[]> {
+    return await db.select().from(diceRolls).where(eq(diceRolls.roomId, roomId));
+  }
+
+  async createDiceRoll(roll: any): Promise<DiceRollRecord> {
+    const id = randomUUID();
+    const [created] = await db.insert(diceRolls).values({ ...roll, id }).returning();
+    return created;
+  }
+
+  async deleteDiceRollsByRoom(roomId: string): Promise<boolean> {
+    await db.delete(diceRolls).where(eq(diceRolls.roomId, roomId));
+    return true;
+  }
+
+  // ==============================================================================
+  // Items
+  // ==============================================================================
+  async getItem(id: string): Promise<Item | undefined> {
+    return await db.query.items.findFirst({ where: eq(items.id, id) });
+  }
+
+  async getItemByName(name: string): Promise<Item | undefined> {
+    return await db.query.items.findFirst({ where: eq(items.name, name) });
+  }
+
+  async getItems(category?: string, rarity?: string): Promise<Item[]> {
+    return await db.select().from(items).where(
+      and(
+        category ? eq(items.category, category) : undefined,
+        rarity ? eq(items.rarity, rarity) : undefined
+      )
+    );
+  }
+
+  async getAllItems(): Promise<Item[]> {
+    return await db.select().from(items);
+  }
+
+  async searchItems(query: string): Promise<Item[]> {
+    return await db.select().from(items)
+      .where(like(items.name, `%${query}%`))
+      .limit(50);
+  }
+
+  async createItem(item: {
+    id: string;
+    name: string;
+    category: string;
+    type: string;
+    description: string;
+    rarity?: string;
+    gameSystem?: string;
+  }): Promise<Item> {
+    const [created] = await db.insert(items).values(item).returning();
+    return created;
+  }
+
+  // ==============================================================================
+  // Saved Characters (Unified Characters)
+  // ==============================================================================
+  async getSavedCharactersByUser(userId: string): Promise<SavedCharacter[]> {
+    return await db.select().from(savedCharacters)
+      .where(eq(savedCharacters.userId, userId))
+      .orderBy(desc(savedCharacters.updatedAt));
+  }
+
+  async getSavedCharacter(id: string): Promise<SavedCharacter | undefined> {
+    return await db.query.savedCharacters.findFirst({ where: eq(savedCharacters.id, id) });
+  }
+
+  async createSavedCharacter(character: InsertSavedCharacter): Promise<SavedCharacter> {
+    const id = randomUUID();
+    const [created] = await db.insert(savedCharacters).values({ ...character, id }).returning();
+    return created;
+  }
+
+  async updateSavedCharacter(id: string, updates: Partial<SavedCharacter>): Promise<SavedCharacter | undefined> {
+    const [updated] = await db.update(savedCharacters)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(savedCharacters.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteSavedCharacter(id: string): Promise<boolean> {
+    await db.delete(savedCharacters).where(eq(savedCharacters.id, id));
+    return true;
+  }
+
+  // ==============================================================================
+  // Unified Character Room Operations
+  // ==============================================================================
+  async getCharactersByRoomCode(roomCode: string): Promise<SavedCharacter[]> {
+    return await db.select().from(savedCharacters)
+      .where(eq(savedCharacters.currentRoomCode, roomCode));
+  }
+
+  async getCharacterByUserInRoom(userId: string, roomCode: string): Promise<SavedCharacter | undefined> {
+    return await db.query.savedCharacters.findFirst({
+      where: and(
+        eq(savedCharacters.userId, userId),
+        eq(savedCharacters.currentRoomCode, roomCode)
+      )
+    });
+  }
+
+  async joinRoom(characterId: string, roomCode: string): Promise<SavedCharacter | undefined> {
+    return await this.updateSavedCharacter(characterId, { currentRoomCode: roomCode });
+  }
+
+  async leaveRoom(characterId: string): Promise<SavedCharacter | undefined> {
+    return await this.updateSavedCharacter(characterId, { currentRoomCode: null });
+  }
+
+  async leaveAllCharactersFromRoom(roomCode: string): Promise<boolean> {
+    await db.update(savedCharacters)
+      .set({ currentRoomCode: null })
+      .where(eq(savedCharacters.currentRoomCode, roomCode));
+    return true;
+  }
+
+  // ==============================================================================
+  // Saved Inventory
+  // ==============================================================================
+  async getSavedInventoryByCharacter(characterId: string): Promise<SavedInventoryItem[]> {
+    return await db.select().from(characterInventoryItems)
+      .where(eq(characterInventoryItems.characterId, characterId));
+  }
+
+  async getSavedInventoryWithDetails(characterId: string): Promise<(SavedInventoryItem & { item: Item })[]> {
+    return await db.query.characterInventoryItems.findMany({
+      where: eq(characterInventoryItems.characterId, characterId),
+      with: { item: true }
+    });
+  }
+
+  async getInventoryWithDetails(characterId: string): Promise<(SavedInventoryItem & { item: Item })[]> {
+    return await this.getSavedInventoryWithDetails(characterId);
+  }
+
+  async addToInventory(insert: InsertInventoryItem): Promise<SavedInventoryItem> {
+    return await this.addToSavedInventory(insert);
+  }
+
+  async addToSavedInventory(insert: { characterId: string; itemId: string; quantity?: number }): Promise<SavedInventoryItem> {
+    // Check if item already exists
+    const existing = await db.query.characterInventoryItems.findFirst({
+      where: and(
+        eq(characterInventoryItems.characterId, insert.characterId),
+        eq(characterInventoryItems.itemId, insert.itemId)
+      )
+    });
+
+    if (existing) {
+      // Update existing item quantity
+      const [updated] = await db.update(characterInventoryItems)
+        .set({ 
+          quantity: existing.quantity + (insert.quantity || 1),
+          updatedAt: new Date()
+        })
+        .where(eq(characterInventoryItems.id, existing.id))
+        .returning();
+      return updated;
+    }
+
+    // Create new inventory item
+    const id = randomUUID();
+    const [created] = await db.insert(characterInventoryItems).values({ ...insert, id }).returning();
+    return created;
+  }
+
+  async updateSavedInventoryItem(id: string, updates: Partial<SavedInventoryItem>): Promise<SavedInventoryItem | undefined> {
+    const [updated] = await db.update(characterInventoryItems)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(characterInventoryItems.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteSavedInventoryItem(id: string): Promise<boolean> {
+    await db.delete(characterInventoryItems).where(eq(characterInventoryItems.id, id));
+    return true;
+  }
+
+  // ==============================================================================
+  // Status Effects
+  // ==============================================================================
+  async createStatusEffect(effect: any): Promise<any> {
+    const id = randomUUID();
+    const [created] = await db.insert(characterStatusEffects).values({ ...effect, id }).returning();
+    return created;
+  }
+
+  async getStatusEffectsByCharacter(characterId: string): Promise<any[]> {
+    return await db.select().from(characterStatusEffects)
+      .where(eq(characterStatusEffects.characterId, characterId));
+  }
+
+  async getCharacterStatusEffects(characterId: string): Promise<any[]> {
+    return await this.getStatusEffectsByCharacter(characterId);
+  }
+
+  async deleteStatusEffect(id: string): Promise<boolean> {
+    await db.delete(characterStatusEffects).where(eq(characterStatusEffects.id, id));
+    return true;
+  }
+
+  async deleteStatusEffectsByCharacter(characterId: string): Promise<boolean> {
+    await db.delete(characterStatusEffects).where(eq(characterStatusEffects.characterId, characterId));
+    return true;
+  }
+
+  async addStatusEffect(effect: any): Promise<any> {
+    return await this.createStatusEffect(effect);
+  }
+
+  async removeStatusEffect(id: string): Promise<boolean> {
+    return await this.deleteStatusEffect(id);
+  }
+
+  // ==============================================================================
+  // Users
+  // ==============================================================================
+  async getUser(id: string): Promise<User | undefined> {
+    return await db.query.users.findFirst({ where: eq(users.id, id) });
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return await db.query.users.findFirst({ where: eq(users.username, username) });
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    const id = randomUUID();
+    const [created] = await db.insert(users).values({ ...user, id }).returning();
+    return created;
+  }
+
+  async updateUserProfile(id: string, updates: Partial<User>): Promise<User | undefined> {
+    const [updated] = await db.update(users)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(users.id, id))
+      .returning();
+    return updated;
+  }
+
+  // ==============================================================================
+  // Spells
+  // ==============================================================================
+  async searchSpells(query: string): Promise<Spell[]> {
+    return await db.select().from(spells)
+      .where(like(spells.name, `%${query}%`))
+      .limit(50);
+  }
+
+  async getSpells(level?: number, school?: string, classFilter?: string): Promise<Spell[]> {
+    let query = db.select().from(spells);
+    
+    const conditions = [];
+    if (level !== undefined) {
+      conditions.push(eq(spells.level, level));
+    }
+    if (school) {
+      conditions.push(eq(spells.school, school));
+    }
+    
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as any;
+    }
+
+    const results = await query;
+
+    // Filter by class if provided (classes stored as JSON array)
+    if (classFilter) {
+      return results.filter(spell => 
+        spell.classes.some((c: string) => c.toLowerCase() === classFilter.toLowerCase())
+      );
+    }
+
+    return results;
+  }
+
+  async getSpell(id: string): Promise<Spell | undefined> {
+    return await db.query.spells.findFirst({ where: eq(spells.id, id) });
+  }
+
+  // ==============================================================================
+  // Index signature for additional helpers
+  // ==============================================================================
+  [key: string]: any;
+}
+
+// Export a singleton instance
+export const storage = new DatabaseStorage();
