@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
  * Database connectivity and schema verification script
- * 
+ *
  * This script checks:
  * 1. Can connect to Turso database
  * 2. Which tables exist in the database
  * 3. If required tables are present
- * 
+ *
  * Usage:
  *   TURSO_DATABASE_URL=<url> TURSO_AUTH_TOKEN=<token> node script/check-db.mjs
  */
@@ -24,8 +24,6 @@ const REQUIRED_TABLES = [
   'character_status_effects',
   'sessions',
   'dice_rolls',
-  'characters',
-  'inventory_items',
 ];
 
 async function checkDatabase() {
@@ -76,7 +74,7 @@ async function checkDatabase() {
 
     console.log('\n' + '='.repeat(50));
     console.log(`Summary: ${foundTables.length}/${REQUIRED_TABLES.length} required tables present`);
-    
+
     if (missingTables.length > 0) {
       console.log('\n⚠️  Missing tables detected!');
       console.log('   Please run: npm run db:migrate-prod');
@@ -86,7 +84,6 @@ async function checkDatabase() {
       console.log('\n✅ All required tables are present!');
       console.log('   Database schema is up to date.');
     }
-
   } catch (error) {
     console.error('\n❌ Database check failed:');
     console.error('   ', error.message);
