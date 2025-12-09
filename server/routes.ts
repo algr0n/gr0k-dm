@@ -5,7 +5,7 @@ import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { parseDiceExpression } from "./dice";
 import { generateDMResponse, generateBatchedDMResponse, generateStartingScene, generateCombatDMTurn, type CharacterInfo, type BatchedMessage, type DroppedItemInfo, getTokenUsage } from "./grok";
-import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, insertSavedCharacterSchema, updateUserProfileSchema, type Message, type Character, type InventoryItem, type InsertInventoryItem, itemCategoryEnum, itemRarityEnum, type SavedCharacter, getLevelFromXP, calculateLevelUpHP, getAbilityModifier, classDefinitions, type DndClass } from "@shared/schema";
+import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, insertSavedCharacterSchema, updateUserProfileSchema, type Message, type Character, type InventoryItem, type InsertInventoryItem, itemCategories, itemRarities, type SavedCharacter, getLevelFromXP, calculateLevelUpHP, getAbilityModifier, classDefinitions, type DndClass } from "@shared/schema";
 import { setupAuth, isAuthenticated, getSession } from "./auth";
 import passport from "passport";
 

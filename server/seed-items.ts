@@ -1,12 +1,12 @@
 import { db } from "./db";
-import { items, itemCategoryEnum, itemRarityEnum } from "@shared/schema";
+import { items, itemCategories, itemRarities } from "@shared/schema";
 import { eq } from "drizzle-orm";
 
 // Unit conversion: gp=100cp, sp=10cp, cp=1
 const UNIT_TO_CP: Record<string, number> = { gp: 100, sp: 10, cp: 1 };
 
 // Category mapping (simplified from API)
-const API_TO_CATEGORY: Partial<Record<string, typeof itemCategoryEnum.enumValues[number]>> = {
+const API_TO_CATEGORY: Partial<Record<string, typeof itemCategories[number]>> = {
   "ammunition": "ammunition",
   "armor": "armor",
   "potion": "potion",

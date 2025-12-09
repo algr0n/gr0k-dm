@@ -17,7 +17,7 @@ import { eq, desc, and, lt, sql, count, isNotNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { 
   items, Item,
-  itemCategoryEnum, itemRarityEnum,
+  itemCategories, itemRarities,
   spells, type Spell
 } from "@shared/schema";
 import { ilike } from "drizzle-orm";
