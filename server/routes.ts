@@ -1406,7 +1406,9 @@ export async function registerRoutes(
       
       res.json({ ...room, hostPlayer });
     } catch (error) {
-      res.status(400).json({ error: "Invalid room data" });
+      console.error("Error creating room:", error);
+      const errorMessage = error instanceof Error ? error.message : "Invalid room data";
+      res.status(400).json({ error: errorMessage });
     }
   });
 
