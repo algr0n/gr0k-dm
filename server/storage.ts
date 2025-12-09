@@ -17,7 +17,7 @@ import { eq, desc, and, lt, sql, count, isNotNull } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { 
   items, Item,
-  itemCategoryEnum, itemRarityEnum,
+  itemCategories, itemRarities,
   spells, type Spell
 } from "@shared/schema";
 import { ilike } from "drizzle-orm";
@@ -84,10 +84,10 @@ export interface IStorage {
   // Items
   getItem(id: string): Promise<Item | undefined>;
   getItemByName(name: string): Promise<Item | undefined>;
-  getItems(category?: typeof itemCategoryEnum.enumValues[number], rarity?: typeof itemRarityEnum.enumValues[number]): Promise<Item[]>;
+  getItems(category?: typeof itemCategories[number], rarity?: typeof itemRarities[number]): Promise<Item[]>;
   getAllItems(): Promise<Item[]>;
   searchItems(query: string): Promise<Item[]>;
-  createItem(item: { id: string; name: string; category: typeof itemCategoryEnum.enumValues[number]; type: string; description: string; rarity?: typeof itemRarityEnum.enumValues[number]; gameSystem?: string }): Promise<Item>;
+  createItem(item: { id: string; name: string; category: typeof itemCategories[number]; type: string; description: string; rarity?: typeof itemRarities[number]; gameSystem?: string }): Promise<Item>;
   getInventoryWithDetails(characterId: string): Promise<(InventoryItem & { item: Item })[]>;
   addToInventory(insert: InsertInventoryItem): Promise<InventoryItem>;
 
@@ -395,8 +395,8 @@ class DatabaseStorage implements IStorage {
   }
 
   async getItems(
-    category?: typeof itemCategoryEnum.enumValues[number],
-    rarity?: typeof itemRarityEnum.enumValues[number]
+    category?: typeof itemCategories[number],
+    rarity?: typeof itemRarities[number]
   ): Promise<Item[]> {
     return await db.select().from(items)
       .where(and(
@@ -418,10 +418,10 @@ class DatabaseStorage implements IStorage {
   async createItem(item: { 
     id: string; 
     name: string; 
-    category: typeof itemCategoryEnum.enumValues[number]; 
+    category: typeof itemCategories[number]; 
     type: string; 
     description: string; 
-    rarity?: typeof itemRarityEnum.enumValues[number];
+    rarity?: typeof itemRarities[number];
     gameSystem?: string;
   }): Promise<Item> {
     const result = await db.insert(items)

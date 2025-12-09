@@ -1,11 +1,11 @@
 import type { Config } from "drizzle-kit";
 
 export default {
-  schema: "./schema.ts",
-  out: "./drizzle",
-  dialect: "sqlite",           // ← this is the missing line
-  driver: "turso",             // ← and this one
+  schema: "./shared/schema.ts",
+  out: "./migrations",
+  dialect: "sqlite",
   dbCredentials: {
-    url: ":memory:",
+    url: process.env.TURSO_DATABASE_URL || "file:test.db",
+    authToken: process.env.TURSO_AUTH_TOKEN,
   },
 } satisfies Config;
