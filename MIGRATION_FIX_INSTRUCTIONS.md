@@ -75,7 +75,14 @@ If automated methods don't work, you can apply the SQL manually:
 
 After migration, verify tables exist:
 
-**Option A: Check via code**
+**Quick Check:**
+```bash
+npm run db:check
+```
+
+This will connect to your database and verify all required tables are present.
+
+**Option B: Check via code**
 ```typescript
 // In a test script or console
 import { db } from './server/db';
@@ -85,7 +92,7 @@ const testItems = await db.select().from(items).limit(1);
 console.log('Items table exists:', testItems !== undefined);
 ```
 
-**Option B: Use Turso CLI**
+**Option C: Use Turso CLI**
 ```bash
 turso db shell your-database-name
 .tables
