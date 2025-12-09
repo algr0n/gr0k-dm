@@ -4,8 +4,23 @@ import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
 import { parseDiceExpression } from "./dice";
-import { generateDMResponse, generateBatchedDMResponse, generateStartingScene, generateCombatDMTurn, type CharacterInfo, type BatchedMessage, type DroppedItemInfo, getTokenUsage } from "./grok";
-import { insertRoomSchema, insertCharacterSchema, insertInventoryItemSchema, insertSavedCharacterSchema, updateUserProfileSchema, type Message, type Character, type InventoryItem, type InsertInventoryItem, itemCategories, itemRarities, type SavedCharacter, getLevelFromXP, calculateLevelUpHP, getAbilityModifier, classDefinitions, type DndClass } from "@shared/schema";
+import {
+  generateDMResponse,
+  generateBatchedDMResponse,
+  generateStartingScene,
+  generateCombatDMTurn,
+  type CharacterInfo,
+  type BatchedMessage,
+  type DroppedItemInfo,
+  getTokenUsage,
+} from "./grok";
+import {
+  insertRoomSchema,
+  insertSavedCharacterSchema,
+  updateUserProfileSchema,
+  type Message,
+  type SavedCharacter,
+} from "@shared/schema";
 import { setupAuth, isAuthenticated, getSession } from "./auth";
 import passport from "passport";
 
@@ -61,9 +76,19 @@ const roomDroppedItems = new Map<string, DroppedItem[]>();
 // ============================================================================
 // DM Response Parsing - Extract game actions from AI response tags
 // ============================================================================
-
 interface ParsedGameAction {
-  type: 'hp_change' | 'item_add' | 'item_remove' | 'gold_change' | 'combat_start' | 'combat_end' | 'death_save' | 'stable' | 'dead' | 'status_add' | 'status_remove';
+  type:
+    | "hp_change"
+    | "item_add"
+    | "item_remove"
+    | "gold_change"
+    | "combat_start"
+    | "combat_end"
+    | "death_save"
+    | "stable"
+    | "dead"
+    | "status_add"
+    | "status_remove";
   playerName?: string;
   characterName?: string;
   currentHp?: number;
@@ -78,98 +103,98 @@ interface ParsedGameAction {
 
 function parseDMResponseTags(response: string): ParsedGameAction[] {
   const actions: ParsedGameAction[] = [];
-  
+
   // Parse HP changes: [HP: PlayerName | CurrentHP/MaxHP]
   const hpPattern = /\[HP:\s*([^|]+?)\s*\|\s*(\d+)\s*\/\s*(\d+)\s*\]/gi;
   let match;
   while ((match = hpPattern.exec(response)) !== null) {
     actions.push({
-      type: 'hp_change',
+      type: "hp_change",
       playerName: match[1].trim(),
       currentHp: parseInt(match[2], 10),
       maxHp: parseInt(match[3], 10),
     });
   }
-  
+
   // Parse item additions: [ITEM: PlayerName | ItemName | Quantity]
   const itemAddPattern = /\[ITEM:\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\]/gi;
   while ((match = itemAddPattern.exec(response)) !== null) {
     actions.push({
-      type: 'item_add',
+      type: "item_add",
       playerName: match[1].trim(),
       itemName: match[2].trim(),
       quantity: parseInt(match[3], 10),
     });
   }
-  
+
   // Parse item removals: [REMOVE_ITEM: PlayerName | ItemName | Quantity]
   const itemRemovePattern = /\[REMOVE_ITEM:\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\]/gi;
   while ((match = itemRemovePattern.exec(response)) !== null) {
     actions.push({
-      type: 'item_remove',
+      type: "item_remove",
       playerName: match[1].trim(),
       itemName: match[2].trim(),
       quantity: parseInt(match[3], 10),
     });
   }
-  
+
   // Parse combat state changes
   if (/\[COMBAT_START\]/i.test(response)) {
-    actions.push({ type: 'combat_start' });
+    actions.push({ type: "combat_start" });
   }
   if (/\[COMBAT_END\]/i.test(response)) {
-    actions.push({ type: 'combat_end' });
+    actions.push({ type: "combat_end" });
   }
-  
+
   // Parse death saving throws: [DEATH_SAVES: PlayerName | Successes/Failures]
   const deathSavePattern = /\[DEATH_SAVES:\s*([^|]+?)\s*\|\s*(\d+)\s*\/\s*(\d+)\s*\]/gi;
   while ((match = deathSavePattern.exec(response)) !== null) {
     actions.push({
-      type: 'death_save',
+      type: "death_save",
       playerName: match[1].trim(),
       successes: parseInt(match[2], 10),
       failures: parseInt(match[3], 10),
     });
   }
-  
+
   // Parse stabilized: [STABLE: PlayerName]
   const stablePattern = /\[STABLE:\s*([^\]]+?)\s*\]/gi;
   while ((match = stablePattern.exec(response)) !== null) {
     actions.push({
-      type: 'stable',
+      type: "stable",
       playerName: match[1].trim(),
     });
   }
-  
+
   // Parse death: [DEAD: PlayerName]
   const deadPattern = /\[DEAD:\s*([^\]]+?)\s*\]/gi;
   while ((match = deadPattern.exec(response)) !== null) {
     actions.push({
-      type: 'dead',
+      type: "dead",
       playerName: match[1].trim(),
     });
   }
-  
+
   // Parse status effect additions: [STATUS: PlayerName | EffectName]
   const statusAddPattern = /\[STATUS:\s*([^|]+?)\s*\|\s*([^\]]+?)\s*\]/gi;
   while ((match = statusAddPattern.exec(response)) !== null) {
     actions.push({
-      type: 'status_add',
+      type: "status_add",
       playerName: match[1].trim(),
       statusName: match[2].trim(),
     });
   }
-  
+
   // Parse status effect removals: [REMOVE_STATUS: PlayerName | EffectName]
   const statusRemovePattern = /\[REMOVE_STATUS:\s*([^|]+?)\s*\|\s*([^\]]+?)\s*\]/gi;
   while ((match = statusRemovePattern.exec(response)) !== null) {
     actions.push({
-      type: 'status_remove',
+      type: "status_remove",
       playerName: match[1].trim(),
       statusName: match[2].trim(),
     });
   }
-  
+
   return actions;
 }
 
@@ -189,7 +214,7 @@ interface DetectedGold {
 // Detect gold/GP mentions in natural language
 function detectGoldMentions(response: string): DetectedGold[] {
   const goldResults: DetectedGold[] = [];
-  
+
   // Patterns for gold detection: "10 gp", "10 gold", "10 gold pieces", "receives 50 gold"
   const goldPatterns = [
     /(\d+)\s*(?:gp|gold\s*pieces?|gold)/gi,
@@ -198,9 +223,9 @@ function detectGoldMentions(response: string): DetectedGold[] {
     /finds?\s+(\d+)\s*(?:gp|gold)/gi,
     /(?:has|have)\s+(\d+)\s*(?:gp|gold)/gi,
   ];
-  
+
   const seenAmounts = new Set<number>();
-  
+
   for (const pattern of goldPatterns) {
     let match;
     while ((match = pattern.exec(response)) !== null) {
@@ -211,7 +236,7 @@ function detectGoldMentions(response: string): DetectedGold[] {
       }
     }
   }
-  
+
   return goldResults;
 }
 
@@ -224,71 +249,75 @@ async function detectItemMentions(
   existingItemNames: Set<string>
 ): Promise<DetectedItem[]> {
   const detectedItems: DetectedItem[] = [];
-  
+
   // Get all items from database for matching
   const allItems = await storage.getAllItems();
   if (!allItems || allItems.length === 0) return detectedItems;
-  
+
   // Build item name lookup (lowercase -> original name)
   const itemNameMap = new Map<string, string>();
   for (const item of allItems) {
     itemNameMap.set(item.name.toLowerCase(), item.name);
   }
-  
+
   // ACQUISITION verbs - unambiguous gain verbs that allow stacking existing items
   // Only includes verbs that clearly indicate NEW item acquisition
   const acquisitionPhrases = [
-    'receives?',
-    'gains?',
-    'picks? up',
-    'finds?',
-    'obtains?',
-    'acquires?',
-    'collects?',
-    'loots?',
-    'is awarded',
-    'adds? to (?:inventory|pack)',
-    '(?:picks? up |receives? |finds? |gains? )another',
+    "receives?",
+    "gains?",
+    "picks? up",
+    "finds?",
+    "obtains?",
+    "acquires?",
+    "collects?",
+    "loots?",
+    "is awarded",
+    "adds? to (?:inventory|pack)",
+    "(?:picks? up |receives? |finds? |gains? )another",
   ];
-  
-  // DESCRIPTIVE verbs - only add items if NOT already owned
+
+  // DESCRIPTIVE verbs - only add NEW items if NOT already owned
   // Includes ambiguous verbs that could be descriptions of possession
   const descriptivePhrases = [
-    'has',
-    'have',
-    'carrying',
-    'carries',
-    'holds?',
-    'possesses?',
-    'takes?',
-    'grabs?',
-    'gets?',
-    'gives?',
-    'in (?:your|their|his|her) (?:pack|inventory|bag|backpack|pouch)',
+    "has",
+    "have",
+    "carrying",
+    "carries",
+    "holds?",
+    "possesses?",
+    "takes?",
+    "grabs?",
+    "gets?",
+    "gives?",
+    "in (?:your|their|his|her) (?:pack|inventory|bag|backpack|pouch)",
   ];
-  
+
   const acquisitionPattern = new RegExp(
-    `(?:${acquisitionPhrases.join('|')})\\s+(?:a\\s+|an\\s+|the\\s+|\\d+\\s*x?\\s*)?([a-zA-Z][a-zA-Z\\s'-]+?)(?:\\s*\\(|\\s*,|\\s*\\.|\\s*!|\\s*and\\s|$)`,
-    'gi'
+    `(?:${acquisitionPhrases.join(
+      "|"
+    )})\\s+(?:a\\s+|an\\s+|the\\s+|\\d+\\s*x?\\s*)?([a-zA-Z][a-zA-Z\\s'-]+?)(?:\\s*\\(|\\s*,|\\s*\\.|\\s*!|\\s*and\\s|$)`,
+    "gi"
   );
-  
+
   const descriptivePattern = new RegExp(
-    `(?:${descriptivePhrases.join('|')})\\s+(?:a\\s+|an\\s+|the\\s+|\\d+\\s*x?\\s*)?([a-zA-Z][a-zA-Z\\s'-]+?)(?:\\s*\\(|\\s*,|\\s*\\.|\\s*!|\\s*and\\s|$)`,
-    'gi'
+    `(?:${descriptivePhrases.join(
+      "|"
+    )})\\s+(?:a\\s+|an\\s+|the\\s+|\\d+\\s*x?\\s*)?([a-zA-Z][a-zA-Z\\s'-]+?)(?:\\s*\\(|\\s*,|\\s*\\.|\\s*!|\\s*and\\s|$)`,
+    "gi"
   );
-  
+
   // Quantity patterns like "2x healing potion" or "3 healing potions" - always allow
   const quantityPattern = /(\d+)\s*x?\s+([a-zA-Z][a-zA-Z\s'-]+?)(?:\s*\(|\s*,|\s*\.|\s*!|\s*and\s|$)/gi;
-  
+
   const seenItems = new Set<string>();
-  
+
   // Helper to match and add items
   const matchItem = (potentialItemName: string, quantity: number, allowExisting: boolean): boolean => {
     const lowerPotential = potentialItemName.toLowerCase();
-    
+
     // Skip if it's gold (handled separately)
-    if (lowerPotential.includes('gold') || lowerPotential.includes(' gp')) return false;
-    
+    if (lowerPotential.includes("gold") || lowerPotential.includes(" gp")) return false;
+
     // Try exact match first
     if (itemNameMap.has(lowerPotential)) {
       const originalName = itemNameMap.get(lowerPotential)!;
@@ -301,17 +330,15 @@ async function detectItemMentions(
       }
       return false;
     }
-    
+
     // Try partial match
     for (const [lowerName, originalName] of itemNameMap.entries()) {
       const words = lowerPotential.split(/\s+/);
       const itemWords = lowerName.split(/\s+/);
-      
+
       // Check if main words match (e.g., "holy symbol" matches "holy symbol")
-      const mainWordMatch = words.some(w => 
-        itemWords.some(iw => iw === w && w.length > 3)
-      );
-      
+      const mainWordMatch = words.some((w) => itemWords.some((iw) => iw === w && w.length > 3));
+
       if (mainWordMatch && !seenItems.has(originalName)) {
         if (allowExisting || !existingItemNames.has(originalName.toLowerCase())) {
           seenItems.add(originalName);
@@ -322,7 +349,7 @@ async function detectItemMentions(
     }
     return false;
   };
-  
+
   // Check quantity patterns - these always allow stacking
   let match;
   while ((match = quantityPattern.exec(response)) !== null) {
@@ -330,19 +357,19 @@ async function detectItemMentions(
     const potentialItemName = match[2].trim();
     matchItem(potentialItemName, quantity, true);
   }
-  
+
   // Check acquisition verbs - allow stacking (already-owned items)
   while ((match = acquisitionPattern.exec(response)) !== null) {
     const potentialItemName = match[1].trim();
     matchItem(potentialItemName, 1, true);
   }
-  
+
   // Check descriptive verbs - only add NEW items
   while ((match = descriptivePattern.exec(response)) !== null) {
     const potentialItemName = match[1].trim();
     matchItem(potentialItemName, 1, false);
   }
-  
+
   return detectedItems;
 }
 
@@ -353,29 +380,29 @@ async function parseNaturalLanguageItems(
   existingInventory: string[]
 ): Promise<ParsedGameAction[]> {
   const actions: ParsedGameAction[] = [];
-  const existingItemNames = new Set(existingInventory.map(n => n.toLowerCase()));
-  
+  const existingItemNames = new Set(existingInventory.map((n) => n.toLowerCase()));
+
   // Detect gold mentions
   const goldMentions = detectGoldMentions(response);
   for (const gold of goldMentions) {
     actions.push({
-      type: 'gold_change',
+      type: "gold_change",
       playerName: characterName,
       goldAmount: gold.amount,
     });
   }
-  
+
   // Detect item mentions - acquisition verbs allow stacking, descriptive only add new
   const itemMentions = await detectItemMentions(response, characterName, existingItemNames);
   for (const item of itemMentions) {
     actions.push({
-      type: 'item_add',
+      type: "item_add",
       playerName: characterName,
       itemName: item.itemName,
       quantity: item.quantity,
     });
   }
-  
+
   return actions;
 }
 
@@ -387,28 +414,24 @@ async function executeGameActions(
   const characters = await storage.getCharactersByRoomCode(roomCode);
   const room = await storage.getRoomByCode(roomCode);
   if (!room) return;
-  
+
   const players = await storage.getPlayersByRoom(room.id);
-  
+
   for (const action of actions) {
     try {
       // Find character by player name (case insensitive match)
       const findCharacter = (playerName: string) => {
         // Try to match by player name first
-        const player = players.find(p => 
-          p.name.toLowerCase() === playerName.toLowerCase()
-        );
+        const player = players.find((p) => p.name.toLowerCase() === playerName.toLowerCase());
         if (player) {
-          return characters.find(c => c.userId === player.userId);
+          return characters.find((c) => c.userId === player.userId);
         }
         // Fallback: match by character name
-        return characters.find(c => 
-          c.characterName.toLowerCase() === playerName.toLowerCase()
-        );
+        return characters.find((c) => c.characterName.toLowerCase() === playerName.toLowerCase());
       };
-      
+
       switch (action.type) {
-        case 'hp_change': {
+        case "hp_change": {
           if (!action.playerName || action.currentHp === undefined) break;
           const char = findCharacter(action.playerName);
           if (char) {
@@ -417,7 +440,7 @@ async function executeGameActions(
               maxHp: action.maxHp ?? char.maxHp,
             });
             broadcastFn(roomCode, {
-              type: 'character_update',
+              type: "character_update",
               characterId: char.id,
               updates: { currentHp: action.currentHp, maxHp: action.maxHp ?? char.maxHp },
             });
@@ -425,8 +448,8 @@ async function executeGameActions(
           }
           break;
         }
-        
-        case 'combat_start': {
+
+        case "combat_start": {
           let combatState = roomCombatState.get(roomCode);
           if (!combatState) {
             combatState = { isActive: true, currentTurnIndex: 0, initiatives: [] };
@@ -434,25 +457,25 @@ async function executeGameActions(
             combatState.isActive = true;
           }
           roomCombatState.set(roomCode, combatState);
-          broadcastFn(roomCode, { type: 'combat_update', combat: combatState });
+          broadcastFn(roomCode, { type: "combat_update", combat: combatState });
           console.log(`[DM Action] Combat started in room ${roomCode}`);
           break;
         }
-        
-        case 'combat_end': {
+
+        case "combat_end": {
           const combatState = roomCombatState.get(roomCode);
           if (combatState) {
             combatState.isActive = false;
             combatState.initiatives = [];
             combatState.currentTurnIndex = 0;
             roomCombatState.set(roomCode, combatState);
-            broadcastFn(roomCode, { type: 'combat_update', combat: combatState });
+            broadcastFn(roomCode, { type: "combat_update", combat: combatState });
           }
           console.log(`[DM Action] Combat ended in room ${roomCode}`);
           break;
         }
-        
-        case 'dead': {
+
+        case "dead": {
           if (!action.playerName) break;
           const char = findCharacter(action.playerName);
           if (char) {
@@ -461,7 +484,7 @@ async function executeGameActions(
               currentHp: 0,
             });
             broadcastFn(roomCode, {
-              type: 'character_update',
+              type: "character_update",
               characterId: char.id,
               updates: { isAlive: false, currentHp: 0 },
             });
@@ -469,8 +492,8 @@ async function executeGameActions(
           }
           break;
         }
-        
-        case 'status_add': {
+
+        case "status_add": {
           if (!action.playerName || !action.statusName) break;
           const char = findCharacter(action.playerName);
           if (char) {
@@ -481,7 +504,7 @@ async function executeGameActions(
               appliedByDm: true,
             });
             broadcastFn(roomCode, {
-              type: 'status_effect_added',
+              type: "status_effect_added",
               characterId: char.id,
               statusName: action.statusName,
             });
@@ -489,19 +512,17 @@ async function executeGameActions(
           }
           break;
         }
-        
-        case 'status_remove': {
+
+        case "status_remove": {
           if (!action.playerName || !action.statusName) break;
           const char = findCharacter(action.playerName);
           if (char) {
             const effects = await storage.getCharacterStatusEffects(char.id);
-            const effect = effects.find(e => 
-              e.name.toLowerCase() === action.statusName!.toLowerCase()
-            );
+            const effect = effects.find((e) => e.name.toLowerCase() === action.statusName!.toLowerCase());
             if (effect) {
               await storage.removeStatusEffect(effect.id);
               broadcastFn(roomCode, {
-                type: 'status_effect_removed',
+                type: "status_effect_removed",
                 characterId: char.id,
                 statusName: action.statusName,
               });
@@ -510,15 +531,15 @@ async function executeGameActions(
           }
           break;
         }
-        
-        case 'gold_change': {
+
+        case "gold_change": {
           if (!action.playerName || action.goldAmount === undefined) break;
           const char = findCharacter(action.playerName);
           if (char) {
             const newGold = (char.gold || 0) + action.goldAmount;
             await storage.updateSavedCharacter(char.id, { gold: newGold });
             broadcastFn(roomCode, {
-              type: 'character_update',
+              type: "character_update",
               characterId: char.id,
               updates: { gold: newGold },
             });
@@ -526,26 +547,29 @@ async function executeGameActions(
           }
           break;
         }
-        
-        case 'item_add': {
+
+        case "item_add": {
           if (!action.playerName || !action.itemName) break;
           const char = findCharacter(action.playerName);
           if (char) {
             // Normalize item name: trim and collapse whitespace
-            const normalizedName = action.itemName!.trim().replace(/\s+/g, ' ');
-            
+            const normalizedName = action.itemName!.trim().replace(/\s+/g, " ");
+
             // Efficient lookup by name (case-insensitive)
             let item = await storage.getItemByName(normalizedName);
-            
+
             // If item doesn't exist, create it as a custom DM-created item
             if (!item) {
               // Create a slug from the normalized name, fallback to UUID if empty
-              const slug = normalizedName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+              const slug = normalizedName
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, "-")
+                .replace(/^-|-$/g, "");
               const itemId = slug ? `custom-${slug}` : `custom-${randomUUID().slice(0, 8)}`;
-              
+
               // Check if this custom item already exists (in case of race condition or prior creation)
               item = await storage.getItem(itemId);
-              
+
               if (!item) {
                 try {
                   item = await storage.createItem({
@@ -564,7 +588,7 @@ async function executeGameActions(
                 }
               }
             }
-            
+
             if (item) {
               await storage.addToSavedInventory({
                 characterId: char.id,
@@ -572,9 +596,9 @@ async function executeGameActions(
                 quantity: action.quantity || 1,
               });
               broadcastFn(roomCode, {
-                type: 'inventory_update',
+                type: "inventory_update",
                 characterId: char.id,
-                action: 'add',
+                action: "add",
                 itemName: item.name,
                 quantity: action.quantity || 1,
               });
@@ -583,16 +607,14 @@ async function executeGameActions(
           }
           break;
         }
-        
-        case 'item_remove': {
+
+        case "item_remove": {
           if (!action.playerName || !action.itemName) break;
           const char = findCharacter(action.playerName);
           if (char) {
             // Get character's inventory and find the item
             const inventory = await storage.getSavedInventoryWithDetails(char.id);
-            const invItem = inventory.find(i => 
-              i.item.name.toLowerCase() === action.itemName!.toLowerCase()
-            );
+            const invItem = inventory.find((i) => i.item.name.toLowerCase() === action.itemName!.toLowerCase());
             if (invItem) {
               const removeQty = action.quantity || 1;
               if (invItem.quantity <= removeQty) {
@@ -605,9 +627,9 @@ async function executeGameActions(
                 });
               }
               broadcastFn(roomCode, {
-                type: 'inventory_update',
+                type: "inventory_update",
                 characterId: char.id,
-                action: 'remove',
+                action: "remove",
                 itemName: action.itemName,
                 quantity: removeQty,
               });
@@ -618,14 +640,14 @@ async function executeGameActions(
           }
           break;
         }
-        
-        case 'death_save': {
+
+        case "death_save": {
           if (!action.playerName) break;
           const char = findCharacter(action.playerName);
           if (char) {
             // Broadcast death save status update
             broadcastFn(roomCode, {
-              type: 'death_save_update',
+              type: "death_save_update",
               characterId: char.id,
               playerName: action.playerName,
               successes: action.successes || 0,
@@ -635,8 +657,8 @@ async function executeGameActions(
           }
           break;
         }
-        
-        case 'stable': {
+
+        case "stable": {
           if (!action.playerName) break;
           const char = findCharacter(action.playerName);
           if (char) {
@@ -646,7 +668,7 @@ async function executeGameActions(
               isAlive: true,
             });
             broadcastFn(roomCode, {
-              type: 'character_update',
+              type: "character_update",
               characterId: char.id,
               updates: { currentHp: 0, isAlive: true, isStable: true },
             });
@@ -679,74 +701,53 @@ const dndStartingItems: Record<string, string[]> = {
 };
 
 // Helper function to grant starting items to a saved character (permanent inventory)
-async function grantStartingItems(
-  savedCharacterId: string,
-  gameSystem: string,
-  characterClass: string | null | undefined
-): Promise<void> {
+async function grantStartingItems(savedCharacterId: string, gameSystem: string, characterClass: string | null | undefined): Promise<void> {
   if (gameSystem === "dnd") {
     const classKey = (characterClass || "default").toLowerCase();
     const itemIds = dndStartingItems[classKey] || dndStartingItems.default;
-    
-    console.log(`[grantStartingItems] Granting starting items`, {
-      savedCharacterId,
-      gameSystem,
-      characterClass: characterClass || "default",
-      itemCount: itemIds.length
-    });
 
     for (const itemId of itemIds) {
-      const quantity = itemId === "rations-1-day" ? 5 : itemId === "torch" ? 5 : 1;
       try {
         await storage.addToSavedInventory({
           characterId: savedCharacterId,
           itemId,
-          quantity,
+          quantity: itemId === "rations-1-day" ? 5 : itemId === "torch" ? 5 : 1,
         });
       } catch (error) {
-        console.error(`[grantStartingItems] Failed to add starting item`, {
-          savedCharacterId,
-          characterClass: characterClass || "default",
-          itemId,
-          quantity,
-          error: error instanceof Error ? error.message : String(error)
-        });
+        console.error(`Failed to add starting item ${itemId}:`, error);
       }
     }
   }
   // Cyberpunk items would go here when added to the items table
 }
 
-export async function registerRoutes(
-  httpServer: Server,
-  app: Express
-): Promise<Server> {
+export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   const wss = new WebSocketServer({ noServer: true });
   const sessionMiddleware = getSession();
 
   // Handle WebSocket upgrade manually to avoid conflicts with Vite HMR
   httpServer.on("upgrade", (request, socket, head) => {
     const pathname = request.url?.split("?")[0];
-    
+
     // Skip Vite HMR connections
     if (pathname === "/vite-hmr") {
       return; // Let Vite handle this
     }
-    
+
     // Create mock request/response for session parsing
     const mockReq = request as any;
-    const mockRes = { 
-      setHeader: () => {}, 
+    const mockRes = {
+      setHeader: () => {},
       end: () => {},
-      getHeader: () => undefined 
+      getHeader: () => undefined,
     } as any;
-    
+
     // Parse session to get authenticated user
     sessionMiddleware(mockReq, mockRes, () => {
       passport.initialize()(mockReq, mockRes, () => {
         passport.session()(mockReq, mockRes, async () => {
           const user = mockReq.user as Express.User | undefined;
-          
+
           // Reject unauthenticated connections
           if (!user?.id) {
             console.log("[WebSocket] Rejecting unauthenticated connection");
@@ -754,19 +755,19 @@ export async function registerRoutes(
             socket.destroy();
             return;
           }
-          
+
           const userId = user.id;
           const playerName = user.username || user.email || "Player";
-          
+
           // Verify user is a member of the room by userId
           const urlParams = new URLSearchParams(request.url?.split("?")[1]);
           const roomCode = urlParams.get("room") || urlParams.get("roomCode");
-          
+
           if (roomCode) {
             const room = await storage.getRoomByCode(roomCode);
             if (room) {
               const players = await storage.getPlayersByRoom(room.id);
-              const isRoomMember = players.some(p => p.userId === userId);
+              const isRoomMember = players.some((p) => p.userId === userId);
               if (!isRoomMember) {
                 console.log("[WebSocket] User not a member of room:", roomCode, userId);
                 socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
@@ -775,7 +776,7 @@ export async function registerRoutes(
               }
             }
           }
-          
+
           wss.handleUpgrade(request, socket, head, (ws) => {
             (ws as AuthenticatedWebSocket).userId = userId;
             (ws as AuthenticatedWebSocket).playerName = playerName;
@@ -805,7 +806,7 @@ export async function registerRoutes(
     ws.on("message", async (data) => {
       try {
         const message = JSON.parse(data.toString());
-        
+
         if (message.type === "chat" || message.type === "action") {
           // Queue the message for batch processing
           await queueMessage(roomCode, {
@@ -868,10 +869,7 @@ export async function registerRoutes(
       clearTimeout(batchTimers.get(roomCode)!);
     }
 
-    batchTimers.set(
-      roomCode,
-      setTimeout(() => processBatch(roomCode), BATCH_DELAY_MS)
-    );
+    batchTimers.set(roomCode, setTimeout(() => processBatch(roomCode), BATCH_DELAY_MS));
   }
 
   async function processBatch(roomCode: string) {
@@ -888,13 +886,13 @@ export async function registerRoutes(
     // Get characters for context - use savedCharacters table via roomCode
     const characters = await storage.getCharactersByRoomCode(roomCode);
     const players = await storage.getPlayersByRoom(room.id);
-    
+
     // Build character info with player names and inventory
     const characterInfos: CharacterInfo[] = await Promise.all(
       characters.map(async (char) => {
         // Try to find player name from players list or user record
         let playerName = "Unknown Player";
-        const player = players.find(p => p.userId === char.userId);
+        const player = players.find((p) => p.userId === char.userId);
         if (player) {
           playerName = player.name;
         } else if (char.userId) {
@@ -903,14 +901,14 @@ export async function registerRoutes(
             playerName = user.username || user.email || "Player";
           }
         }
-        
+
         // Fetch character's inventory
         const inventory = await storage.getSavedInventoryWithDetails(char.id);
-        const inventoryItems = inventory.map(i => {
-          const name = i.item?.name || 'unknown item';
+        const inventoryItems = inventory.map((i) => {
+          const name = i.item?.name || "unknown item";
           return i.quantity > 1 ? `${name} x${i.quantity}` : name;
         });
-        
+
         return {
           playerName,
           characterName: char.characterName,
@@ -942,12 +940,7 @@ export async function registerRoutes(
 
     try {
       // Generate batched DM response
-      const dmResponse = await generateBatchedDMResponse(
-        batchedMessages,
-        room,
-        undefined, // playerCount
-        characterInfos
-      );
+      const dmResponse = await generateBatchedDMResponse(batchedMessages, room, undefined, characterInfos);
 
       // Send DM response
       const dmMessage: Message = {
@@ -963,17 +956,17 @@ export async function registerRoutes(
 
       // Parse and execute game actions from DM response tags
       const gameActions = parseDMResponseTags(dmResponse);
-      
+
       // Add natural language item/gold detection only for single-player batches
       // This avoids cross-applying items to all characters in multi-player scenarios
       if (batch.length === 1) {
         const msg = batch[0];
-        const player = players.find(p => p.name === msg.playerName);
+        const player = players.find((p) => p.name === msg.playerName);
         if (player) {
-          const character = characters.find(c => c.userId === player.userId);
+          const character = characters.find((c) => c.userId === player.userId);
           if (character) {
             const inventory = await storage.getSavedInventoryWithDetails(character.id);
-            const inventoryNames = inventory.map(i => i.item?.name || '');
+            const inventoryNames = inventory.map((i) => i.item?.name || "");
             const nlActions = await parseNaturalLanguageItems(dmResponse, character.characterName, inventoryNames);
             if (nlActions.length > 0) {
               console.log(`[NL Detection] Found ${nlActions.length} natural language items/gold for ${character.characterName}`);
@@ -982,7 +975,7 @@ export async function registerRoutes(
           }
         }
       }
-      
+
       if (gameActions.length > 0) {
         console.log(`[DM Response] Found ${gameActions.length} game actions to execute`);
         await executeGameActions(gameActions, roomCode, broadcastToRoom);
@@ -1047,14 +1040,14 @@ export async function registerRoutes(
   app.patch("/api/profile", isAuthenticated, async (req, res) => {
     try {
       const userId = req.user!.id;
-      
+
       const parseResult = updateUserProfileSchema.safeParse(req.body);
       if (!parseResult.success) {
         return res.status(400).json({ error: "Invalid profile data", details: parseResult.error.flatten() });
       }
-      
+
       const { username, customProfileImageUrl } = parseResult.data;
-      
+
       const updates: { username?: string; customProfileImageUrl?: string | null } = {};
       if (username !== undefined) {
         updates.username = username;
@@ -1062,7 +1055,7 @@ export async function registerRoutes(
       if (customProfileImageUrl !== undefined) {
         updates.customProfileImageUrl = customProfileImageUrl;
       }
-      
+
       const user = await storage.updateUserProfile(userId, updates);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
@@ -1078,9 +1071,9 @@ export async function registerRoutes(
   app.post("/api/profile/upload-url", isAuthenticated, async (req, res) => {
     try {
       if (!process.env.PRIVATE_OBJECT_DIR) {
-        return res.status(503).json({ 
+        return res.status(503).json({
           error: "Image uploads not configured",
-          message: "Profile picture uploads are not available. Object storage needs to be set up."
+          message: "Profile picture uploads are not available. Object storage needs to be set up.",
         });
       }
       const { ObjectStorageService } = await import("./objectStorage");
@@ -1098,20 +1091,17 @@ export async function registerRoutes(
     try {
       const userId = req.user!.id;
       const { imageUrl } = req.body;
-      
+
       if (!imageUrl) {
         return res.status(400).json({ error: "imageUrl is required" });
       }
 
       const { ObjectStorageService } = await import("./objectStorage");
       const objectStorageService = new ObjectStorageService();
-      const objectPath = await objectStorageService.trySetObjectEntityAclPolicy(
-        imageUrl,
-        {
-          owner: userId,
-          visibility: "public",
-        }
-      );
+      const objectPath = await objectStorageService.trySetObjectEntityAclPolicy(imageUrl, {
+        owner: userId,
+        visibility: "public",
+      });
 
       const user = await storage.updateUserProfile(userId, { customProfileImageUrl: objectPath });
       res.json({ objectPath, user });
@@ -1155,10 +1145,10 @@ export async function registerRoutes(
       const userId = req.user!.id;
       const parsed = insertSavedCharacterSchema.parse({ ...req.body, userId });
       const character = await storage.createSavedCharacter(parsed);
-      
+
       // Grant starting items to the saved character based on game system and class
       await grantStartingItems(character.id, character.gameSystem, character.class);
-      
+
       res.json(character);
     } catch (error) {
       console.error("Error creating saved character:", error);
@@ -1188,46 +1178,41 @@ export async function registerRoutes(
       if (!existing || existing.userId !== userId) {
         return res.status(404).json({ error: "Character not found" });
       }
-      
+
       // Check if XP update triggers a level up
       let updates = { ...req.body };
       let leveledUp = false;
       let oldLevel = existing.level;
       let newLevel = oldLevel;
-      
+
       if (updates.xp !== undefined && updates.xp !== existing.xp) {
         newLevel = getLevelFromXP(updates.xp);
-        
+
         if (newLevel > oldLevel) {
           leveledUp = true;
           updates.level = newLevel;
-          
+
           // Calculate HP increase for each level gained
           if (existing.class && classDefinitions[existing.class as DndClass]) {
-            const conMod = existing.stats?.constitution 
-              ? getAbilityModifier(existing.stats.constitution as number) 
-              : 0;
-            
+            const conMod = existing.stats?.constitution ? getAbilityModifier(existing.stats.constitution as number) : 0;
+
             let hpGain = 0;
             for (let lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
               hpGain += calculateLevelUpHP(existing.class as DndClass, conMod);
             }
-            
+
             updates.maxHp = (existing.maxHp || 10) + hpGain;
-            updates.currentHp = Math.min(
-              (updates.currentHp ?? existing.currentHp) + hpGain,
-              updates.maxHp
-            );
+            updates.currentHp = Math.min((updates.currentHp ?? existing.currentHp) + hpGain, updates.maxHp);
           }
         }
       }
-      
+
       const character = await storage.updateSavedCharacter(id, updates);
-      res.json({ 
-        ...character, 
-        leveledUp, 
+      res.json({
+        ...character,
+        leveledUp,
         previousLevel: leveledUp ? oldLevel : undefined,
-        newLevel: leveledUp ? newLevel : undefined 
+        newLevel: leveledUp ? newLevel : undefined,
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to update character" });
@@ -1240,20 +1225,20 @@ export async function registerRoutes(
       const { id } = req.params;
       const { xpAmount } = req.body;
       const userId = req.user!.id;
-      
+
       if (typeof xpAmount !== "number" || xpAmount < 0) {
         return res.status(400).json({ error: "xpAmount must be a positive number" });
       }
-      
+
       const existing = await storage.getSavedCharacter(id);
       if (!existing) {
         return res.status(404).json({ error: "Character not found" });
       }
-      
+
       // Allow if user owns the character OR if they are the DM of the room the character is in
       const isOwner = existing.userId === userId;
       let isDM = false;
-      
+
       if (existing.currentRoomCode) {
         const room = await storage.getRoomByCode(existing.currentRoomCode);
         if (room) {
@@ -1264,38 +1249,36 @@ export async function registerRoutes(
           }
         }
       }
-      
+
       if (!isOwner && !isDM) {
         return res.status(403).json({ error: "Only the character owner or room DM can award XP" });
       }
-      
+
       const oldXp = existing.xp || 0;
       const newXp = oldXp + xpAmount;
       const oldLevel = existing.level;
       const newLevel = getLevelFromXP(newXp);
       const leveledUp = newLevel > oldLevel;
-      
+
       let updates: Record<string, unknown> = { xp: newXp };
-      
+
       if (leveledUp) {
         updates.level = newLevel;
-        
+
         // Calculate HP increase for each level gained
         if (existing.class && classDefinitions[existing.class as DndClass]) {
-          const conMod = existing.stats?.constitution 
-            ? getAbilityModifier(existing.stats.constitution as number) 
-            : 0;
-          
+          const conMod = existing.stats?.constitution ? getAbilityModifier(existing.stats.constitution as number) : 0;
+
           let hpGain = 0;
           for (let lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
             hpGain += calculateLevelUpHP(existing.class as DndClass, conMod);
           }
-          
+
           updates.maxHp = (existing.maxHp || 10) + hpGain;
           updates.currentHp = existing.currentHp + hpGain;
         }
       }
-      
+
       const character = await storage.updateSavedCharacter(id, updates);
       res.json({
         ...character,
@@ -1347,12 +1330,12 @@ export async function registerRoutes(
       const { id } = req.params;
       const userId = req.user!.id;
       const { itemId, itemName, quantity = 1 } = req.body;
-      
+
       const character = await storage.getSavedCharacter(id);
       if (!character || character.userId !== userId) {
         return res.status(404).json({ error: "Character not found" });
       }
-      
+
       // Support adding by item ID or by searching item name
       let resolvedItemId = itemId;
       if (!resolvedItemId && itemName) {
@@ -1362,11 +1345,11 @@ export async function registerRoutes(
         }
         resolvedItemId = items[0].id;
       }
-      
+
       if (!resolvedItemId) {
         return res.status(400).json({ error: "itemId or itemName required" });
       }
-      
+
       const inventoryItem = await storage.addToSavedInventory({
         characterId: id,
         itemId: resolvedItemId,
@@ -1383,12 +1366,12 @@ export async function registerRoutes(
     try {
       const { id, inventoryItemId } = req.params;
       const userId = req.user!.id;
-      
+
       const character = await storage.getSavedCharacter(id);
       if (!character || character.userId !== userId) {
         return res.status(404).json({ error: "Character not found" });
       }
-      
+
       await storage.deleteSavedInventoryItem(inventoryItemId);
       res.json({ success: true });
     } catch (error) {
@@ -1406,10 +1389,10 @@ export async function registerRoutes(
         return res.status(401).json({ error: "User not found" });
       }
       const playerName = user.username || user.email || "Host";
-      
+
       const parsed = insertRoomSchema.parse({ ...req.body, hostName: playerName });
       const room = await storage.createRoom(parsed);
-      
+
       // Create host player
       const hostPlayer = await storage.createPlayer({
         roomId: room.id,
@@ -1417,7 +1400,7 @@ export async function registerRoutes(
         name: playerName,
         isHost: true,
       });
-      
+
       res.json({ ...room, hostPlayer });
     } catch (error) {
       console.error("Error creating room:", error);
@@ -1431,7 +1414,7 @@ export async function registerRoutes(
     try {
       const { code } = req.params;
       const { savedCharacterId } = req.body;
-      
+
       const userId = req.user!.id;
       const user = await storage.getUser(userId);
       if (!user) {
@@ -1468,24 +1451,24 @@ export async function registerRoutes(
         if (!savedCharacter) {
           return res.status(404).json({ error: "Character not found" });
         }
-        
+
         // Validate ownership
         if (savedCharacter.userId !== userId) {
           return res.status(403).json({ error: "You do not own this character" });
         }
-        
+
         // Validate game system match
         if (savedCharacter.gameSystem !== room.gameSystem) {
           return res.status(400).json({ error: "Character game system does not match room" });
         }
-        
+
         // Check if character is already in a room
         if (savedCharacter.currentRoomCode && savedCharacter.currentRoomCode !== code) {
           return res.status(400).json({ error: "Character is already in another room" });
         }
-        
+
         // Join the character to the room
-        roomCharacter = await storage.joinRoom(savedCharacterId, code) || null;
+        roomCharacter = (await storage.joinRoom(savedCharacterId, code)) || null;
       }
 
       await storage.updateRoomActivity(room.id);
@@ -1507,7 +1490,7 @@ export async function registerRoutes(
     try {
       const { code } = req.params;
       const { savedCharacterId } = req.body;
-      
+
       const userId = req.user!.id;
       const user = await storage.getUser(userId);
       if (!user) {
@@ -1528,12 +1511,12 @@ export async function registerRoutes(
       if (!savedCharacter) {
         return res.status(404).json({ error: "Saved character not found" });
       }
-      
+
       // Validate ownership
       if (savedCharacter.userId !== userId) {
         return res.status(403).json({ error: "You do not own this character" });
       }
-      
+
       // Validate game system match
       if (savedCharacter.gameSystem !== room.gameSystem) {
         return res.status(400).json({ error: "Character game system does not match room" });
@@ -1543,7 +1526,7 @@ export async function registerRoutes(
       if (savedCharacter.currentRoomCode && savedCharacter.currentRoomCode !== code) {
         return res.status(400).json({ error: "Character is already in another room" });
       }
-      
+
       // Join the character to the room
       const roomCharacter = await storage.joinRoom(savedCharacterId, code);
 
@@ -1560,7 +1543,7 @@ export async function registerRoutes(
       const { code } = req.params;
       const { savedCharacterId } = req.body;
       const userId = req.user!.id;
-      
+
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(401).json({ error: "User not found" });
@@ -1644,14 +1627,14 @@ export async function registerRoutes(
   app.get("/api/rooms/:code/room-characters", async (req, res) => {
     try {
       const { code } = req.params;
-      
+
       const room = await storage.getRoomByCode(code);
       if (!room) {
         return res.status(404).json({ error: "Room not found" });
       }
 
       const characters = await storage.getCharactersByRoomCode(code);
-      
+
       // Return unified format with status effects and player name
       const charactersWithData = await Promise.all(
         characters.map(async (char) => {
@@ -1721,43 +1704,43 @@ export async function registerRoutes(
     try {
       const { code } = req.params;
       const userId = req.user!.id;
-      
+
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(401).json({ error: "User not found" });
       }
       const playerName = user.username || user.email || "Player";
-      
+
       const room = await storage.getRoomByCode(code);
       if (!room) {
         return res.status(404).json({ error: "Room not found" });
       }
-      
+
       // Find the player record
       const players = await storage.getPlayersByRoom(room.id);
-      const player = players.find(p => p.userId === userId);
-      
+      const player = players.find((p) => p.userId === userId);
+
       if (!player) {
         return res.status(404).json({ error: "You are not in this room" });
       }
-      
+
       // Find and remove the character from the room
       const character = await storage.getCharacterByUserInRoom(userId, code);
       if (character) {
         await storage.leaveRoom(character.id);
       }
-      
+
       // Delete the player record
       await storage.deletePlayer(player.id);
-      
+
       // Broadcast leave message
       broadcastToRoom(code, {
         type: "system",
         content: `${playerName} has left the adventure.`,
       });
-      
+
       await storage.updateRoomActivity(room.id);
-      
+
       res.json({ success: true });
     } catch (error) {
       console.error("Error leaving room:", error);
@@ -1770,23 +1753,23 @@ export async function registerRoutes(
     try {
       const { code } = req.params;
       const userId = req.user!.id;
-      
+
       const room = await storage.getRoomByCode(code);
       if (!room) {
         return res.status(404).json({ error: "Room not found" });
       }
-      
+
       // Verify the user is the host by checking their player record's isHost flag
       const players = await storage.getPlayersByRoom(room.id);
-      const userPlayer = players.find(p => p.userId === userId);
-      
+      const userPlayer = players.find((p) => p.userId === userId);
+
       if (!userPlayer || !userPlayer.isHost) {
         return res.status(403).json({ error: "Only the host can end the room" });
       }
 
       // Clear all characters from the room (set currentRoomCode to null)
       await storage.leaveAllCharactersFromRoom(code);
-      
+
       await storage.updateRoom(room.id, { isActive: false });
 
       broadcastToRoom(code, {
@@ -1812,43 +1795,7 @@ export async function registerRoutes(
     }
   });
 
-  // Character creation
-  app.post("/api/characters", async (req, res) => {
-    try {
-      const parsed = insertCharacterSchema.parse(req.body);
-      const character = await storage.createCharacter(parsed);
-      res.json(character);
-    } catch (error) {
-      res.status(400).json({ error: "Invalid character data" });
-    }
-  });
-
-  // Update character
-  app.patch("/api/characters/:id", async (req, res) => {
-    try {
-      const { id } = req.params;
-      const updates = req.body;
-      const character = await storage.updateCharacter(id, updates);
-      if (!character) {
-        return res.status(404).json({ error: "Character not found" });
-      }
-      res.json(character);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to update character" });
-    }
-  });
-
-  // Inventory management
-  app.post("/api/characters/:characterId/inventory", async (req, res) => {
-    try {
-      const { characterId } = req.params;
-      const parsed = insertInventoryItemSchema.parse(req.body);
-      const item = await storage.createInventoryItem({ ...parsed, characterId });
-      res.json(item);
-    } catch (error) {
-      res.status(400).json({ error: "Invalid inventory item" });
-    }
-  });
+  // NOTE: legacy /api/characters endpoints removed in favor of unified saved-characters
 
   // Handle player messages via HTTP (fallback or for non-WS clients)
   app.post("/api/rooms/:code/messages", async (req, res) => {
@@ -1886,7 +1833,7 @@ export async function registerRoutes(
       await queueMessage(code, {
         playerName,
         content: msgContent,
-        type: msgType,
+        type: msgType as any,
         diceResult,
         timestamp: Date.now(),
       });
@@ -1972,7 +1919,7 @@ export async function registerRoutes(
       });
 
       // If it's an enemy turn (assuming enemies are after players), generate AI turn
-      if (state.currentTurnIndex >= state.initiatives.length / 2) { // Simple heuristic
+      if (state.currentTurnIndex >= state.initiatives.length / 2) {
         const room = await storage.getRoomByCode(code);
         if (room) {
           const enemyActions = await generateCombatDMTurn(room);
@@ -2103,12 +2050,11 @@ export async function registerRoutes(
 
       const pdfBytes = await pdfDoc.save();
 
-      const filename = `${room.name.replace(/[^a-zA-Z0-9]/g, '_')}_adventure_${room.code}.pdf`;
+      const filename = `${room.name.replace(/[^a-zA-Z0-9]/g, "_")}_adventure_${room.code}.pdf`;
 
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.send(Buffer.from(pdfBytes));
-
     } catch (error) {
       console.error("PDF generation error:", error);
       res.status(500).json({ error: "Failed to generate PDF" });
@@ -2136,7 +2082,7 @@ export async function registerRoutes(
       }
 
       const updatedCharacter = await storage.updateSavedCharacter(id, updates);
-      
+
       // Broadcast update to room with full character data for UI sync
       broadcastToRoom(roomCode, {
         type: "character_update",
@@ -2254,10 +2200,10 @@ export async function registerRoutes(
   // Items API
   app.get("/api/items", async (req, res) => {
     try {
-      const { search, category, rarity } = req.query as { 
-        search?: string; 
-        category?: typeof itemCategoryEnum.enumValues[number]; 
-        rarity?: typeof itemRarityEnum.enumValues[number]; 
+      const { search, category, rarity } = req.query as {
+        search?: string;
+        category?: typeof itemCategoryEnum.enumValues[number];
+        rarity?: typeof itemRarityEnum.enumValues[number];
       };
 
       let result;
@@ -2299,11 +2245,7 @@ export async function registerRoutes(
       if (search) {
         result = await storage.searchSpells(search);
       } else {
-        result = await storage.getSpells(
-          level !== undefined ? parseInt(level) : undefined,
-          school,
-          classFilter
-        );
+        result = await storage.getSpells(level !== undefined ? parseInt(level) : undefined, school, classFilter);
       }
       res.json(result);
     } catch (error) {
@@ -2325,7 +2267,7 @@ export async function registerRoutes(
     }
   });
 
-  // Character Inventory API
+  // Character Inventory API (unified)
   app.get("/api/characters/:characterId/inventory", async (req, res) => {
     try {
       const { characterId } = req.params;
