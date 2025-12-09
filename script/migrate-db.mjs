@@ -9,7 +9,7 @@
  *   npm run db:migrate-prod
  *   
  * Or directly:
- *   TURSO_DATABASE_URL=<url> TURSO_AUTH_TOKEN=<token> node script/migrate-db.js
+ *   TURSO_DATABASE_URL=<url> TURSO_AUTH_TOKEN=<token> node script/migrate-db.mjs
  */
 
 import { execSync } from 'child_process';
@@ -48,4 +48,3 @@ function runMigration() {
 }
 
 runMigration();
-

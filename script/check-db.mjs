@@ -8,7 +8,7 @@
  * 3. If required tables are present
  * 
  * Usage:
- *   TURSO_DATABASE_URL=<url> TURSO_AUTH_TOKEN=<token> node script/check-db.ts
+ *   TURSO_DATABASE_URL=<url> TURSO_AUTH_TOKEN=<token> node script/check-db.mjs
  */
 
 import { createClient } from '@libsql/client';
