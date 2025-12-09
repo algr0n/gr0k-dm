@@ -6,6 +6,22 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { sql } from "drizzle-orm";
 
+// SQLite Helper Functions
+// UUID generation for primary keys
+export const generateUUID = () => sql`(lower(hex(randomblob(16))))`;
+// Current timestamp (Unix epoch in seconds)
+export const currentTimestamp = () => sql`(unixepoch())`;
+// Empty array default for JSON arrays
+export const emptyJsonArray = () => sql`'[]'`;
+
+// Default spell slot structure for D&D 5e characters
+// Index 0 = cantrips (unused), 1-9 = spell levels 1-9
+export const DEFAULT_SPELL_SLOTS = {
+  current: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  max: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+};
+export const defaultSpellSlotsJson = () => sql`'${sql.raw(JSON.stringify(DEFAULT_SPELL_SLOTS))}'`;
+
 // Session storage table for express sessions
 export const sessions = sqliteTable(
   "sessions",
@@ -88,13 +104,13 @@ export const rooms = sqliteTable("rooms", {
   hostName: text("host_name").notNull(),
   description: text("description"),
   currentScene: text("current_scene"),
-  messageHistory: text("message_history", { mode: 'json' }).$type<Message[]>().notNull().default(sql`'[]'`),
+  messageHistory: text("message_history", { mode: 'json' }).$type<Message[]>().notNull().default(emptyJsonArray()),
   isActive: integer("is_active", { mode: 'boolean' }).notNull().default(true),
   isPublic: integer("is_public", { mode: 'boolean' }).notNull().default(false),
   maxPlayers: integer("max_players").notNull().default(6),
-  lastActivityAt: integer("last_activity_at", { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
-  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
-  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  lastActivityAt: integer("last_activity_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(currentTimestamp()),
 }, (table) => [
   index("idx_rooms_code").on(table.code),
   index("idx_rooms_active").on(table.isActive),
@@ -117,7 +133,7 @@ export const players = sqliteTable("players", {
   userId: text("user_id"),
   name: text("name").notNull(),
   isHost: integer("is_host", { mode: 'boolean' }).notNull().default(false),
-  joinedAt: integer("joined_at", { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  joinedAt: integer("joined_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
 });
 
 export const insertPlayerSchema = createInsertSchema(players).omit({ id: true });
@@ -126,7 +142,7 @@ export type Player = typeof players.$inferSelect;
 
 // Characters for players
 export const characters = sqliteTable("characters", {
-  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
+  id: text("id").primaryKey().default(generateUUID()),
   roomId: text("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
   playerId: text("player_id").notNull().references(() => players.id, { onDelete: "cascade" }),
   playerName: text("player_name").notNull(),
@@ -145,16 +161,16 @@ export const characters = sqliteTable("characters", {
     charisma?: number;
     [key: string]: unknown;
   }>(),
-  skills: text("skills", { mode: 'json' }).$type<string[]>().default(sql`'[]'`),
-  spells: text("spells", { mode: 'json' }).$type<string[]>().default(sql`'[]'`),
+  skills: text("skills", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
+  spells: text("spells", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
   currentHp: integer("current_hp").notNull().default(10),
   maxHp: integer("max_hp").notNull().default(10),
   ac: integer("ac").notNull().default(10),
   speed: integer("speed").notNull().default(30),
   initiativeModifier: integer("initiative_modifier").notNull().default(0),
   backstory: text("backstory"),
-  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
-  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(currentTimestamp()),
 }, (table) => [
   index("idx_characters_room").on(table.roomId),
   index("idx_characters_player").on(table.playerId),
@@ -183,7 +199,7 @@ export const items = sqliteTable("items", {
   requiresAttunement: integer("requires_attunement", { mode: 'boolean' }).default(false),
   gameSystem: text("game_system").notNull().default("dnd"),
   source: text("source").default("SRD"),
-  createdAt: integer("created_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  createdAt: integer("created_at", { mode: 'timestamp' }).default(currentTimestamp()),
 }, (table) => [
   index("idx_items_name").on(table.name),
   index("idx_items_category").on(table.category),
@@ -229,9 +245,9 @@ export const spells = sqliteTable("spells", {
   ritual: integer("ritual", { mode: 'boolean' }).notNull().default(false),
   description: text("description").notNull(),
   higherLevels: text("higher_levels"),
-  classes: text("classes", { mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
+  classes: text("classes", { mode: 'json' }).$type<string[]>().notNull().default(emptyJsonArray()),
   source: text("source").default("SRD"),
-  createdAt: integer("created_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  createdAt: integer("created_at", { mode: 'timestamp' }).default(currentTimestamp()),
 }, (table) => [
   index("idx_spells_name").on(table.name),
   index("idx_spells_level").on(table.level),
@@ -243,7 +259,7 @@ export type InsertSpell = typeof spells.$inferInsert;
 
 // Character inventory (references master items)
 export const inventoryItems = sqliteTable("inventory_items", {
-  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
+  id: text("id").primaryKey().default(generateUUID()),
   characterId: text("character_id")
     .notNull()
     .references(() => characters.id, { onDelete: "cascade" }),
@@ -254,8 +270,8 @@ export const inventoryItems = sqliteTable("inventory_items", {
   equipped: integer("equipped", { mode: 'boolean' }).notNull().default(false),
   notes: text("notes"),
   attunementSlot: integer("attunement_slot", { mode: 'boolean' }).default(false),
-  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
-  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(currentTimestamp()),
 }, (table) => [
   index("idx_inventory_character").on(table.characterId),
   index("idx_inventory_item").on(table.itemId),
@@ -304,7 +320,7 @@ export const diceRolls = sqliteTable("dice_rolls", {
   modifier: integer("modifier").notNull().default(0),
   total: integer("total").notNull(),
   purpose: text("purpose"),
-  timestamp: integer("timestamp", { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  timestamp: integer("timestamp", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
 });
 
 export const insertDiceRollSchema = createInsertSchema(diceRolls).omit({ id: true });
@@ -313,7 +329,7 @@ export type DiceRollRecord = typeof diceRolls.$inferSelect;
 
 // Users table (for local username/password auth)
 export const users = sqliteTable("users", {
-  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
+  id: text("id").primaryKey().default(generateUUID()),
   email: text("email").unique(),
   password: text("password"),
   firstName: text("first_name"),
@@ -321,8 +337,8 @@ export const users = sqliteTable("users", {
   username: text("username").unique(),
   profileImageUrl: text("profile_image_url"),
   customProfileImageUrl: text("custom_profile_image_url"),
-  createdAt: integer("created_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
-  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  createdAt: integer("created_at", { mode: 'timestamp' }).default(currentTimestamp()),
+  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(currentTimestamp()),
 });
 
 export const insertUserSchema = createInsertSchema(users)
@@ -344,7 +360,7 @@ export type UpdateUserProfile = z.infer<typeof updateUserProfileSchema>;
 // Unified characters table - combines saved and room characters into one entity
 // Characters persist across game sessions with currentRoomCode tracking active game
 export const unifiedCharacters = sqliteTable("unified_characters", {
-  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
+  id: text("id").primaryKey().default(generateUUID()),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   characterName: text("character_name").notNull(),
   race: text("race"),
@@ -361,13 +377,13 @@ export const unifiedCharacters = sqliteTable("unified_characters", {
     charisma?: number;
     [key: string]: unknown;
   }>(),
-  skills: text("skills", { mode: 'json' }).$type<string[]>().default(sql`'[]'`),
-  proficiencies: text("proficiencies", { mode: 'json' }).$type<string[]>().default(sql`'[]'`),
-  spells: text("spells", { mode: 'json' }).$type<string[]>().default(sql`'[]'`),
+  skills: text("skills", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
+  proficiencies: text("proficiencies", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
+  spells: text("spells", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
   spellSlots: text("spell_slots", { mode: 'json' }).$type<{
     current: number[];  // [0]=cantrips(unused), [1]=1st level, [2]=2nd, ..., [9]=9th level
     max: number[];      // Maximum slots per level based on class/level
-  }>().default(sql`'{"current":[0,0,0,0,0,0,0,0,0,0],"max":[0,0,0,0,0,0,0,0,0,0]}'`),
+  }>().default(defaultSpellSlotsJson()),
   hitDice: text("hit_dice"),
   maxHp: integer("max_hp").notNull().default(10),
   currentHp: integer("current_hp").notNull().default(10),
@@ -382,9 +398,9 @@ export const unifiedCharacters = sqliteTable("unified_characters", {
   notes: text("notes"),
   gameSystem: text("game_system").notNull().default("dnd"),
   currentRoomCode: text("current_room_code"),
-  levelChoices: text("level_choices", { mode: 'json' }).$type<Record<string, unknown>[]>().default(sql`'[]'`),
-  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
-  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  levelChoices: text("level_choices", { mode: 'json' }).$type<Record<string, unknown>[]>().default(emptyJsonArray()),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(currentTimestamp()),
 }, (table) => [
   index("idx_unified_characters_user").on(table.userId),
   index("idx_unified_characters_room").on(table.currentRoomCode),
@@ -406,7 +422,7 @@ export const insertSavedCharacterSchema = insertUnifiedCharacterSchema;
 
 // Character inventory (items owned by characters)
 export const characterInventoryItems = sqliteTable("character_inventory_items", {
-  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
+  id: text("id").primaryKey().default(generateUUID()),
   characterId: text("character_id")
     .notNull()
     .references(() => unifiedCharacters.id, { onDelete: "cascade" }),
@@ -417,8 +433,8 @@ export const characterInventoryItems = sqliteTable("character_inventory_items", 
   equipped: integer("equipped", { mode: 'boolean' }).notNull().default(false),
   notes: text("notes"),
   attunementSlot: integer("attunement_slot", { mode: 'boolean' }).default(false),
-  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
-  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(sql`(unixepoch())`),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(currentTimestamp()),
 }, (table) => [
   index("idx_character_inventory_character").on(table.characterId),
   index("idx_character_inventory_item").on(table.itemId),
@@ -500,14 +516,14 @@ export const statusEffectDefinitions: Record<GameSystem, Array<{name: string; de
 
 // Character status effects table (active effects on characters in game)
 export const characterStatusEffects = sqliteTable("character_status_effects", {
-  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
+  id: text("id").primaryKey().default(generateUUID()),
   characterId: text("character_id").notNull().references(() => unifiedCharacters.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description"),
   isPredefined: integer("is_predefined", { mode: 'boolean' }).notNull().default(true),
   duration: text("duration"),
   appliedByDm: integer("applied_by_dm", { mode: 'boolean' }).notNull().default(true),
-  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(sql`(unixepoch())`),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
 }, (table) => [
   index("idx_status_effects_character").on(table.characterId),
 ]);

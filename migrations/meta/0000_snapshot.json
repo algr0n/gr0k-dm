@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "394411d1-2850-4aec-b0bb-56b1f27fc692",
+  "id": "0b21bd2b-514e-4daa-94e2-e727aab8c4e0",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "character_inventory_items": {
