@@ -1,0 +1,70 @@
+/* Mobile-first responsive helpers */
+
+/* Base (mobile-first) */
+:root{
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+
+  --font-base: 16px;
+  --touch-size: 44px; /* recommended minimum target */
+}
+
+/* Make images fluid */
+img, picture, video {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Example container */
+.container {
+  padding: 0 var(--space-md);
+  margin: 0 auto;
+  max-width: 1024px;
+}
+
+/* Simple responsive typography (scale up on larger screens) */
+body {
+  font-size: var(--font-base);
+  line-height: 1.4;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* Buttons should be touch-friendly */
+button, .btn {
+  padding: 12px 16px;
+  min-height: var(--touch-size);
+  font-size: 16px;
+  border-radius: 8px;
+}
+
+/* Prevent horizontal overflow */
+* {
+  box-sizing: border-box;
+}
+
+/* Small layout for mobile */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Breakpoints: scale up at tablet/desktop */
+@media (min-width: 768px) {
+  :root { --font-base: 18px; }
+  .container { padding: 0 32px; }
+}
+
+/* Desktop */
+@media (min-width: 1024px) {
+  :root { --font-base: 20px; }
+  .container { max-width: 1200px; }
+}
+
+/* Respect prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
