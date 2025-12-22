@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Trash2, PlayCircle, Users, Calendar, Shield, LogIn } from "lucide-react";
+import { Loader2, Trash2, PlayCircle, Users, Calendar, Shield, LogIn, Lock } from "lucide-react";
 import { gameSystemLabels, type GameSystem } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
 
@@ -30,6 +30,8 @@ interface RoomWithMeta {
   playerCount: number;
   /** Whether the current user is the host of this room */
   isHost: boolean;
+  /** Whether this room requires a password */
+  isPrivate?: boolean;
   /** ISO timestamp string of last activity */
   lastActivityAt: string;
   /** ISO timestamp string of room creation */
@@ -124,7 +126,10 @@ export default function MyRooms() {
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <CardTitle className="text-lg">{room.name}</CardTitle>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          {room.name}
+                          {room.isPrivate && <Lock className="h-4 w-4 text-muted-foreground" />}
+                        </CardTitle>
                         <Badge className="bg-green-600 hover:bg-green-700">Active</Badge>
                         {room.isHost && (
                           <Badge variant="outline">
@@ -180,7 +185,10 @@ export default function MyRooms() {
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <CardTitle className="text-lg">{room.name}</CardTitle>
+                        <CardTitle className="text-lg flex items-center gap-2">
+                          {room.name}
+                          {room.isPrivate && <Lock className="h-4 w-4 text-muted-foreground" />}
+                        </CardTitle>
                         <Badge variant="secondary">Ended</Badge>
                         {room.isHost && (
                           <Badge variant="outline">
