@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "crypto";
+import bcrypt from "bcryptjs";
 import { storage } from "./storage";
 import { db } from "./db";
 import { parseDiceExpression } from "./dice";
@@ -765,19 +766,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
           // Verify user is a member of the room by userId
           const urlParams = new URLSearchParams(request.url?.split("?")[1]);
+          const roomId = urlParams.get("roomId");
           const roomCode = urlParams.get("room") || urlParams.get("roomCode");
 
-          if (roomCode) {
-            const room = await storage.getRoomByCode(roomCode);
-            if (room) {
-              const players = await storage.getPlayersByRoom(room.id);
-              const isRoomMember = players.some((p) => p.userId === userId);
-              if (!isRoomMember) {
-                console.log("[WebSocket] User not a member of room:", roomCode, userId);
-                socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
-                socket.destroy();
-                return;
-              }
+          // Support both roomId and roomCode parameters
+          let room;
+          if (roomId) {
+            room = await storage.getRoom(roomId);
+          } else if (roomCode) {
+            room = await storage.getRoomByCode(roomCode);
+          }
+
+          if (room) {
+            const players = await storage.getPlayersByRoom(room.id);
+            const isRoomMember = players.some((p) => p.userId === userId);
+            if (!isRoomMember) {
+              console.log("[WebSocket] User not a member of room:", roomId || roomCode, userId);
+              socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+              socket.destroy();
+              return;
             }
           }
 
@@ -793,53 +800,74 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   wss.on("connection", (ws: AuthenticatedWebSocket, req) => {
     const urlParams = new URLSearchParams(req.url?.split("?")[1]);
-    const roomCode = urlParams.get("room") || urlParams.get("roomCode");
+    const roomId = urlParams.get("roomId");
+    let roomCode = urlParams.get("room") || urlParams.get("roomCode");
 
-    if (!roomCode) {
-      ws.close(1008, "Room code required");
+    // If roomId is provided, look up the room code
+    if (roomId && !roomCode) {
+      storage.getRoom(roomId).then((room) => {
+        if (room) {
+          roomCode = room.code;
+          initializeConnection(roomCode);
+        } else {
+          ws.close(1008, "Room not found");
+        }
+      }).catch((error) => {
+        console.error("[WebSocket] Error fetching room:", error);
+        ws.close(1008, "Error fetching room");
+      });
       return;
     }
 
-    if (!roomConnections.has(roomCode)) {
-      roomConnections.set(roomCode, new Set());
+    if (!roomCode) {
+      ws.close(1008, "Room code or ID required");
+      return;
     }
-    roomConnections.get(roomCode)!.add(ws);
 
-    const playerName = ws.playerName || "Anonymous";
+    initializeConnection(roomCode);
 
-    ws.on("message", async (data) => {
-      try {
-        const message = JSON.parse(data.toString());
+    function initializeConnection(code: string) {
+      if (!roomConnections.has(code)) {
+        roomConnections.set(code, new Set());
+      }
+      roomConnections.get(code)!.add(ws);
 
-        if (message.type === "chat" || message.type === "action") {
-          // Queue the message for batch processing
-          await queueMessage(roomCode, {
-            type: message.type,
-            playerName: playerName,
-            content: message.content,
-            timestamp: Date.now(),
-          });
-        } else if (message.type === "get_combat_state") {
-          // Send current combat state
-          const combatState = roomCombatState.get(roomCode);
-          if (combatState) {
-            ws.send(JSON.stringify({ type: "combat_update", combat: combatState }));
+      const playerName = ws.playerName || "Anonymous";
+
+      ws.on("message", async (data) => {
+        try {
+          const message = JSON.parse(data.toString());
+
+          if (message.type === "chat" || message.type === "action") {
+            // Queue the message for batch processing
+            await queueMessage(code, {
+              type: message.type,
+              playerName: playerName,
+              content: message.content,
+              timestamp: Date.now(),
+            });
+          } else if (message.type === "get_combat_state") {
+            // Send current combat state
+            const combatState = roomCombatState.get(code);
+            if (combatState) {
+              ws.send(JSON.stringify({ type: "combat_update", combat: combatState }));
+            }
           }
+        } catch (error) {
+          console.error("[WebSocket] Message parsing error:", error);
         }
-      } catch (error) {
-        console.error("[WebSocket] Message parsing error:", error);
-      }
-    });
+      });
 
-    ws.on("close", () => {
-      roomConnections.get(roomCode)?.delete(ws);
-      if (roomConnections.get(roomCode)?.size === 0) {
-        roomConnections.delete(roomCode);
-        messageQueue.delete(roomCode);
-        roomCombatState.delete(roomCode);
-        roomDroppedItems.delete(roomCode);
-      }
-    });
+      ws.on("close", () => {
+        roomConnections.get(code)?.delete(ws);
+        if (roomConnections.get(code)?.size === 0) {
+          roomConnections.delete(code);
+          messageQueue.delete(code);
+          roomCombatState.delete(code);
+          roomDroppedItems.delete(code);
+        }
+      });
+    }
   });
 
   function broadcastToRoom(roomCode: string, message: any) {
@@ -1403,8 +1431,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
       const playerName = user.username || user.email || "Host";
 
-      const parsed = insertRoomSchema.parse({ ...req.body, hostName: playerName });
-      const room = await storage.createRoom(parsed);
+      const { password, ...roomData } = req.body;
+      
+      // Hash password if provided
+      let passwordHash: string | undefined;
+      if (password && password.trim().length > 0) {
+        passwordHash = await bcrypt.hash(password, 10);
+      }
+
+      const parsed = insertRoomSchema.parse({ ...roomData, hostName: playerName });
+      const room = await storage.createRoom({ ...parsed, passwordHash });
 
       // Create host player
       const hostPlayer = await storage.createPlayer({
@@ -1414,7 +1450,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         isHost: true,
       });
 
-      res.json({ ...room, hostPlayer });
+      // Return room without passwordHash, with isPrivate boolean instead
+      const { passwordHash: _, ...roomWithoutHash } = room;
+      res.json({ ...roomWithoutHash, isPrivate: !!room.passwordHash, hostPlayer });
     } catch (error) {
       console.error("Error creating room:", error);
       const errorMessage = error instanceof Error ? error.message : "Invalid room data";
@@ -1422,11 +1460,101 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // Join room
+  // Join room by ID (new endpoint with password support)
+  app.post("/api/rooms/:id/join", isAuthenticated, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { savedCharacterId, password } = req.body;
+
+      const userId = req.user!.id;
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(401).json({ error: "User not found" });
+      }
+      const playerName = user.username || user.email || "Player";
+
+      // Get room by ID
+      const room = await storage.getRoom(id);
+      if (!room || !room.isActive) {
+        return res.status(404).json({ error: "Room not found or inactive" });
+      }
+
+      // Check password if room is private
+      if (room.passwordHash) {
+        if (!password) {
+          return res.status(401).json({ error: "Password required", requiresPassword: true });
+        }
+        const isPasswordValid = await bcrypt.compare(password, room.passwordHash);
+        if (!isPasswordValid) {
+          return res.status(401).json({ error: "Incorrect password" });
+        }
+      }
+
+      const existingPlayers = await storage.getPlayersByRoom(room.id);
+      if (existingPlayers.length >= room.maxPlayers) {
+        return res.status(400).json({ error: "Room is full" });
+      }
+
+      const existingPlayer = existingPlayers.find((p) => p.userId === userId);
+      if (existingPlayer) {
+        return res.status(400).json({ error: "You have already joined this room" });
+      }
+
+      const player = await storage.createPlayer({
+        roomId: room.id,
+        userId: userId,
+        name: playerName,
+        isHost: existingPlayers.length === 0,
+      });
+
+      // If savedCharacterId provided, join the character to the room
+      let roomCharacter: SavedCharacter | null = null;
+      if (savedCharacterId) {
+        const savedCharacter = await storage.getSavedCharacter(savedCharacterId);
+        if (!savedCharacter) {
+          return res.status(404).json({ error: "Character not found" });
+        }
+
+        // Validate ownership
+        if (savedCharacter.userId !== userId) {
+          return res.status(403).json({ error: "You do not own this character" });
+        }
+
+        // Validate game system match
+        if (savedCharacter.gameSystem !== room.gameSystem) {
+          return res.status(400).json({ error: "Character game system does not match room" });
+        }
+
+        // Check if character is already in a room
+        if (savedCharacter.currentRoomCode && savedCharacter.currentRoomCode !== room.code) {
+          return res.status(400).json({ error: "Character is already in another room" });
+        }
+
+        // Join the character to the room
+        roomCharacter = (await storage.joinRoom(savedCharacterId, room.code)) || null;
+      }
+
+      await storage.updateRoomActivity(room.id);
+
+      broadcastToRoom(room.code, {
+        type: "system",
+        content: `${playerName} has joined the adventure!`,
+      });
+
+      // Return room without passwordHash
+      const { passwordHash: _, ...roomWithoutHash } = room;
+      res.json({ room: { ...roomWithoutHash, isPrivate: !!room.passwordHash }, player, roomCharacter });
+    } catch (error) {
+      console.error("Error joining room:", error);
+      res.status(500).json({ error: "Failed to join room" });
+    }
+  });
+
+  // Join room by code (legacy endpoint for backward compatibility)
   app.post("/api/rooms/:code/join", isAuthenticated, async (req, res) => {
     try {
       const { code } = req.params;
-      const { savedCharacterId } = req.body;
+      const { savedCharacterId, password } = req.body;
 
       const userId = req.user!.id;
       const user = await storage.getUser(userId);
@@ -1438,6 +1566,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const room = await storage.getRoomByCode(code);
       if (!room || !room.isActive) {
         return res.status(404).json({ error: "Room not found or inactive" });
+      }
+
+      // Check password if room is private
+      if (room.passwordHash) {
+        if (!password) {
+          return res.status(401).json({ error: "Password required", requiresPassword: true });
+        }
+        const isPasswordValid = await bcrypt.compare(password, room.passwordHash);
+        if (!isPasswordValid) {
+          return res.status(401).json({ error: "Incorrect password" });
+        }
       }
 
       const existingPlayers = await storage.getPlayersByRoom(room.id);
@@ -1491,7 +1630,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         content: `${playerName} has joined the adventure!`,
       });
 
-      res.json({ room, player, roomCharacter });
+      // Return room without passwordHash
+      const { passwordHash: _, ...roomWithoutHash } = room;
+      res.json({ room: { ...roomWithoutHash, isPrivate: !!room.passwordHash }, player, roomCharacter });
     } catch (error) {
       console.error("Error joining room:", error);
       res.status(500).json({ error: "Failed to join room" });
@@ -1689,8 +1830,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Use savedCharacters table via roomCode for correct character data
       const characters = await storage.getCharactersByRoomCode(code);
 
-      // Return room data merged with players and characters for frontend compatibility
-      res.json({ ...room, players, characters });
+      // Return room data merged with players and characters, exclude passwordHash and add isPrivate
+      const { passwordHash, ...roomWithoutHash } = room;
+      res.json({ ...roomWithoutHash, isPrivate: !!passwordHash, players, characters });
     } catch (error) {
       console.error("Error getting room info:", error);
       res.status(500).json({ error: "Failed to get room info" });
@@ -1802,7 +1944,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const { gameSystem } = req.query;
       const rooms = await storage.getPublicRooms(gameSystem as string | undefined);
-      res.json(rooms);
+      
+      // Map rooms to include isPrivate and exclude passwordHash
+      const roomsWithPrivacy = rooms.map(room => {
+        const { passwordHash, ...roomWithoutHash } = room;
+        return {
+          ...roomWithoutHash,
+          isPrivate: !!passwordHash,
+        };
+      });
+      
+      res.json(roomsWithPrivacy);
     } catch (error) {
       res.status(500).json({ error: "Failed to get public rooms" });
     }
@@ -1852,10 +2004,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           console.warn(`Host status missing for room ${r.room.id} (code: ${r.room.code})`);
         }
         
+        // Exclude passwordHash and add isPrivate
+        const { passwordHash, ...roomWithoutHash } = r.room;
+        
         return {
-          ...r.room,
+          ...roomWithoutHash,
           playerCount: r.playerCount,
           isHost: isHost ?? false,
+          isPrivate: !!passwordHash,
         };
       });
 
@@ -2278,27 +2434,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // Periodic cleanup job: Delete stale inactive rooms (older than 24 hours)
-  const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // Run every hour
-  const STALE_ROOM_HOURS = 24; // Delete rooms inactive for 24+ hours
+  // Periodic cleanup job: Delete stale inactive rooms
+  const STALE_ROOM_HOURS = parseInt(process.env.STALE_ROOM_HOURS || "168", 10); // Default: 168 hours (7 days)
+  const CLEANUP_INTERVAL_MS = parseInt(process.env.STALE_ROOM_CLEANUP_INTERVAL_MS || "21600000", 10); // Default: 6 hours
 
   async function cleanupStaleRooms() {
     try {
       const staleRooms = await storage.getStaleInactiveRooms(STALE_ROOM_HOURS);
       for (const room of staleRooms) {
-        console.log(`Cleaning up stale room: ${room.code} (inactive since ${room.lastActivityAt})`);
+        console.log(`[Cleanup] Deleting stale room: ${room.code} (ID: ${room.id}, inactive since ${room.lastActivityAt})`);
         await storage.deleteRoomWithAllData(room.id);
         roomConnections.delete(room.code);
       }
       if (staleRooms.length > 0) {
-        console.log(`Cleaned up ${staleRooms.length} stale room(s)`);
+        console.log(`[Cleanup] Deleted ${staleRooms.length} stale room(s)`);
       }
     } catch (error) {
-      console.error("Stale room cleanup error:", error);
+      console.error("[Cleanup] Stale room cleanup error:", error);
     }
   }
 
   // Run cleanup on startup and then periodically
+  console.log(`[Cleanup] Stale room cleanup configured: ${STALE_ROOM_HOURS} hours threshold, running every ${CLEANUP_INTERVAL_MS / 1000 / 60} minutes`);
   cleanupStaleRooms();
   setInterval(cleanupStaleRooms, CLEANUP_INTERVAL_MS);
 

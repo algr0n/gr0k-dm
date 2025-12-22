@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Swords, Users, Dice6, Bot, Plus, LogIn, Loader2, RotateCcw, Globe, Search, Heart, ChevronLeft, User, AlertCircle, Package, ChevronDown, ChevronUp } from "lucide-react";
+import { Swords, Users, Dice6, Bot, Plus, LogIn, Loader2, RotateCcw, Globe, Search, Heart, ChevronLeft, User, AlertCircle, Package, ChevronDown, ChevronUp, Lock } from "lucide-react";
 import cashAppQR from "@assets/IMG_2407_1765085234277.webp";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -54,7 +54,8 @@ export default function Landing() {
   const [gameName, setGameName] = useState("");
   const [gameSystem, setGameSystem] = useState<GameSystem>("dnd");
   const [hostName, setHostName] = useState("");
-  const [isPublic, setIsPublic] = useState(false);
+  const [isPublic, setIsPublic] = useState(true);
+  const [roomPassword, setRoomPassword] = useState("");
   const [roomCode, setRoomCode] = useState("");
   const [playerName, setPlayerName] = useState("");
   const [browseFilter, setBrowseFilter] = useState<GameSystem | "all">("all");
@@ -63,6 +64,8 @@ export default function Landing() {
   const [joinStep, setJoinStep] = useState<JoinStep>("details");
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [targetRoom, setTargetRoom] = useState<Room | null>(null);
+  const [joinPassword, setJoinPassword] = useState("");
+  const [passwordRequired, setPasswordRequired] = useState(false);
   
   // Multi-step host flow
   const [hostStep, setHostStep] = useState<HostStep>("details");
@@ -209,6 +212,7 @@ export default function Landing() {
         name: gameName,
         gameSystem,
         isPublic,
+        password: roomPassword && roomPassword.trim().length > 0 ? roomPassword : undefined,
       });
       return response.json() as Promise<Room & { hostPlayer: { id: string } }>;
     },
@@ -233,6 +237,7 @@ export default function Landing() {
       const charId = selectedCharacterId;
       const response = await apiRequest("POST", `/api/rooms/${code}/join`, {
         savedCharacterId: charId,
+        password: joinPassword && joinPassword.trim().length > 0 ? joinPassword : undefined,
       });
       const data = await response.json();
       return { ...data, code };
@@ -246,12 +251,22 @@ export default function Landing() {
       resetJoinDialog();
       setLocation(`/room/${data.code}`);
     },
-    onError: () => {
-      toast({
-        title: "Failed to join room",
-        description: "Check the room code and try again.",
-        variant: "destructive",
-      });
+    onError: (error: any) => {
+      // Check if password is required
+      if (error?.requiresPassword || error?.message?.includes("password")) {
+        setPasswordRequired(true);
+        toast({
+          title: "Password Required",
+          description: "This room requires a password to join.",
+          variant: "default",
+        });
+      } else {
+        toast({
+          title: "Failed to join room",
+          description: error?.message || "Check the room code and try again.",
+          variant: "destructive",
+        });
+      }
     },
   });
 
@@ -299,6 +314,8 @@ export default function Landing() {
     setTargetRoom(null);
     setRoomCode("");
     setPlayerName("");
+    setJoinPassword("");
+    setPasswordRequired(false);
   };
 
   const resetHostDialog = () => {
@@ -307,7 +324,8 @@ export default function Landing() {
     setCreatedRoom(null);
     setGameName("");
     setHostName("");
-    setIsPublic(false);
+    setIsPublic(true);
+    setRoomPassword("");
   };
 
   const handleHostGame = (e: React.FormEvent) => {
@@ -437,6 +455,20 @@ export default function Landing() {
                           </SelectContent>
                         </Select>
                       </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="room-password">Room Password (Optional)</Label>
+                        <Input
+                          id="room-password"
+                          type="password"
+                          placeholder="Leave blank for public access"
+                          value={roomPassword}
+                          onChange={(e) => setRoomPassword(e.target.value)}
+                          data-testid="input-room-password"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Set a password to make this room private. Players will need the password to join.
+                        </p>
+                      </div>
                       <div className="flex items-center space-x-2">
                         <Checkbox
                           id="is-public"
@@ -445,7 +477,7 @@ export default function Landing() {
                           data-testid="checkbox-public"
                         />
                         <Label htmlFor="is-public" className="text-sm font-normal cursor-pointer">
-                          List game publicly so anyone can join
+                          List game publicly so anyone can browse and join
                         </Label>
                       </div>
                       <Button 
@@ -550,6 +582,19 @@ export default function Landing() {
                           data-testid="input-room-code"
                         />
                       </div>
+                      {passwordRequired && (
+                        <div className="space-y-2">
+                          <Label htmlFor="join-password">Room Password</Label>
+                          <Input
+                            id="join-password"
+                            type="password"
+                            placeholder="Enter room password"
+                            value={joinPassword}
+                            onChange={(e) => setJoinPassword(e.target.value)}
+                            data-testid="input-join-password"
+                          />
+                        </div>
+                      )}
                       <Button 
                         type="submit" 
                         className="w-full" 
@@ -675,8 +720,9 @@ export default function Landing() {
                             data-testid={`room-card-${room.code}`}
                           >
                             <div className="flex-1 min-w-0">
-                              <div className="font-medium truncate" data-testid={`text-room-name-${room.code}`}>
+                              <div className="font-medium truncate flex items-center gap-2" data-testid={`text-room-name-${room.code}`}>
                                 {room.name}
+                                {(room as any).isPrivate && <Lock className="h-3 w-3 text-muted-foreground" />}
                               </div>
                               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Badge variant="secondary" className="shrink-0">
