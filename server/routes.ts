@@ -1799,7 +1799,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // Get user's rooms (where they are host or player)
+  // Get all rooms where the authenticated user is a participant (host or player) with metadata
   app.get("/api/my-rooms", isAuthenticated, async (req, res) => {
     try {
       const userId = req.user!.id;
@@ -1847,7 +1847,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // Delete a room (host only, inactive rooms only)
+  // Delete an inactive room and all associated data (host only)
   app.delete("/api/rooms/:id", isAuthenticated, async (req, res) => {
     try {
       const { id } = req.params;

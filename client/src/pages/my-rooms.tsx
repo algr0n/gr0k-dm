@@ -12,6 +12,10 @@ import { Loader2, Trash2, PlayCircle, Users, Calendar, Shield, LogIn } from "luc
 import { gameSystemLabels, type GameSystem } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
 
+/**
+ * Room metadata interface for the My Rooms page.
+ * Extends the base Room type with additional computed properties.
+ */
 interface RoomWithMeta {
   id: string;
   code: string;
@@ -22,10 +26,14 @@ interface RoomWithMeta {
   isActive: boolean;
   isPublic: boolean;
   maxPlayers: number;
+  /** Total number of players currently in the room */
   playerCount: number;
+  /** Whether the current user is the host of this room */
   isHost: boolean;
-  lastActivityAt: Date;
-  createdAt: Date;
+  /** ISO timestamp string of last activity */
+  lastActivityAt: string;
+  /** ISO timestamp string of room creation */
+  createdAt: string;
 }
 
 export default function MyRooms() {
