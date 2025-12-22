@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "crypto";
 import { storage } from "./storage";
+import { db } from "./db";
 import { parseDiceExpression } from "./dice";
 import {
   generateDMResponse,
@@ -20,7 +21,10 @@ import {
   updateUserProfileSchema,
   type Message,
   type SavedCharacter,
+  rooms,
+  players,
 } from "@shared/schema";
+import { eq, sql, desc, inArray } from "drizzle-orm";
 import { setupAuth, isAuthenticated, getSession } from "./auth";
 import passport from "passport";
 
@@ -1792,6 +1796,90 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(rooms);
     } catch (error) {
       res.status(500).json({ error: "Failed to get public rooms" });
+    }
+  });
+
+  // Get user's rooms (where they are host or player)
+  app.get("/api/my-rooms", isAuthenticated, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+
+      // Get all rooms where user is a player
+      const allPlayers = await db.select({
+        roomId: players.roomId,
+      })
+        .from(players)
+        .where(eq(players.userId, userId));
+
+      const roomIds = allPlayers.map(p => p.roomId);
+
+      if (roomIds.length === 0) {
+        return res.json([]);
+      }
+
+      // Get room details for all rooms user is in
+      const userRooms = await db.select({
+        room: rooms,
+        playerCount: sql<number>`count(${players.id})`,
+      })
+        .from(rooms)
+        .leftJoin(players, eq(rooms.id, players.roomId))
+        .where(inArray(rooms.id, roomIds))
+        .groupBy(rooms.id)
+        .orderBy(desc(rooms.lastActivityAt));
+
+      const roomsWithMeta = await Promise.all(
+        userRooms.map(async (r) => {
+          const allRoomPlayers = await storage.getPlayersByRoom(r.room.id);
+          const userPlayer = allRoomPlayers.find(p => p.userId === userId);
+          const isHost = userPlayer?.isHost || false;
+
+          return {
+            ...r.room,
+            playerCount: r.playerCount,
+            isHost,
+          };
+        })
+      );
+
+      res.json(roomsWithMeta);
+    } catch (error) {
+      console.error("Error getting user's rooms:", error);
+      res.status(500).json({ error: "Failed to get user's rooms" });
+    }
+  });
+
+  // Delete a room (host only, inactive rooms only)
+  app.delete("/api/rooms/:id", isAuthenticated, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user!.id;
+
+      const room = await storage.getRoom(id);
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+
+      // Check if room is active
+      if (room.isActive) {
+        return res.status(400).json({ error: "Cannot delete active room. End the room first." });
+      }
+
+      // Verify user is the host
+      const allPlayers = await storage.getPlayersByRoom(room.id);
+      const userPlayer = allPlayers.find(p => p.userId === userId);
+
+      if (!userPlayer || !userPlayer.isHost) {
+        return res.status(403).json({ error: "Only the host can delete the room" });
+      }
+
+      // Delete the room and all associated data
+      await storage.deleteRoomWithAllData(room.id);
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting room:", error);
+      res.status(500).json({ error: "Failed to delete room" });
     }
   });
 

@@ -9,12 +9,13 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/useAuth";
-import { LogIn, LogOut, User, Scroll, Settings } from "lucide-react";
+import { LogIn, LogOut, User, Scroll, Settings, Landmark } from "lucide-react";
 import Landing from "@/pages/landing";
 import RoomPage from "@/pages/room";
 import Characters from "@/pages/characters";
 import ProfileSettings from "@/pages/profile";
 import AuthPage from "@/pages/auth-page";
+import MyRooms from "@/pages/my-rooms";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -25,6 +26,7 @@ function Router() {
       <Route path="/room/:code" component={RoomPage} />
       <Route path="/characters" component={Characters} />
       <Route path="/profile" component={ProfileSettings} />
+      <Route path="/my-rooms" component={MyRooms} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -67,12 +69,20 @@ function Header() {
         </Link>
         <div className="flex items-center gap-2">
           {isAuthenticated && (
-            <Link href="/characters">
-              <Button variant="ghost" size="sm" data-testid="link-my-characters">
-                <Scroll className="mr-2 h-4 w-4" />
-                My Characters
-              </Button>
-            </Link>
+            <>
+              <Link href="/my-rooms">
+                <Button variant="ghost" size="sm" data-testid="link-my-rooms">
+                  <Landmark className="mr-2 h-4 w-4" />
+                  My Rooms
+                </Button>
+              </Link>
+              <Link href="/characters">
+                <Button variant="ghost" size="sm" data-testid="link-my-characters">
+                  <Scroll className="mr-2 h-4 w-4" />
+                  My Characters
+                </Button>
+              </Link>
+            </>
           )}
           <ThemeToggle />
           {isLoading ? null : isAuthenticated && user ? (
@@ -93,6 +103,12 @@ function Header() {
                   {user.email}
                 </div>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/my-rooms">
+                    <Landmark className="mr-2 h-4 w-4" />
+                    My Rooms
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link href="/characters">
                     <Scroll className="mr-2 h-4 w-4" />
