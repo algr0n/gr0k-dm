@@ -125,7 +125,7 @@ export default function MyRooms() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
                         <CardTitle className="text-lg">{room.name}</CardTitle>
-                        <Badge variant="default" className="bg-green-500">Active</Badge>
+                        <Badge className="bg-green-600 hover:bg-green-700">Active</Badge>
                         {room.isHost && (
                           <Badge variant="outline">
                             <Shield className="h-3 w-3 mr-1" />
@@ -244,7 +244,6 @@ export default function MyRooms() {
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                             <AlertDialogAction
                               onClick={() => deleteMutation.mutate(room.id)}
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                             >
                               Delete
                             </AlertDialogAction>

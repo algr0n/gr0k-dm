@@ -1819,7 +1819,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       // Create a map of roomId -> isHost for quick lookup
-      const hostMap = new Map(userPlayers.map(p => [p.roomId, p.isHost]));
+      const hostMap = userPlayers.reduce((map, p) => {
+        map.set(p.roomId, p.isHost);
+        return map;
+      }, new Map<string, boolean>());
 
       // Get room details for all rooms user is in
       const userRooms = await db.select({
@@ -1833,10 +1836,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         .orderBy(desc(rooms.lastActivityAt));
 
       const roomsWithMeta = userRooms.map((r) => {
+        const isHost = hostMap.get(r.room.id);
+        
+        // Log warning if host status is missing (data integrity issue)
+        if (isHost === undefined) {
+          console.warn(`Host status missing for room ${r.room.id} (code: ${r.room.code})`);
+        }
+        
         return {
           ...r.room,
           playerCount: r.playerCount,
-          isHost: hostMap.get(r.room.id) || false,
+          isHost: isHost ?? false,
         };
       });
 
