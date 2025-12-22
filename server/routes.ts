@@ -1804,18 +1804,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const userId = req.user!.id;
 
-      // Get all rooms where user is a player
-      const allPlayers = await db.select({
+      // Get all rooms where user is a player with their role
+      const userPlayers = await db.select({
         roomId: players.roomId,
+        isHost: players.isHost,
       })
         .from(players)
         .where(eq(players.userId, userId));
 
-      const roomIds = allPlayers.map(p => p.roomId);
+      const roomIds = userPlayers.map(p => p.roomId);
 
       if (roomIds.length === 0) {
         return res.json([]);
       }
+
+      // Create a map of roomId -> isHost for quick lookup
+      const hostMap = new Map(userPlayers.map(p => [p.roomId, p.isHost]));
 
       // Get room details for all rooms user is in
       const userRooms = await db.select({
@@ -1828,19 +1832,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         .groupBy(rooms.id)
         .orderBy(desc(rooms.lastActivityAt));
 
-      const roomsWithMeta = await Promise.all(
-        userRooms.map(async (r) => {
-          const allRoomPlayers = await storage.getPlayersByRoom(r.room.id);
-          const userPlayer = allRoomPlayers.find(p => p.userId === userId);
-          const isHost = userPlayer?.isHost || false;
-
-          return {
-            ...r.room,
-            playerCount: r.playerCount,
-            isHost,
-          };
-        })
-      );
+      const roomsWithMeta = userRooms.map((r) => {
+        return {
+          ...r.room,
+          playerCount: r.playerCount,
+          isHost: hostMap.get(r.room.id) || false,
+        };
+      });
 
       res.json(roomsWithMeta);
     } catch (error) {
