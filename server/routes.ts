@@ -1018,6 +1018,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Auth setup - uses Replit Auth
   await setupAuth(app);
 
+  // Health check endpoints - return JSON to prevent HTML responses
+  app.get("/health", (req, res) => {
+    res.json({ ok: true, uptime: process.uptime() });
+  });
+
+  app.get("/api/health", (req, res) => {
+    res.json({ ok: true, uptime: process.uptime() });
+  });
+
   // Auth routes - get current user
   app.get("/api/auth/user", async (req, res) => {
     if (!req.isAuthenticated()) {
@@ -2397,6 +2406,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
     }
+  });
+
+  // Catch-all for unmatched API routes - return JSON 404 instead of falling back to static/index.html
+  app.use("/api/*", (req, res) => {
+    res.status(404).json({ error: "API endpoint not found" });
   });
 
   return httpServer;
