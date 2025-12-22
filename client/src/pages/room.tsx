@@ -318,10 +318,13 @@ export default function RoomPage() {
 
   // try both possible character link fields: playerId (room-specific) or userId (persistent)
   const viewedCharacter = viewingPlayer
-    ? allCharacters.find(c =>
+    ? allCharacters.find(c => {
         // some characters in code/DB use playerId, others use userId — accept either
-        (c as any).playerId === viewingPlayer.id || (c as any).userId === viewingPlayer.userId
-      )
+        const charAsAny = c as any;
+        if (charAsAny.playerId === viewingPlayer.id) return true;
+        if (viewingPlayer.userId && charAsAny.userId === viewingPlayer.userId) return true;
+        return false;
+      })
     : undefined;
   const isLoadingViewedCharacter = isLoading;
 
