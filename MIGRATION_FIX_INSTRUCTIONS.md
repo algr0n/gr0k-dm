@@ -169,6 +169,81 @@ Build Command: `npm install && npm run db:migrate-prod && npm run build`
 **For other platforms:**
 Add a pre-start or post-build hook that runs `npm run db:migrate-prod`
 
+## Critical Fix: Missing password_hash Column (December 2024)
+
+### Problem
+Production database is missing the `rooms.password_hash` column, causing errors:
+- `"no such column: rooms.password_hash"`
+- `"table rooms has no column named password_hash"`
+
+### Immediate Remediation
+
+**Option 1: Run Migration Script (Recommended)**
+
+```bash
+# Set your production database credentials
+export TURSO_DATABASE_URL="libsql://your-database.turso.io"
+export TURSO_AUTH_TOKEN="your-token-here"
+
+# Run the migration
+npm run db:migrate-prod
+```
+
+This will apply migration `0001_add_room_password_hash.sql` which adds the missing column.
+
+**Option 2: Manual SQL (If automated method fails)**
+
+Connect to your Turso database and run:
+
+```sql
+-- Add password_hash column (safe - nullable column won't affect existing data)
+ALTER TABLE rooms ADD COLUMN password_hash TEXT;
+
+-- Set default visibility for existing rooms
+UPDATE rooms SET is_public = 1 WHERE is_public = 0;
+```
+
+### Prevention: Auto-run Migrations on Deploy
+
+To prevent schema drift in the future, configure your deployment platform to run migrations automatically.
+
+**Render.com Build Command:**
+
+```bash
+npm install && npm run db:migrate-prod && npm run build
+```
+
+This ensures:
+1. Dependencies are installed
+2. Database migrations are applied
+3. Application is built
+
+**Other Platforms:**
+
+Add migration step to your deployment pipeline before starting the application:
+- **Heroku**: Add to `release` phase in Procfile
+- **Vercel**: Add to build command or use build hooks
+- **Docker**: Run migrations in entrypoint script before starting server
+
+### Verification
+
+After applying the migration, verify the column exists:
+
+```bash
+# Using Turso CLI
+turso db shell your-database-name
+.schema rooms
+```
+
+You should see `password_hash TEXT` in the rooms table definition.
+
+### Migration Details
+
+- **File**: `migrations/0001_add_room_password_hash.sql`
+- **Changes**: Adds nullable `password_hash` column to `rooms` table
+- **Safety**: Fully backward compatible, won't affect existing data
+- **Idempotent**: Safe to run multiple times
+
 ## Need More Help?
 
 If you continue having issues:
