@@ -8,6 +8,13 @@
       "when": 1765243957714,
       "tag": "0000_secret_red_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1734910800000,
+      "tag": "0001_add_room_password_hash",
+      "breakpoints": true
     }
   ]
 }

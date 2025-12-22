@@ -169,6 +169,113 @@ Build Command: `npm install && npm run db:migrate-prod && npm run build`
 **For other platforms:**
 Add a pre-start or post-build hook that runs `npm run db:migrate-prod`
 
+## Critical Fix: Missing password_hash Column (December 2024)
+
+### Problem
+Production database is missing the `rooms.password_hash` column, causing errors:
+- `"no such column: rooms.password_hash"`
+- `"table rooms has no column named password_hash"`
+
+### Immediate Remediation
+
+⚠️ **IMPORTANT**: The production database was initialized with `drizzle-kit push` (not migrations), so you'll need to apply this fix manually first, then future schema changes can use `npm run db:migrate-prod`.
+
+**Option 1: Manual SQL Application (Recommended - Most Direct)**
+
+Connect to your Turso database using the Turso CLI or web interface and run:
+
+```sql
+-- Add password_hash column (safe - nullable column won't affect existing data)
+ALTER TABLE rooms ADD COLUMN password_hash TEXT;
+
+-- Set default visibility for existing rooms (optional, sets sensible default)
+UPDATE rooms SET is_public = 1 WHERE is_public = 0;
+```
+
+**Using Turso CLI:**
+```bash
+# Install Turso CLI if not already installed
+# See: https://docs.turso.tech/cli/installation
+
+# Connect to your database
+turso db shell your-database-name
+
+# Then paste the SQL above
+```
+
+**Option 2: Apply Migration File Directly**
+
+If you have SQLite access to the database:
+
+```bash
+# Set your production database credentials
+export TURSO_DATABASE_URL="libsql://your-database.turso.io"
+export TURSO_AUTH_TOKEN="your-token-here"
+
+# Apply the migration SQL file
+sqlite3 "$TURSO_DATABASE_URL" < migrations/0001_add_room_password_hash.sql
+```
+
+**Option 3: Use drizzle-kit push (After manual fix or on fresh database)**
+
+Once the column exists OR on a fresh database, you can use:
+
+```bash
+npm run db:migrate-prod
+```
+
+This pushes the full schema from `shared/schema.ts` to match the database.
+
+### Prevention: Auto-run Migrations on Deploy
+
+To prevent schema drift in the future, configure your deployment platform to run migrations automatically.
+
+**Render.com Build Command:**
+
+```bash
+npm install && npm run db:migrate-prod && npm run build
+```
+
+This ensures:
+1. Dependencies are installed
+2. Database migrations are applied
+3. Application is built
+
+**Other Platforms:**
+
+Add migration step to your deployment pipeline before starting the application:
+- **Heroku**: Add to `release` phase in Procfile
+- **Vercel**: Add to build command or use build hooks
+- **Docker**: Run migrations in entrypoint script before starting server
+
+### Verification
+
+After applying the migration, verify the column exists:
+
+```bash
+# Using Turso CLI
+turso db shell your-database-name
+.schema rooms
+```
+
+You should see `password_hash TEXT` in the rooms table definition.
+
+### Why Manual Application is Needed
+
+The production database was initialized using `drizzle-kit push` (schema sync) rather than migrations. This means:
+- No migration history is tracked in the database
+- `drizzle-kit push` will fail if it encounters missing columns it expects to exist
+- The safest approach is to add the column manually, then future changes can use `drizzle-kit push`
+
+Once the column exists, running `npm run db:migrate-prod` will work for future schema changes.
+
+### Migration Details
+
+- **File**: `migrations/0001_add_room_password_hash.sql`
+- **Changes**: Adds nullable `password_hash` column to `rooms` table
+- **Safety**: Fully backward compatible, won't affect existing data
+- **Idempotent**: Safe to run multiple times
+
 ## Need More Help?
 
 If you continue having issues:
