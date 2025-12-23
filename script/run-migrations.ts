@@ -88,7 +88,12 @@ async function runMigrations() {
   } finally {
     // Clean up database connection
     if (client) {
-      client.close();
+      try {
+        client.close();
+      } catch (closeError) {
+        // Ignore errors during cleanup
+        console.error("Warning: Error closing database connection:", closeError);
+      }
     }
   }
 }

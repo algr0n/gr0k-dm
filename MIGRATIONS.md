@@ -319,8 +319,7 @@ If you encounter issues:
 2. **Verify environment**: Ensure all env variables are set correctly
 3. **Test connection**: Run `npm run db:check` to verify database connectivity
 4. **Review schema**: Compare `shared/schema.ts` with actual database tables
-5. **Check documentation**: See `DATABASE_MIGRATION_README.md` for detailed setup
-6. **Create an issue**: If all else fails, open a GitHub issue with:
+5. **Create an issue**: If all else fails, open a GitHub issue with:
    - Error message
    - Migration files involved
    - Environment (local/production)
