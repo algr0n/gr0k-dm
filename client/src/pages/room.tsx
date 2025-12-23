@@ -1741,8 +1741,18 @@ export default function RoomPage() {
                   items={inventory || []}
                   gold={myCharacterData.roomCharacter.gold}
                   armorClass={myCharacterData.savedCharacter.ac}
-                  currentWeight={0}
-                  maxWeight={150}
+                  currentWeight={
+                    inventory?.reduce((total, item) => {
+                      const itemWeight = item.item.weight || 0;
+                      return total + (itemWeight * item.quantity);
+                    }, 0) || 0
+                  }
+                  maxWeight={
+                    // D&D 5e carrying capacity: Strength score × 15
+                    roomData?.gameSystem === "dnd" && myCharacterData.savedCharacter.stats
+                      ? ((myCharacterData.savedCharacter.stats as any).str || 10) * 15
+                      : 150
+                  }
                   attunedCount={inventory?.filter(item => item.attunementSlot).length || 0}
                   maxAttunement={3}
                   onItemClick={(item) => {
