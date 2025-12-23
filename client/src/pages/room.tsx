@@ -374,7 +374,6 @@ export default function RoomPage() {
   });
 
   // Fetch inventory for current character from saved character (with joined item details)
-  type InventoryWithItem = InventoryItem & { item: Item };
   const savedCharacterId = myCharacterData?.savedCharacter?.id;
   
   // Keep savedCharacterIdRef up to date for WebSocket handler
@@ -382,7 +381,7 @@ export default function RoomPage() {
     savedCharacterIdRef.current = savedCharacterId;
   }, [savedCharacterId]);
   
-  const { data: inventory, isLoading: isLoadingInventory, refetch: refetchInventory } = useQuery<InventoryWithItem[]>({
+  const { data: inventory, isLoading: isLoadingInventory, refetch: refetchInventory } = useQuery<CharacterInventoryItemWithDetails[]>({
     queryKey: ["/api/saved-characters", savedCharacterId, "inventory"],
     enabled: !!savedCharacterId,
   });
@@ -1750,7 +1749,11 @@ export default function RoomPage() {
                   maxWeight={
                     // D&D 5e carrying capacity: Strength score × 15
                     roomData?.gameSystem === "dnd" && myCharacterData.savedCharacter.stats
-                      ? ((myCharacterData.savedCharacter.stats as any).str || 10) * 15
+                      ? (() => {
+                          const stats = myCharacterData.savedCharacter.stats as Record<string, number>;
+                          const strValue = stats?.str ?? stats?.strength ?? 10;
+                          return strValue * 15;
+                        })()
                       : 150
                   }
                   attunedCount={inventory?.filter(item => item.attunementSlot).length || 0}
