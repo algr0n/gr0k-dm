@@ -1,10 +1,34 @@
 import OpenAI from "openai";
 import type { Room, Message, GameSystem } from "@shared/schema";
+import type { 
+  AdventureChapter, 
+  AdventureLocation, 
+  AdventureNpc, 
+  AdventureQuest 
+} from "@shared/adventure-schema";
 
 const openai = new OpenAI({ 
   baseURL: "https://api.x.ai/v1", 
   apiKey: process.env.XAI_API_KEY 
 });
+
+// Adventure context for AI DM
+interface AdventureContext {
+  adventureName: string;
+  currentChapter?: AdventureChapter;
+  currentLocation?: AdventureLocation;
+  activeQuests?: AdventureQuest[];
+  availableNpcs?: AdventureNpc[];
+  metNpcIds?: string[];
+  discoveredLocationIds?: string[];
+}
+
+// Context window management for long adventures
+interface ConversationSummary {
+  summary: string;
+  messageCount: number;
+  lastSummaryAt: number;
+}
 
 // Token usage tracking per room
 interface TokenUsage {
@@ -130,7 +154,73 @@ export function getTokenUsage(roomId: string): TokenUsage | undefined {
 export function getAllTokenUsage(): Map<string, TokenUsage> {
   return new Map(roomTokenUsage);
 }
+// Conversation summaries per room (in-memory cache)
+const conversationSummaries = new Map<string, ConversationSummary>();
 
+// Summarize old conversation to maintain context without hitting token limits
+async function summarizeConversation(
+  messages: Message[],
+  gameSystem: string
+): Promise<string> {
+  try {
+    const messageSummary = messages
+      .map(m => `${m.playerName}: ${m.content.slice(0, 100)}${m.content.length > 100 ? '...' : ''}`)
+      .join('\n');
+
+    const response = await openai.chat.completions.create({
+      model: "grok-4-1-fast-reasoning",
+      messages: [
+        {
+          role: "system",
+          content: "Summarize this D&D session conversation in 2-3 paragraphs. Focus on: key story events, character decisions, important NPCs met, items found, and current objectives. Be concise but preserve critical details."
+        },
+        {
+          role: "user",
+          content: `Summarize this session:\n\n${messageSummary}`
+        }
+      ],
+      max_tokens: 400,
+      temperature: 0.5,
+    });
+
+    return response.choices[0]?.message?.content || "Previous session summary unavailable.";
+  } catch (error) {
+    console.error("Error summarizing conversation:", error);
+    return "Previous session summary unavailable.";
+  }
+}
+
+export async function getOrCreateConversationSummary(
+  roomId: string,
+  messages: Message[],
+  gameSystem: string
+): Promise<string | null> {
+  // Only summarize if we have more than 30 messages
+  if (messages.length <= 30) {
+    return null;
+  }
+
+  const existing = conversationSummaries.get(roomId);
+  const now = Date.now();
+  
+  // Re-summarize every 20 new messages or if no summary exists
+  if (!existing || messages.length - existing.messageCount >= 20) {
+    // Summarize messages 10-30 from the end (keep recent context fresh)
+    const messagesToSummarize = messages.slice(0, -10);
+    const summary = await summarizeConversation(messagesToSummarize, gameSystem);
+    
+    conversationSummaries.set(roomId, {
+      summary,
+      messageCount: messages.length,
+      lastSummaryAt: now,
+    });
+    
+    console.log(`[Context Management] Summarized ${messagesToSummarize.length} messages for room ${roomId}`);
+    return summary;
+  }
+  
+  return existing.summary;
+}
 function trackTokenUsage(roomId: string, usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | undefined) {
   if (!usage) return;
 
@@ -465,7 +555,8 @@ export async function generateBatchedDMResponse(
   room: Room,
   playerCount?: number,
   partyCharacters?: CharacterInfo[],
-  droppedItems?: DroppedItemInfo[]
+  droppedItems?: DroppedItemInfo[],
+  adventureContext?: AdventureContext
 ): Promise<string> {
   const gameSystem = room.gameSystem || "dnd";
   const systemPrompt = SYSTEM_PROMPTS[gameSystem] || SYSTEM_PROMPTS.dnd;
@@ -473,6 +564,66 @@ export async function generateBatchedDMResponse(
   const messages: OpenAI.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
   ];
+
+  // Add adventure context if available
+  if (adventureContext) {
+    let adventurePrompt = `ADVENTURE MODE: ${adventureContext.adventureName}\n\n`;
+    
+    if (adventureContext.currentChapter) {
+      adventurePrompt += `CURRENT CHAPTER: ${adventureContext.currentChapter.title}\n`;
+      adventurePrompt += `Chapter Description: ${adventureContext.currentChapter.description}\n`;
+      if (adventureContext.currentChapter.objectives && adventureContext.currentChapter.objectives.length > 0) {
+        adventurePrompt += `Chapter Objectives:\n${adventureContext.currentChapter.objectives.map((o: string) => `  - ${o}`).join('\n')}\n`;
+      }
+      adventurePrompt += '\n';
+    }
+    
+    if (adventureContext.currentLocation) {
+      adventurePrompt += `CURRENT LOCATION: ${adventureContext.currentLocation.name}\n`;
+      adventurePrompt += `Description: ${adventureContext.currentLocation.description}\n`;
+      if (adventureContext.currentLocation.boxedText) {
+        adventurePrompt += `\n[READ-ALOUD TEXT - Use this for atmospheric descriptions]:\n"${adventureContext.currentLocation.boxedText}"\n`;
+      }
+      adventurePrompt += '\n';
+    }
+    
+    if (adventureContext.activeQuests && adventureContext.activeQuests.length > 0) {
+      adventurePrompt += `ACTIVE QUESTS:\n`;
+      adventureContext.activeQuests.forEach((quest: AdventureQuest) => {
+        adventurePrompt += `  - ${quest.name}${quest.type ? ` (${quest.type})` : ''}\n`;
+        adventurePrompt += `    ${quest.description}\n`;
+        if (quest.objectives && quest.objectives.length > 0) {
+          adventurePrompt += `    Objectives: ${quest.objectives.join(', ')}\n`;
+        }
+      });
+      adventurePrompt += '\n';
+    }
+    
+    if (adventureContext.availableNpcs && adventureContext.availableNpcs.length > 0) {
+      adventurePrompt += `NPCS IN THIS AREA:\n`;
+      adventureContext.availableNpcs.forEach((npc: AdventureNpc) => {
+        const metBefore = adventureContext.metNpcIds?.includes(npc.id);
+        adventurePrompt += `  - ${npc.name}${npc.role ? ` (${npc.role})` : ''}${metBefore ? ' [ALREADY MET]' : ' [NEW]'}\n`;
+        if (npc.personality) {
+          adventurePrompt += `    Personality: ${npc.personality}\n`;
+        }
+        if (npc.ideals) {
+          adventurePrompt += `    Ideals: ${npc.ideals}\n`;
+        }
+        if (npc.description) {
+          adventurePrompt += `    Description: ${npc.description}\n`;
+        }
+      });
+      adventurePrompt += '\n';
+    }
+    
+    adventurePrompt += `IMPORTANT: Follow the adventure's story structure. Use the boxed text for location descriptions. Reference NPCs by their personalities. Guide players toward chapter objectives naturally.`;
+    
+    messages.push({
+      role: "system",
+      content: adventurePrompt
+    });
+  }
 
   if (room.currentScene) {
     messages.push({ 
@@ -514,7 +665,20 @@ export async function generateBatchedDMResponse(
     });
   }
 
-  const recentHistory = (room.messageHistory || []).slice(-15);
+  // Add conversation summary for long adventures (prevent hallucination)
+  const messageHistory = room.messageHistory || [];
+  if (messageHistory.length > 30) {
+    const summary = await getOrCreateConversationSummary(room.id, messageHistory, gameSystem);
+    if (summary) {
+      messages.push({
+        role: "system",
+        content: `PREVIOUS SESSION SUMMARY:\n${summary}\n\n[Keep this context in mind but focus on recent events below]`
+      });
+    }
+  }
+
+  // Use sliding window: keep last 15 messages for immediate context
+  const recentHistory = messageHistory.slice(-15);
   for (const msg of recentHistory) {
     if (msg.type === "dm") {
       messages.push({ role: "assistant", content: msg.content });

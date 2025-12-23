@@ -301,3 +301,16 @@ export const adventureQuestsRelations = relations(adventureQuests, ({ one }) => 
     references: [adventureNpcs.id],
   }),
 }));
+
+// =============================================================================
+// TypeScript Interfaces for Adventure Context
+// =============================================================================
+export interface AdventureContext {
+  adventureName: string;
+  currentChapter?: AdventureChapter;
+  currentLocation?: AdventureLocation;
+  activeQuests?: AdventureQuest[];
+  availableNpcs?: AdventureNpc[];
+  metNpcIds?: string[];
+  discoveredLocationIds?: string[];
+}

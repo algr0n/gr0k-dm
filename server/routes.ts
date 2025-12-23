@@ -24,10 +24,118 @@ import {
   type SavedCharacter,
   rooms,
   players,
+  roomAdventureProgress,
 } from "@shared/schema";
+import {
+  adventures,
+  adventureChapters,
+  adventureLocations,
+  adventureNpcs,
+  adventureQuests,
+  type AdventureContext,
+} from "@shared/adventure-schema";
 import { eq, sql, desc, inArray } from "drizzle-orm";
 import { setupAuth, isAuthenticated, getSession } from "./auth";
 import passport from "passport";
+
+// ============================================================================
+// Adventure Context Helper
+// ============================================================================
+async function fetchAdventureContext(
+  roomId: string,
+  adventureId: string
+): Promise<AdventureContext | undefined> {
+  try {
+    // Get adventure name
+    const adventure = await db
+      .select({ name: adventures.name })
+      .from(adventures)
+      .where(eq(adventures.id, adventureId))
+      .limit(1);
+
+    if (!adventure || adventure.length === 0) {
+      return undefined;
+    }
+
+    // Get room progress
+    const progress = await db
+      .select()
+      .from(roomAdventureProgress)
+      .where(eq(roomAdventureProgress.roomId, roomId))
+      .limit(1);
+
+    if (!progress || progress.length === 0) {
+      return undefined;
+    }
+
+    const adventureProgress = progress[0];
+
+    // Get current chapter
+    let currentChapter;
+    if (adventureProgress.currentChapterId) {
+      const chapters = await db
+        .select()
+        .from(adventureChapters)
+        .where(eq(adventureChapters.id, adventureProgress.currentChapterId))
+        .limit(1);
+      if (chapters.length > 0) {
+        currentChapter = chapters[0];
+      }
+    }
+
+    // Get current location
+    let currentLocation;
+    if (adventureProgress.currentLocationId) {
+      const locations = await db
+        .select()
+        .from(adventureLocations)
+        .where(eq(adventureLocations.id, adventureProgress.currentLocationId))
+        .limit(1);
+      if (locations.length > 0) {
+        currentLocation = locations[0];
+      }
+    }
+
+    // Get active quests
+    const activeQuestIds = adventureProgress.activeQuestIds as string[] || [];
+    let activeQuests;
+    if (activeQuestIds.length > 0) {
+      activeQuests = await db
+        .select()
+        .from(adventureQuests)
+        .where(inArray(adventureQuests.id, activeQuestIds));
+    }
+
+    // Get NPCs in current location (or all from adventure if no location)
+    let availableNpcs;
+    if (adventureProgress.currentLocationId) {
+      availableNpcs = await db
+        .select()
+        .from(adventureNpcs)
+        .where(eq(adventureNpcs.locationId, adventureProgress.currentLocationId));
+    } else {
+      // No specific location - get all NPCs from the adventure (limited to 10 most relevant)
+      availableNpcs = await db
+        .select()
+        .from(adventureNpcs)
+        .where(eq(adventureNpcs.adventureId, adventureId))
+        .limit(10);
+    }
+
+    return {
+      adventureName: adventure[0].name,
+      currentChapter,
+      currentLocation,
+      activeQuests,
+      availableNpcs,
+      metNpcIds: adventureProgress.metNpcIds as string[] || [],
+      discoveredLocationIds: adventureProgress.discoveredLocationIds as string[] || [],
+    };
+  } catch (error) {
+    console.error('[Adventure Context] Error fetching context:', error);
+    return undefined;
+  }
+}
 
 interface AuthenticatedWebSocket extends WebSocket {
   userId?: string;
@@ -1200,8 +1308,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }));
 
     try {
-      // Generate batched DM response
-      const dmResponse = await generateBatchedDMResponse(batchedMessages, room, undefined, characterInfos);
+      // Fetch adventure context if room has an adventure
+      let adventureContext;
+      if (room.adventureId) {
+        adventureContext = await fetchAdventureContext(room.id, room.adventureId);
+      }
+
+      // Generate batched DM response with adventure context
+      const dmResponse = await generateBatchedDMResponse(
+        batchedMessages, 
+        room, 
+        undefined, 
+        characterInfos, 
+        undefined,
+        adventureContext
+      );
 
       // Send DM response
       const dmMessage: Message = {
