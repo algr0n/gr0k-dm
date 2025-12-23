@@ -6,13 +6,14 @@
   "scripts": {
     "dev": "NODE_ENV=development tsx server/index.ts",
     "build": "tsx script/build.ts",
-    "start": "NODE_ENV=production node dist/index.cjs",
+    "start": "npm run migrate:prod && NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:migrate-prod": "node script/migrate-db.mjs",
-    "db:check": "node script/check-db.mjs"
+    "db:check": "node script/check-db.mjs",
+    "migrate:prod": "tsx script/run-migrations.ts"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.18.0",
