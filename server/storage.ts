@@ -180,6 +180,7 @@ class DatabaseStorage implements Storage {
       .groupBy(rooms.id);
     
     const results = await query;
+    // TODO: Remove debug logging once public rooms visibility is verified in production
     console.log('[getPublicRooms] Query results:', results.length, 'rooms found');
     return results.map(r => ({ ...r.room, playerCount: Number(r.playerCount) || 0 }));
   }
