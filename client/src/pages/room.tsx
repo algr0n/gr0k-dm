@@ -625,6 +625,41 @@ export default function RoomPage() {
     },
   });
 
+  const toggleEquipMutation = useMutation({
+    mutationFn: async ({ characterId, itemId, equipped }: { 
+      characterId: string; 
+      itemId: string; 
+      equipped: boolean;
+    }) => {
+      const res = await fetch(
+        `/api/characters/${characterId}/inventory/${itemId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ equipped }),
+        }
+      );
+      if (!res.ok) {
+        throw new Error(`Failed to update equipment status: ${res.status} ${res.statusText}`);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      if (savedCharacterId) {
+        queryClient.invalidateQueries({ 
+          queryKey: ["/api/saved-characters", savedCharacterId, "inventory"] 
+        });
+      }
+    },
+    onError: () => {
+      toast({
+        title: "Failed to update equipment",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const endGameMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest("POST", `/api/rooms/${code}/end`, { hostName: playerName });
@@ -1777,8 +1812,14 @@ export default function RoomPage() {
                     console.log('Item clicked:', item);
                   }}
                   onItemDoubleClick={(item) => {
-                    // Could toggle equip/unequip here
-                    console.log('Item double-clicked:', item);
+                    // Toggle equip/unequip
+                    if (savedCharacterId) {
+                      toggleEquipMutation.mutate({
+                        characterId: savedCharacterId,
+                        itemId: item.id,
+                        equipped: !item.equipped,
+                      });
+                    }
                   }}
                 />
               )}

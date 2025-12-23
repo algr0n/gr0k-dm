@@ -932,19 +932,36 @@ async function executeGameActions(
             }
 
             if (item) {
-              await storage.addToSavedInventory({
-                characterId: char.id,
-                itemId: item.id,
-                quantity: action.quantity || 1,
-              });
+              // Check if item already exists in inventory to prevent duplicates
+              const inventory = await storage.getSavedInventoryWithDetails(char.id);
+              const existingInvItem = inventory.find(i => i.itemId === item.id);
+              
+              let finalQuantity: number;
+              if (existingInvItem) {
+                // Item exists - increment quantity instead of adding duplicate
+                finalQuantity = existingInvItem.quantity + (action.quantity || 1);
+                await storage.updateSavedInventoryItem(existingInvItem.id, {
+                  quantity: finalQuantity
+                });
+                console.log(`[DM Action] Incremented existing item "${item.name}" for ${action.playerName} (now ${finalQuantity}x)`);
+              } else {
+                // Item doesn't exist - add new
+                finalQuantity = action.quantity || 1;
+                await storage.addToSavedInventory({
+                  characterId: char.id,
+                  itemId: item.id,
+                  quantity: finalQuantity,
+                });
+                console.log(`[DM Action] Added new item "${item.name}" to ${action.playerName} (${finalQuantity}x)`);
+              }
+              
               broadcastFn(roomCode, {
                 type: "inventory_update",
                 characterId: char.id,
                 action: "add",
                 itemName: item.name,
-                quantity: action.quantity || 1,
+                quantity: finalQuantity,
               });
-              console.log(`[DM Action] Added ${action.quantity || 1}x "${item.name}" to ${action.playerName}`);
             }
           }
           break;
@@ -2949,6 +2966,45 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(added);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // PATCH /api/characters/:characterId/inventory/:itemId - Toggle equipped status
+  // Request body: { equipped?: boolean }
+  // If equipped is not provided, the current equipped status will be toggled
+  app.patch("/api/characters/:characterId/inventory/:itemId", isAuthenticated, async (req, res) => {
+    try {
+      const { characterId, itemId } = req.params;
+      const { equipped } = req.body;
+      
+      // Get the character to verify ownership
+      const character = await storage.getSavedCharacter(characterId);
+      if (!character) {
+        return res.status(404).json({ error: "Character not found" });
+      }
+      
+      // Verify the user owns this character
+      if (character.userId !== req.user?.id) {
+        return res.status(403).json({ error: "Forbidden: You do not own this character" });
+      }
+      
+      // Get character's inventory to verify item exists
+      const inventory = await storage.getSavedInventoryWithDetails(characterId);
+      const invItem = inventory.find(i => i.id === itemId);
+      
+      if (!invItem) {
+        return res.status(404).json({ error: "Inventory item not found" });
+      }
+      
+      // Update equipped status (toggle if not explicitly provided)
+      const updated = await storage.updateSavedInventoryItem(itemId, { 
+        equipped: equipped !== undefined ? equipped : !invItem.equipped 
+      });
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating inventory item:", error);
+      res.status(500).json({ error: "Failed to update inventory item" });
     }
   });
 
