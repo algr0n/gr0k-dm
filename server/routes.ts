@@ -1660,7 +1660,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
       const playerName = user.username || user.email || "Host";
 
-      const { password, ...roomData } = req.body;
+      const { password, adventureId, useAdventureMode, ...roomData } = req.body;
       
       // Hash password if provided
       let passwordHash: string | undefined;
@@ -1668,8 +1668,45 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         passwordHash = await bcrypt.hash(password, 10);
       }
 
-      const parsed = insertRoomSchema.parse({ ...roomData, hostName: playerName });
+      const parsed = insertRoomSchema.parse({ 
+        ...roomData, 
+        hostName: playerName,
+        adventureId: useAdventureMode && adventureId ? adventureId : null,
+        useAdventureMode: useAdventureMode || false,
+      });
       const room = await storage.createRoom({ ...parsed, passwordHash });
+
+      // If using adventure mode, create progress tracking record
+      if (useAdventureMode && adventureId) {
+        const { 
+          roomAdventureProgress,
+          adventureChapters,
+          adventures 
+        } = await import("@shared/schema");
+        const { eq } = await import("drizzle-orm");
+
+        // Get first chapter for this adventure
+        const [firstChapter] = await db
+          .select()
+          .from(adventureChapters)
+          .where(eq(adventureChapters.adventureId, adventureId))
+          .orderBy(adventureChapters.chapterNumber)
+          .limit(1);
+
+        // Create progress tracking
+        await db.insert(roomAdventureProgress).values({
+          roomId: room.id,
+          adventureId: adventureId,
+          currentChapterId: firstChapter?.id || null,
+          currentLocationId: null,
+          completedChapterIds: [],
+          discoveredLocationIds: [],
+          completedQuestIds: [],
+          activeQuestIds: [],
+          completedEncounterIds: [],
+          metNpcIds: [],
+        });
+      }
 
       // Create host player
       const hostPlayer = await storage.createPlayer({
@@ -2791,6 +2828,149 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(added);
     } catch (error) {
       res.status(500).json({ error: (error as Error).message });
+    }
+  });
+
+  // =============================================================================
+  // Adventure Module API Endpoints
+  // =============================================================================
+
+  // GET /api/adventures - List all published adventures
+  app.get("/api/adventures", async (req, res) => {
+    try {
+      const { adventures } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      
+      const adventureList = await db
+        .select({
+          id: adventures.id,
+          slug: adventures.slug,
+          name: adventures.name,
+          description: adventures.description,
+          gameSystem: adventures.gameSystem,
+          minLevel: adventures.minLevel,
+          maxLevel: adventures.maxLevel,
+          estimatedHours: adventures.estimatedHours,
+          source: adventures.source,
+          coverImageUrl: adventures.coverImageUrl,
+        })
+        .from(adventures)
+        .where(eq(adventures.isPublished, true))
+        .orderBy(adventures.name);
+
+      res.json(adventureList);
+    } catch (error) {
+      console.error("Error fetching adventures:", error);
+      res.status(500).json({ error: "Failed to fetch adventures" });
+    }
+  });
+
+  // GET /api/adventures/:slug - Get full adventure details with related data
+  app.get("/api/adventures/:slug", async (req, res) => {
+    try {
+      const { slug } = req.params;
+      const {
+        adventures,
+        adventureChapters,
+        adventureLocations,
+        adventureNpcs,
+        adventureQuests,
+        adventureEncounters,
+      } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+
+      // Get adventure
+      const [adventure] = await db
+        .select()
+        .from(adventures)
+        .where(eq(adventures.slug, slug))
+        .limit(1);
+
+      if (!adventure) {
+        return res.status(404).json({ error: "Adventure not found" });
+      }
+
+      // Get all related data
+      const [chapters, locations, npcs, quests, encounters] = await Promise.all([
+        db.select().from(adventureChapters).where(eq(adventureChapters.adventureId, adventure.id)).orderBy(adventureChapters.chapterNumber),
+        db.select().from(adventureLocations).where(eq(adventureLocations.adventureId, adventure.id)),
+        db.select().from(adventureNpcs).where(eq(adventureNpcs.adventureId, adventure.id)),
+        db.select().from(adventureQuests).where(eq(adventureQuests.adventureId, adventure.id)),
+        db.select().from(adventureEncounters).where(eq(adventureEncounters.adventureId, adventure.id)),
+      ]);
+
+      res.json({
+        ...adventure,
+        chapters,
+        locations,
+        npcs,
+        quests,
+        encounters,
+      });
+    } catch (error) {
+      console.error("Error fetching adventure details:", error);
+      res.status(500).json({ error: "Failed to fetch adventure details" });
+    }
+  });
+
+  // GET /api/rooms/:roomId/adventure-progress - Get adventure progress for a room
+  app.get("/api/rooms/:roomId/adventure-progress", async (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const { roomAdventureProgress } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+
+      const [progress] = await db
+        .select()
+        .from(roomAdventureProgress)
+        .where(eq(roomAdventureProgress.roomId, roomId))
+        .limit(1);
+
+      if (!progress) {
+        return res.status(404).json({ error: "No adventure progress found for this room" });
+      }
+
+      res.json(progress);
+    } catch (error) {
+      console.error("Error fetching adventure progress:", error);
+      res.status(500).json({ error: "Failed to fetch adventure progress" });
+    }
+  });
+
+  // POST /api/rooms/:roomId/adventure-progress - Update adventure progress
+  app.post("/api/rooms/:roomId/adventure-progress", async (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const { roomAdventureProgress } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+
+      // Check if progress record exists
+      const [existing] = await db
+        .select()
+        .from(roomAdventureProgress)
+        .where(eq(roomAdventureProgress.roomId, roomId))
+        .limit(1);
+
+      if (!existing) {
+        return res.status(404).json({ error: "No adventure progress found for this room" });
+      }
+
+      // Update progress
+      const updates = {
+        ...req.body,
+        updatedAt: Math.floor(Date.now() / 1000),
+      };
+
+      const [updated] = await db
+        .update(roomAdventureProgress)
+        .set(updates)
+        .where(eq(roomAdventureProgress.id, existing.id))
+        .returning();
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating adventure progress:", error);
+      res.status(500).json({ error: "Failed to update adventure progress" });
     }
   });
 
