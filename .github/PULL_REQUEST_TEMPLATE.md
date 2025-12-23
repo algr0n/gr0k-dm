@@ -1,29 +1,42 @@
-# PR template
+# Pull Request
 
 ## Summary
-- Short summary of what this PR changes and why.
+<!-- Brief description of what this PR changes and why -->
 
-## What I changed
-- Add viewport meta tag for mobile scaling.
-- Add responsive/mobile-first stylesheet and a small device-detect helper (if applicable).
-- Brief notes on any components that were modified.
+## Changes Made
+<!-- List the main changes in this PR -->
+- 
+- 
+- 
 
-## How to test
-1. Pull branch locally and run the app.
-2. Visit the app in desktop browser, then in mobile device emulator (Chrome devtools Device Toolbar) and a real device if available.
-3. Verify layout adapts at common breakpoints (320px, 375px, 414px, 768px).
-4. Verify touch targets are large enough and text is readable.
-5. Attach screenshots (mobile & desktop) in the PR.
+## How to Test
+1. Pull this branch and run `npm install`
+2. Set up environment variables (if needed)
+3. Run `npm run dev`
+4. Test the following:
+   - <!-- Add specific test steps -->
+   - <!-- Verify no regressions in existing features -->
+
+## Screenshots
+<!-- Add screenshots for UI changes -->
+<!-- Include both desktop and mobile views if applicable -->
 
 ## Checklist
-- [ ] Viewport meta present and correct
-- [ ] Layout behaves correctly at small screen widths
-- [ ] Touch targets >= 44x44px (or close)
-- [ ] Images use responsive rules (max-width: 100% or srcset)
-- [ ] No horizontal scrolling on mobile
-- [ ] Accessibility smoke check (keyboard/tap order, color contrast)
-- [ ] CI passes (unit/lint)
+- [ ] Code follows existing style and conventions
+- [ ] TypeScript type checking passes (`npm run check`)
+- [ ] Tested manually in browser
+- [ ] No console errors or warnings
+- [ ] UI is responsive (if applicable)
+- [ ] Touch targets are 44x44px+ (if applicable)
+- [ ] Updated documentation (if needed)
+- [ ] No secrets or credentials committed
+
+## Related Issues
+<!-- Link to related issues: Fixes #123, Relates to #456 -->
 
 ## Notes
-- If this introduces visual changes, include before/after screenshots.
-- Link to design doc: (paste link)
+<!-- Any additional context, decisions, or considerations -->
+
+---
+
+See [Development Checklist](.github/DEVELOPMENT_CHECKLIST.md) for full best practices.
