@@ -283,3 +283,110 @@ If you continue having issues:
 2. Verify your Turso database credentials are correct
 3. Check if you can connect to Turso from your deployment environment
 4. Review the migration SQL file to ensure it's valid
+
+---
+
+## Immediate Remediation for Missing rooms.password_hash
+
+### Quick Reference for Operators
+
+If you're experiencing `no such column: rooms.password_hash` errors in production, follow these steps to apply the fix immediately.
+
+#### Option 1: Use Repository Migration Pipeline (Preferred - Tracked)
+
+```bash
+# Set your production database credentials
+export TURSO_DATABASE_URL="libsql://your-database.turso.io"
+export TURSO_AUTH_TOKEN="your-token-here"
+
+# Apply all migrations using the repository's migration system
+npm run db:migrate-prod
+```
+
+This method:
+- Applies the schema from `shared/schema.ts` using drizzle-kit
+- Ensures all schema changes are synchronized
+- Works for both the password_hash column and any other schema updates
+
+#### Option 2: One-Off Migration Script (Quick Fix)
+
+If you need to apply just the password_hash column immediately:
+
+```bash
+# Set your production database credentials
+export TURSO_DATABASE_URL="libsql://your-database.turso.io"
+export TURSO_AUTH_TOKEN="your-token-here"
+
+# Run the one-off migration script
+node scripts/run-one-off-migration.js
+```
+
+**⚠️ WARNING**: Backup your database before running any migration script.
+
+This script executes:
+```sql
+ALTER TABLE rooms ADD COLUMN password_hash TEXT;
+```
+
+#### Verification Steps
+
+After applying the migration, verify the column was added successfully:
+
+**Method 1: Using Turso CLI**
+```bash
+turso db shell your-database-name
+.schema rooms
+```
+
+Look for `password_hash TEXT` in the output.
+
+**Method 2: Using npm check script**
+```bash
+npm run db:check
+```
+
+**Method 3: Test from application**
+- Create a test room with a password
+- Verify no errors occur
+- Check database to confirm password_hash is populated
+
+#### Automate Migrations on Deploy (Recommended)
+
+To prevent future schema drift, configure your deployment platform to run migrations automatically.
+
+**Render Build Command:**
+```bash
+npm install && npm run db:migrate-prod && npm run build
+```
+
+This ensures:
+1. Dependencies are installed
+2. Database migrations are applied before build
+3. Application is built with up-to-date schema
+
+**For other platforms:**
+- **Heroku**: Add `npm run db:migrate-prod` to `release` phase in Procfile
+- **Vercel**: Add to build command or use build hooks
+- **Railway**: Add to build command
+- **Docker**: Add `npm run db:migrate-prod` to entrypoint script before starting server
+
+#### Migration Files Reference
+
+- **Migration SQL**: `migrations/0001_add_password_hash_to_rooms.sql`
+- **One-off Script**: `scripts/run-one-off-migration.js`
+- **Schema Definition**: `shared/schema.ts` (line 111: `passwordHash: text("password_hash")`)
+
+#### Troubleshooting
+
+**Error: "column password_hash already exists"**
+- The migration has already been applied
+- No action needed
+
+**Error: "TURSO_DATABASE_URL not set"**
+- Ensure environment variables are exported in your shell
+- Check for typos in variable names
+
+**Script hangs or times out**
+- Verify network connectivity to Turso
+- Check firewall rules
+- Ensure Turso auth token is valid and not expired
