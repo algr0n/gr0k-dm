@@ -19,7 +19,13 @@ import subprocess
 from pathlib import Path
 from typing import List, Dict, Optional
 import requests
-from tqdm import tqdm
+
+# Try to import tqdm for progress bars, fallback if not available
+try:
+    from tqdm import tqdm
+    HAS_TQDM = True
+except ImportError:
+    HAS_TQDM = False
 
 # Environment variables with defaults
 UPSTREAM_OWNER = os.environ.get('UPSTREAM_OWNER', 'tyndivelspaz')
@@ -92,14 +98,20 @@ def download_pdf(pdf_info: Dict[str, str]) -> Optional[Path]:
         total_size = int(response.headers.get('content-length', 0))
         
         with open(output_path, 'wb') as f:
-            if total_size > 0:
+            if total_size > 0 and HAS_TQDM:
                 with tqdm(total=total_size, unit='B', unit_scale=True, desc=f"    {pdf_name}") as pbar:
                     for chunk in response.iter_content(chunk_size=8192):
                         f.write(chunk)
                         pbar.update(len(chunk))
             else:
+                # Fallback without progress bar
+                bytes_downloaded = 0
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
+                    bytes_downloaded += len(chunk)
+                    if total_size > 0 and bytes_downloaded % (1024 * 1024) == 0:
+                        # Print progress every MB if we know the total size
+                        print(f"    {bytes_downloaded / (1024 * 1024):.1f} MB / {total_size / (1024 * 1024):.1f} MB", end='\r')
         
         print(f"  ✓ Downloaded {pdf_name}")
         return output_path
