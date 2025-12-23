@@ -17,12 +17,14 @@ import ProfileSettings from "@/pages/profile";
 import AuthPage from "@/pages/auth-page";
 import MyRooms from "@/pages/my-rooms";
 import NotFound from "@/pages/not-found";
+import ComponentsDemo from "@/pages/ComponentsDemo";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Landing} />
       <Route path="/auth" component={AuthPage} />
+      <Route path="/demo" component={ComponentsDemo} />
       <Route path="/room/:code" component={RoomPage} />
       <Route path="/characters" component={Characters} />
       <Route path="/profile" component={ProfileSettings} />

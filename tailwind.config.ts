@@ -81,6 +81,37 @@ export default {
           busy: "rgb(239 68 68)",
           offline: "rgb(156 163 175)",
         },
+        rarity: {
+          common: {
+            DEFAULT: "rgb(156 163 175)",
+            border: "rgb(209 213 219)",
+          },
+          uncommon: {
+            DEFAULT: "rgb(22 163 74)",
+            border: "rgb(74 222 128)",
+          },
+          rare: {
+            DEFAULT: "rgb(37 99 235)",
+            border: "rgb(96 165 250)",
+          },
+          "very-rare": {
+            DEFAULT: "rgb(147 51 234)",
+            border: "rgb(192 132 252)",
+          },
+          legendary: {
+            DEFAULT: "rgb(245 158 11)",
+            border: "rgb(251 191 36)",
+          },
+          artifact: {
+            DEFAULT: "rgb(239 68 68)",
+            border: "rgb(248 113 113)",
+          },
+        },
+        encumbrance: {
+          light: "rgb(34 197 94)",
+          medium: "rgb(245 158 11)",
+          heavy: "rgb(239 68 68)",
+        },
       },
       fontFamily: {
         sans: ["var(--font-sans)"],
