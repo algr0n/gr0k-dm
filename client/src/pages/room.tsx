@@ -1473,8 +1473,21 @@ export default function RoomPage() {
                         <div className="text-xs text-muted-foreground">Initiative</div>
                       </div>
                       <div>
-                        <div className="text-2xl font-bold" data-testid="text-gold">{myCharacterData.roomCharacter.gold}</div>
-                        <div className="text-xs text-muted-foreground">Gold</div>
+                        <div className="flex items-center gap-2 justify-center">
+                          <div className="text-sm">
+                            <span className="text-2xl font-bold text-amber-600" data-testid="text-gold">{myCharacterData.savedCharacter.currency?.gp || myCharacterData.roomCharacter.gold || 0}</span>
+                            <span className="text-xs ml-1">gp</span>
+                          </div>
+                          <div className="text-sm">
+                            <span className="text-xl font-bold text-slate-400" data-testid="text-silver">{myCharacterData.savedCharacter.currency?.sp || 0}</span>
+                            <span className="text-xs ml-1">sp</span>
+                          </div>
+                          <div className="text-sm">
+                            <span className="text-xl font-bold text-amber-700" data-testid="text-copper">{myCharacterData.savedCharacter.currency?.cp || 0}</span>
+                            <span className="text-xs ml-1">cp</span>
+                          </div>
+                        </div>
+                        <div className="text-xs text-muted-foreground">Currency</div>
                       </div>
                     </div>
 
@@ -1739,6 +1752,7 @@ export default function RoomPage() {
                 <InventoryLayout
                   items={inventory || []}
                   gold={myCharacterData.roomCharacter.gold}
+                  currency={myCharacterData.savedCharacter.currency}
                   armorClass={myCharacterData.savedCharacter.ac}
                   currentWeight={
                     inventory?.reduce((total, item) => {

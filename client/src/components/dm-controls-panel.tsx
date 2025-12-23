@@ -32,6 +32,7 @@ export function DMControlsPanel({ roomCode, hostName, gameSystem }: DMControlsPa
   const [hpChange, setHpChange] = useState("");
   const [tempHpChange, setTempHpChange] = useState("");
   const [goldChange, setGoldChange] = useState("");
+  const [currencyType, setCurrencyType] = useState<"cp" | "sp" | "gp">("gp");
   const [xpChange, setXpChange] = useState("");
   const [selectedEffect, setSelectedEffect] = useState<string>("");
 
@@ -43,7 +44,7 @@ export function DMControlsPanel({ roomCode, hostName, gameSystem }: DMControlsPa
   const availableEffects = statusEffectDefinitions[gameSystem] || [];
 
   const updateStatsMutation = useMutation({
-    mutationFn: async (updates: { currentHp?: number; temporaryHp?: number; gold?: number; experience?: number; isAlive?: boolean }) => {
+    mutationFn: async (updates: { currentHp?: number; temporaryHp?: number; gold?: number; currency?: { cp: number; sp: number; gp: number }; experience?: number; isAlive?: boolean }) => {
       const response = await apiRequest("PATCH", `/api/room-characters/${selectedCharacterId}`, {
         hostName,
         roomCode,
@@ -121,9 +122,29 @@ export function DMControlsPanel({ roomCode, hostName, gameSystem }: DMControlsPa
 
   const handleGoldChange = (delta: number) => {
     if (!selectedCharacter) return;
-    const current = selectedCharacter.roomCharacter.gold || 0;
-    const newVal = Math.max(0, current + delta);
-    updateStatsMutation.mutate({ gold: newVal });
+    
+    // Get current currency or fallback to old gold field
+    const currentCurrency = selectedCharacter.savedCharacter.currency || {
+      cp: 0,
+      sp: 0,
+      gp: selectedCharacter.roomCharacter.gold || 0
+    };
+    
+    // Apply change to the selected currency type
+    const newCurrency = { ...currentCurrency };
+    newCurrency[currencyType] = Math.max(0, currentCurrency[currencyType] + delta);
+    
+    // Apply automatic conversion
+    if (newCurrency.cp >= 100) {
+      newCurrency.sp += Math.floor(newCurrency.cp / 100);
+      newCurrency.cp = newCurrency.cp % 100;
+    }
+    if (newCurrency.sp >= 100) {
+      newCurrency.gp += Math.floor(newCurrency.sp / 100);
+      newCurrency.sp = newCurrency.sp % 100;
+    }
+    
+    updateStatsMutation.mutate({ currency: newCurrency });
     setGoldChange("");
   };
 
@@ -325,10 +346,24 @@ export function DMControlsPanel({ roomCode, hostName, gameSystem }: DMControlsPa
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <Coins className="h-4 w-4 text-yellow-500" />
-                  <span className="font-medium">Gold:</span>
-                  <span>{selectedCharacter.roomCharacter.gold || 0}</span>
+                  <span className="font-medium">Currency:</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-amber-600">{selectedCharacter.savedCharacter.currency?.gp || selectedCharacter.roomCharacter.gold || 0}gp</span>
+                    <span className="text-slate-400">{selectedCharacter.savedCharacter.currency?.sp || 0}sp</span>
+                    <span className="text-amber-700">{selectedCharacter.savedCharacter.currency?.cp || 0}cp</span>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  <Select value={currencyType} onValueChange={(v: "cp" | "sp" | "gp") => setCurrencyType(v)}>
+                    <SelectTrigger className="w-20">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cp">cp</SelectItem>
+                      <SelectItem value="sp">sp</SelectItem>
+                      <SelectItem value="gp">gp</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <Input
                     type="number"
                     placeholder="Amount"

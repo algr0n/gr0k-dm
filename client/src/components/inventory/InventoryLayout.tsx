@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 interface InventoryLayoutProps {
   items: CharacterInventoryItemWithDetails[];
   gold?: number;
+  currency?: { cp: number; sp: number; gp: number };
   armorClass?: number;
   currentWeight?: number;
   maxWeight?: number;
@@ -28,6 +29,7 @@ interface InventoryLayoutProps {
 export function InventoryLayout({
   items,
   gold = 0,
+  currency,
   armorClass = 10,
   currentWeight = 0,
   maxWeight = 150,
@@ -52,8 +54,18 @@ export function InventoryLayout({
             <div className="flex items-center gap-2">
               <Coins className="h-5 w-5 text-amber-500" />
               <div>
-                <p className="text-xs text-muted-foreground">Gold</p>
-                <p className="font-bold font-mono">{gold}</p>
+                <p className="text-xs text-muted-foreground">Currency</p>
+                <div className="flex items-center gap-2 font-mono font-bold">
+                  {currency ? (
+                    <>
+                      <span className="text-amber-600">{currency.gp}<span className="text-xs text-muted-foreground ml-0.5">gp</span></span>
+                      <span className="text-slate-400">{currency.sp}<span className="text-xs text-muted-foreground ml-0.5">sp</span></span>
+                      <span className="text-amber-700">{currency.cp}<span className="text-xs text-muted-foreground ml-0.5">cp</span></span>
+                    </>
+                  ) : (
+                    <span>{gold} gp</span>
+                  )}
+                </div>
               </div>
             </div>
             <Separator orientation="vertical" className="h-10" />
