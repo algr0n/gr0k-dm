@@ -1,38 +1,56 @@
-# Database Migration Guide
+# Database Migration & Setup Guide
+
+> **Complete guide for database setup, migrations, and schema management**
 
 ## Quick Start
 
-### Running Migrations Locally
+### First-Time Setup
 
 ```bash
-# Set database URL to local test file
-export TURSO_DATABASE_URL="file:./dev.sqlite.test"
+# 1. Set up environment variables
+cp .env.example .env
+# Edit .env with your Turso credentials
 
-# Install dependencies
-npm ci
+# 2. Install dependencies
+npm install
 
-# Apply current schema (idempotent, safe to run multiple times)
+# 3. Push database schema (creates all tables)
 npm run db:push
+
+# 4. Seed data (optional but recommended)
+npm run seed:items
+npm run seed:spells
 ```
 
 ### Available Migration Commands
 
 ```bash
+# Push schema directly (development - recommended)
+npm run db:push
+
 # Generate a new migration from schema changes
 npm run db:generate
 
-# Apply migrations to database
+# Apply migrations to database (production)
 npm run db:migrate
-
-# Push schema directly (development only, bypasses migrations)
-npm run db:push
 ```
 
 ## Migration Workflow
 
 ### 1. Development Workflow (Schema Changes)
 
-When you need to make schema changes:
+**Recommended approach for development:**
+
+```bash
+# 1. Edit shared/schema.ts with your changes
+# 2. Push schema directly (idempotent, safe to run multiple times)
+npm run db:push
+
+# 3. Test your changes
+npm run dev
+```
+
+**Alternative approach (if you need migration history):**
 
 ```bash
 # 1. Edit shared/schema.ts with your changes
@@ -54,17 +72,31 @@ git commit -m "Add migration for [feature]"
 
 ### 2. Production Deployment
 
-**NEVER** use `db:push` in production. Always use migrations:
+For production, you can use either approach depending on your needs:
 
+**Option A: Direct schema push (simpler, recommended for small projects)**
 ```bash
-# 1. Set production database URL
+# Set production database URL
 export TURSO_DATABASE_URL="libsql://your-db.turso.io"
 export TURSO_AUTH_TOKEN="your-token"
 
-# 2. Apply migrations
+# Push schema
+npm run db:push
+
+# Verify application starts correctly
+npm start
+```
+
+**Option B: Migration-based (for teams with migration history requirements)**
+```bash
+# Set production database URL
+export TURSO_DATABASE_URL="libsql://your-db.turso.io"
+export TURSO_AUTH_TOKEN="your-token"
+
+# Apply migrations
 npm run db:migrate
 
-# 3. Verify application starts correctly
+# Verify application starts correctly
 npm start
 ```
 
@@ -72,34 +104,46 @@ npm start
 
 ✅ **Schema is complete and production-ready**
 
-The existing migration `migrations/0000_secret_red_hulk.sql` contains the complete schema for:
-- User authentication (`users`, `sessions`)
-- Game rooms (`rooms`, `players`)
-- Characters (`unified_characters`, `characters`)
-- Inventory (`character_inventory_items`, `inventory_items`)
-- Items and spells (`items`, `spells`)
-- Status effects (`character_status_effects`)
-- Dice rolls (`dice_rolls`)
+The database schema (`shared/schema.ts`) includes:
+- **User authentication**: `users`, `sessions`
+- **Game rooms**: `rooms`, `players`
+- **Characters**: `unified_characters` (supports D&D 5e and Cyberpunk RED)
+- **Inventory**: `character_inventory_items`, `items`
+- **Spells**: `spells` (D&D 5e spell compendium)
+- **Combat**: `character_status_effects`
+- **Dice history**: `dice_rolls`
+
+### Schema Migrations
+
+The project has two migration files:
+- `0000_secret_red_hulk.sql` - Initial complete schema
+- `0001_add_password_hash_to_rooms.sql` - Password protection for rooms
 
 All character creation, item management, and saved character persistence functionality is fully supported.
 
 ## Safety Guidelines
 
-### ⚠️ CRITICAL: Do NOT
+### ⚠️ Best Practices
 
-1. **Do NOT** run `db:push` in production - it bypasses migration history
-2. **Do NOT** manually edit existing migration files
-3. **Do NOT** delete migration files
-4. **Do NOT** share database credentials in code
-5. **Do NOT** commit `.env` files with credentials
+1. **Always backup production data** before running migrations or schema changes
+2. **Test schema changes locally first** using `TURSO_DATABASE_URL="file:./test.db"`
+3. **Review generated SQL** when using `db:generate` before applying
+4. **Use environment variables** for database credentials (never commit secrets)
+5. **Keep `.env` files out of version control** (use `.env.example` for templates)
 
-### ✅ DO
+### Schema Push vs Migrations
 
-1. **DO** use `db:generate` to create migrations from schema changes
-2. **DO** review generated SQL before committing
-3. **DO** test migrations on local/staging databases first
-4. **DO** backup production database before migrating
-5. **DO** use environment variables for database URLs
+**Use `db:push` (recommended for most cases):**
+- ✅ Simple and fast
+- ✅ Idempotent (safe to run multiple times)
+- ✅ Perfect for solo developers or small teams
+- ✅ No migration file management needed
+
+**Use migrations (for advanced use cases):**
+- ✅ Provides migration history
+- ✅ Useful for teams needing audit trail
+- ✅ Can be more careful with data transformations
+- ❌ More complex to manage
 
 ## Database Helpers
 
@@ -117,7 +161,7 @@ import {
   deleteCharacter
 } from './server/db/characters';
 
-// Create a new character
+// Example: Create a new D&D character
 const character = await createCharacter({
   userId: "user-123",
   characterName: "Thorin Oakenshield",
@@ -148,6 +192,8 @@ await addItemToCharacter(character.id, "longsword", 1);
 const characterWithInventory = await getCharacterWithInventory(character.id);
 ```
 
+See `server/storage.ts` for additional database operations.
+
 ## Troubleshooting
 
 ### Migration Fails
@@ -156,21 +202,25 @@ const characterWithInventory = await getCharacterWithInventory(character.id);
 # 1. Check database connection
 sqlite3 $TURSO_DATABASE_URL ".tables"
 
-# 2. Check migration history
-sqlite3 $TURSO_DATABASE_URL "SELECT * FROM __drizzle_migrations"
-
-# 3. If using Turso, verify auth token
+# 2. Check Turso auth token is set
 echo $TURSO_AUTH_TOKEN | wc -c  # Should be > 0
+
+# 3. Try pushing schema directly
+npm run db:push
+
+# 4. Check for detailed errors
+npm run check  # TypeScript type checking
 ```
 
 ### Schema Out of Sync
 
 ```bash
 # Development: Reset local database
-rm -f dev.sqlite
+rm -f dev.sqlite *.db
 npm run db:push
 
-# Production: NEVER reset - use migrations or restore from backup
+# Production: Never reset - use migrations or restore from backup
+# Contact your database administrator
 ```
 
 ### Type Errors
@@ -180,19 +230,45 @@ npm run db:push
 npm run check
 
 # If schema types are missing, ensure shared/schema.ts is valid
+# Check for TypeScript errors in the schema file
 ```
+
+### Table Missing Errors
+
+If you see "no such table" errors:
+
+1. **Verify environment variables are set:**
+   ```bash
+   echo $TURSO_DATABASE_URL
+   echo $TURSO_AUTH_TOKEN
+   ```
+
+2. **Run schema push:**
+   ```bash
+   npm run db:push
+   ```
+
+3. **Verify tables exist:**
+   ```bash
+   # Using Turso CLI
+   turso db shell your-db-name
+   .tables
+   ```
 
 ## Database Structure
 
 ### Main Tables
 
+- **`users`** - User accounts and authentication
+- **`sessions`** - User session storage
 - **`unified_characters`** - User-owned characters (can join multiple rooms)
 - **`character_inventory_items`** - Character inventory with item links
 - **`items`** - Item definitions (weapons, armor, potions, etc.)
 - **`spells`** - Spell definitions for D&D 5e
 - **`rooms`** - Game sessions
 - **`players`** - Players in game rooms
-- **`users`** - Authentication and profiles
+- **`dice_rolls`** - Dice roll history
+- **`character_status_effects`** - Combat status effects
 
 ### Key Relationships
 
@@ -204,19 +280,39 @@ rooms → players (1:many)
 unified_characters.currentRoomCode → rooms.code (optional)
 ```
 
+## PostgreSQL to SQLite Migration Notes
+
+This project migrated from PostgreSQL types to SQLite in December 2025. Key changes:
+
+| PostgreSQL | SQLite | Notes |
+|------------|--------|-------|
+| `varchar(n)` | `text` | No length limit in SQLite |
+| `jsonb` | `text` with `mode: 'json'` | JSON stored as text |
+| `boolean` | `integer` with `mode: 'boolean'` | 0/1 values |
+| `timestamp` | `integer` with `mode: 'timestamp'` | Unix epoch |
+| `decimal(p,s)` | `real` | Floating point |
+
+The schema is defined using Drizzle ORM's SQLite adapter (`drizzle-orm/sqlite-core`).
+
 ## Additional Resources
 
-- **Full Migration Guide:** `MIGRATION_GUIDE_CHARACTER_PERSISTENCE.md`
-- **Database Schema:** `shared/schema.ts`
-- **Database Helpers:** `server/db/characters.ts`
-- **Storage Module:** `server/storage.ts`
-- **Drizzle Kit Docs:** https://orm.drizzle.team/kit-docs/overview
+- **Database Schema**: `shared/schema.ts` - Complete type-safe schema definitions
+- **Database Helpers**: `server/db/characters.ts` - Type-safe helper functions
+- **Storage Module**: `server/storage.ts` - Database operation abstractions
+- **Drizzle Kit Docs**: https://orm.drizzle.team/kit-docs/overview
+- **Turso Docs**: https://docs.turso.tech/
 
-## Questions?
+## Support
 
 If you encounter issues:
-1. Check environment variables are set correctly
+1. Check that environment variables are set correctly
 2. Review error messages carefully
-3. Verify database file permissions
-4. Check Turso dashboard for connection issues
-5. Refer to `MIGRATION_GUIDE_CHARACTER_PERSISTENCE.md` for detailed guidance
+3. Verify database file permissions (for local files)
+4. Check Turso dashboard for connection issues (for remote databases)
+5. Review the schema in `shared/schema.ts`
+6. Check existing issues on GitHub
+
+---
+
+**Last Updated**: December 2025  
+**Schema Version**: 1.0 (SQLite/Turso)
