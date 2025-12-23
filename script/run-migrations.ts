@@ -28,6 +28,9 @@ import { config } from "dotenv";
 // Load environment variables
 config({ path: resolve(process.cwd(), ".env") });
 
+// Constants
+const URL_DISPLAY_LENGTH = 40;
+
 async function runMigrations() {
   const dbUrl = process.env.TURSO_DATABASE_URL;
   const authToken = process.env.TURSO_AUTH_TOKEN;
@@ -40,7 +43,7 @@ async function runMigrations() {
   }
 
   console.log("🔄 Starting database migrations...");
-  console.log(`📍 Database: ${dbUrl.substring(0, 40)}...`);
+  console.log(`📍 Database: ${dbUrl.substring(0, URL_DISPLAY_LENGTH)}...`);
 
   let client;
   
@@ -91,8 +94,8 @@ async function runMigrations() {
       try {
         client.close();
       } catch (closeError) {
-        // Ignore errors during cleanup
-        console.error("Warning: Error closing database connection:", closeError);
+        // Log but don't fail on cleanup errors
+        console.warn("Note: Could not close database connection cleanly");
       }
     }
   }
