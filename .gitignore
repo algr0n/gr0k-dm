@@ -20,3 +20,8 @@ vite.config.ts.*
 # PDF conversion outputs (downloaded at runtime, not committed)
 /pdfs/
 /texts/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
