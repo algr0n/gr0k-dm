@@ -16,6 +16,9 @@ jobs:
   convert:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write  # Allow commits when COMMIT_OUTPUTS is enabled
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
