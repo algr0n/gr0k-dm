@@ -639,7 +639,9 @@ export default function RoomPage() {
           body: JSON.stringify({ equipped }),
         }
       );
-      if (!res.ok) throw new Error("Failed to update equipment status");
+      if (!res.ok) {
+        throw new Error(`Failed to update equipment status: ${res.status} ${res.statusText}`);
+      }
       return res.json();
     },
     onSuccess: () => {

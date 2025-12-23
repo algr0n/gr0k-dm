@@ -2984,7 +2984,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
       
       // Verify the user owns this character
-      if (character.userId !== req.user!.id) {
+      if (character.userId !== req.user?.id) {
         return res.status(403).json({ error: "Forbidden: You do not own this character" });
       }
       
