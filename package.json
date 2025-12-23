@@ -13,7 +13,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:migrate-prod": "node script/migrate-db.mjs",
     "db:check": "node script/check-db.mjs",
-    "migrate:prod": "tsx script/run-migrations.ts"
+    "migrate:prod": "tsx script/run-migrations.ts",
+    "db:migrate-turso": "tsx scripts/run-migration-turso.ts"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.18.0",
