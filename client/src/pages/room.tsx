@@ -1752,7 +1752,7 @@ export default function RoomPage() {
                 <InventoryLayout
                   items={inventory || []}
                   gold={myCharacterData.roomCharacter.gold}
-                  currency={myCharacterData.savedCharacter.currency}
+                  currency={myCharacterData.savedCharacter.currency || undefined}
                   armorClass={myCharacterData.savedCharacter.ac}
                   currentWeight={
                     inventory?.reduce((total, item) => {
