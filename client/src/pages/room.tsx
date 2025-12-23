@@ -639,7 +639,7 @@ export default function RoomPage() {
           body: JSON.stringify({ equipped }),
         }
       );
-      if (!res.ok) throw new Error("Failed to equip item");
+      if (!res.ok) throw new Error("Failed to update equipment status");
       return res.json();
     },
     onSuccess: () => {
@@ -651,7 +651,7 @@ export default function RoomPage() {
     },
     onError: () => {
       toast({
-        title: "Failed to equip item",
+        title: "Failed to update equipment",
         description: "Please try again.",
         variant: "destructive",
       });

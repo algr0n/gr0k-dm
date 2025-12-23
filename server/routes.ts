@@ -2970,6 +2970,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // PATCH /api/characters/:characterId/inventory/:itemId - Toggle equipped status
+  // Request body: { equipped?: boolean }
+  // If equipped is not provided, the current equipped status will be toggled
   app.patch("/api/characters/:characterId/inventory/:itemId", isAuthenticated, async (req, res) => {
     try {
       const { characterId, itemId } = req.params;
