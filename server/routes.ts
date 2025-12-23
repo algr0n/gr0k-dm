@@ -936,20 +936,23 @@ async function executeGameActions(
               const inventory = await storage.getSavedInventoryWithDetails(char.id);
               const existingInvItem = inventory.find(i => i.itemId === item.id);
               
+              let finalQuantity: number;
               if (existingInvItem) {
                 // Item exists - increment quantity instead of adding duplicate
+                finalQuantity = existingInvItem.quantity + (action.quantity || 1);
                 await storage.updateSavedInventoryItem(existingInvItem.id, {
-                  quantity: existingInvItem.quantity + (action.quantity || 1)
+                  quantity: finalQuantity
                 });
-                console.log(`[DM Action] Incremented existing item "${item.name}" for ${action.playerName} (now ${existingInvItem.quantity + (action.quantity || 1)}x)`);
+                console.log(`[DM Action] Incremented existing item "${item.name}" for ${action.playerName} (now ${finalQuantity}x)`);
               } else {
                 // Item doesn't exist - add new
+                finalQuantity = action.quantity || 1;
                 await storage.addToSavedInventory({
                   characterId: char.id,
                   itemId: item.id,
-                  quantity: action.quantity || 1,
+                  quantity: finalQuantity,
                 });
-                console.log(`[DM Action] Added new item "${item.name}" to ${action.playerName} (${action.quantity || 1}x)`);
+                console.log(`[DM Action] Added new item "${item.name}" to ${action.playerName} (${finalQuantity}x)`);
               }
               
               broadcastFn(roomCode, {
@@ -957,7 +960,7 @@ async function executeGameActions(
                 characterId: char.id,
                 action: "add",
                 itemName: item.name,
-                quantity: action.quantity || 1,
+                quantity: finalQuantity,
               });
             }
           }
@@ -2967,10 +2970,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // PATCH /api/characters/:characterId/inventory/:itemId - Toggle equipped status
-  app.patch("/api/characters/:characterId/inventory/:itemId", async (req, res) => {
+  app.patch("/api/characters/:characterId/inventory/:itemId", isAuthenticated, async (req, res) => {
     try {
       const { characterId, itemId } = req.params;
       const { equipped } = req.body;
+      
+      // Get the character to verify ownership
+      const character = await storage.getSavedCharacter(characterId);
+      if (!character) {
+        return res.status(404).json({ error: "Character not found" });
+      }
+      
+      // Verify the user owns this character
+      if (character.userId !== req.user!.id) {
+        return res.status(403).json({ error: "Forbidden: You do not own this character" });
+      }
       
       // Get character's inventory to verify item exists
       const inventory = await storage.getSavedInventoryWithDetails(characterId);
