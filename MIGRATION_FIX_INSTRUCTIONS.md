@@ -293,24 +293,25 @@ If you continue having issues:
   - `no such column: rooms.password_hash`
   - `table rooms has no column named password_hash`
 
-**Quick fix (recommended):**
+**Root Cause:**
+The `password_hash` column is already defined in `shared/schema.ts` (line 111), but the schema has not been synced to the production database. This project uses Drizzle ORM with `drizzle-kit push` for schema management, which applies changes from the schema file directly to the database.
+
+**Solution (Recommended):**
 
 1. **Backup the production DB (snapshot).**
    - Always create a backup before running migrations in production!
 
-2. **Run the project's migration pipeline (preferred):**
+2. **Run the project's schema sync command:**
    ```bash
    TURSO_DATABASE_URL="libsql://your-database.turso.io" \
    TURSO_AUTH_TOKEN="your-token-here" \
    npm run db:migrate-prod
    ```
 
-3. **Alternative: Run the one-off migration script:**
-   ```bash
-   TURSO_DATABASE_URL="libsql://your-database.turso.io" \
-   TURSO_AUTH_TOKEN="your-token-here" \
-   node scripts/run-one-off-migration.js
-   ```
+   This command runs `drizzle-kit push` which:
+   - Reads the schema from `shared/schema.ts`
+   - Compares it with the current database schema
+   - Applies the necessary changes (including adding the `password_hash` column)
 
 **Verification steps:**
 
@@ -329,7 +330,7 @@ You should see `password_hash TEXT` in the rooms table definition.
 To prevent this issue in the future, update your Render build command to:
 
 ```bash
-npm install && npm run db:migrate-prod && npm run build
+npm ci && npm run db:migrate-prod && npm run build
 ```
 
 This ensures migrations are automatically applied before each deployment.
@@ -337,8 +338,11 @@ This ensures migrations are automatically applied before each deployment.
 **Safety notes:**
 - The migration adds a nullable TEXT column and is safe and non-destructive for existing rows.
 - Still recommend taking a DB snapshot/backup before running changes in production.
-- The migration uses `IF NOT EXISTS` to ensure true idempotency - safe to run multiple times without errors.
+- Drizzle's push command is intelligent and only applies the differences between the schema and database.
 
-**Files involved:**
-- `migrations/0001_add_room_password_hash.sql` - Contains the ALTER TABLE statement
-- `scripts/run-one-off-migration.js` - One-off script to apply the migration directly
+**How Schema Management Works:**
+This project uses Drizzle ORM for schema management:
+- Schema is defined in `shared/schema.ts`
+- `npm run db:migrate-prod` runs `drizzle-kit push` (see `script/migrate-db.mjs`)
+- The push command syncs the schema directly to the database
+- No manual SQL migration files are used in this workflow
