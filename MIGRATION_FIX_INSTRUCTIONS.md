@@ -283,3 +283,62 @@ If you continue having issues:
 2. Verify your Turso database credentials are correct
 3. Check if you can connect to Turso from your deployment environment
 4. Review the migration SQL file to ensure it's valid
+
+---
+
+### Immediate remediation for missing rooms.password_hash
+
+**Problem:**
+- Recent release expects a `password_hash` column on the `rooms` table. If this column is missing the app will return SQL errors like:
+  - `no such column: rooms.password_hash`
+  - `table rooms has no column named password_hash`
+
+**Quick fix (recommended):**
+
+1. **Backup the production DB (snapshot).**
+   - Always create a backup before running migrations in production!
+
+2. **Run the project's migration pipeline (preferred):**
+   ```bash
+   TURSO_DATABASE_URL="libsql://your-database.turso.io" \
+   TURSO_AUTH_TOKEN="your-token-here" \
+   npm run db:migrate-prod
+   ```
+
+3. **Alternative: Run the one-off migration script:**
+   ```bash
+   TURSO_DATABASE_URL="libsql://your-database.turso.io" \
+   TURSO_AUTH_TOKEN="your-token-here" \
+   node scripts/run-one-off-migration.js
+   ```
+
+**Verification steps:**
+
+After running the migration, verify the column exists:
+
+```bash
+# Using Turso CLI
+turso db shell your-database-name
+.schema rooms
+```
+
+You should see `password_hash TEXT` in the rooms table definition.
+
+**Recommended Render build command to run migrations during deploy:**
+
+To prevent this issue in the future, update your Render build command to:
+
+```bash
+npm install && npm run db:migrate-prod && npm run build
+```
+
+This ensures migrations are automatically applied before each deployment.
+
+**Safety notes:**
+- The migration adds a nullable TEXT column and is safe and non-destructive for existing rows.
+- Still recommend taking a DB snapshot/backup before running changes in production.
+- The ALTER statement is idempotent - if the column already exists, the migration will fail gracefully.
+
+**Files involved:**
+- `migrations/0001_add_room_password_hash.sql` - Contains the ALTER TABLE statement
+- `scripts/run-one-off-migration.js` - One-off script to apply the migration directly
