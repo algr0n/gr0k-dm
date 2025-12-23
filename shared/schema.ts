@@ -109,12 +109,15 @@ export const rooms = sqliteTable("rooms", {
   isPublic: integer("is_public", { mode: 'boolean' }).notNull().default(true),
   maxPlayers: integer("max_players").notNull().default(6),
   passwordHash: text("password_hash"),
+  adventureId: text("adventure_id"), // References adventures table (defined in adventure-schema.ts)
+  useAdventureMode: integer("use_adventure_mode", { mode: 'boolean' }).default(false),
   lastActivityAt: integer("last_activity_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
   createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
   updatedAt: integer("updated_at", { mode: 'timestamp' }).default(currentTimestamp()),
 }, (table) => [
   index("idx_rooms_code").on(table.code),
   index("idx_rooms_active").on(table.isActive),
+  index("idx_rooms_adventure").on(table.adventureId),
 ]);
 
 export const insertRoomSchema = createInsertSchema(rooms).omit({
@@ -126,6 +129,38 @@ export const insertRoomSchema = createInsertSchema(rooms).omit({
 });
 export type InsertRoom = z.infer<typeof insertRoomSchema>;
 export type Room = typeof rooms.$inferSelect;
+
+// Room Adventure Progress Table - Track each room's progress through adventure
+// Note: Uses late imports from adventure-schema to avoid circular dependency
+export const roomAdventureProgress = sqliteTable("room_adventure_progress", {
+  id: text("id").primaryKey().default(generateUUID()),
+  roomId: text("room_id")
+    .notNull()
+    .references(() => rooms.id, { onDelete: "cascade" }),
+  adventureId: text("adventure_id").notNull(), // FK to adventures.id from adventure-schema
+  currentChapterId: text("current_chapter_id"), // FK to adventure_chapters.id
+  currentLocationId: text("current_location_id"), // FK to adventure_locations.id
+  completedChapterIds: text("completed_chapter_ids", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
+  discoveredLocationIds: text("discovered_location_ids", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
+  completedQuestIds: text("completed_quest_ids", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
+  activeQuestIds: text("active_quest_ids", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
+  completedEncounterIds: text("completed_encounter_ids", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
+  metNpcIds: text("met_npc_ids", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
+  notes: text("notes"), // DM notes about the adventure progress
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(currentTimestamp()),
+}, (table) => [
+  index("idx_progress_room").on(table.roomId),
+  index("idx_progress_adventure").on(table.adventureId),
+]);
+
+export const insertRoomAdventureProgressSchema = createInsertSchema(roomAdventureProgress).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type InsertRoomAdventureProgress = z.infer<typeof insertRoomAdventureProgressSchema>;
+export type RoomAdventureProgress = typeof roomAdventureProgress.$inferSelect;
 
 // Players in rooms
 export const players = sqliteTable("players", {
@@ -1577,3 +1612,9 @@ export function getSkillBonus(
   const allSkills = buildSkillStats(options);
   return allSkills[skillName];
 }
+
+// =============================================================================
+// Adventure Module Schema Exports
+// =============================================================================
+
+export * from './adventure-schema';

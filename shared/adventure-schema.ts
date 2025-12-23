@@ -1,0 +1,303 @@
+/**
+ * Adventure Module Schema
+ * Database schema for pre-made adventure modules like Lost Mine of Phandelver
+ * 
+ * Copyright Notice: Adventure content (Lost Mine of Phandelver) is from 
+ * Wizards of the Coast's D&D 5e Starter Set and is for personal use only.
+ */
+
+import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { relations } from "drizzle-orm";
+import { createInsertSchema } from "drizzle-zod";
+import { sql } from "drizzle-orm";
+
+// SQLite Helper Functions (redefined to avoid circular dependency)
+const generateUUID = () => sql`(lower(hex(randomblob(16))))`;
+const currentTimestamp = () => sql`(unixepoch())`;
+const emptyJsonArray = () => sql`'[]'`;
+
+// =============================================================================
+// Adventures Table - Core adventure metadata
+// =============================================================================
+
+export const adventures = sqliteTable("adventures", {
+  id: text("id").primaryKey().default(generateUUID()),
+  slug: text("slug").notNull().unique(), // URL-friendly identifier (e.g., "lost-mine-of-phandelver")
+  name: text("name").notNull(),
+  description: text("description").notNull(), // Short description for adventure cards
+  longDescription: text("long_description"), // Detailed description/synopsis
+  gameSystem: text("game_system").notNull().default("dnd"), // dnd, cyberpunk, etc.
+  minLevel: integer("min_level").notNull().default(1),
+  maxLevel: integer("max_level").notNull().default(5),
+  estimatedHours: text("estimated_hours"), // e.g., "20-30 hours"
+  source: text("source").notNull(), // e.g., "D&D 5e Starter Set"
+  coverImageUrl: text("cover_image_url"), // Optional cover image
+  isPublished: integer("is_published", { mode: 'boolean' }).notNull().default(true),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(currentTimestamp()),
+}, (table) => [
+  index("idx_adventures_slug").on(table.slug),
+  index("idx_adventures_published").on(table.isPublished),
+  index("idx_adventures_game_system").on(table.gameSystem),
+]);
+
+export type Adventure = typeof adventures.$inferSelect;
+export type InsertAdventure = typeof adventures.$inferInsert;
+export const insertAdventureSchema = createInsertSchema(adventures).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+// =============================================================================
+// Adventure Chapters Table - Story chapters/acts within an adventure
+// =============================================================================
+
+export const adventureChapters = sqliteTable("adventure_chapters", {
+  id: text("id").primaryKey().default(generateUUID()),
+  adventureId: text("adventure_id")
+    .notNull()
+    .references(() => adventures.id, { onDelete: "cascade" }),
+  chapterNumber: integer("chapter_number").notNull(), // 1, 2, 3, etc.
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  objectives: text("objectives", { mode: 'json' }).$type<string[]>().notNull().default(emptyJsonArray()),
+  summary: text("summary"), // DM summary of what happens in this chapter
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [
+  index("idx_chapters_adventure").on(table.adventureId),
+  index("idx_chapters_number").on(table.chapterNumber),
+]);
+
+export type AdventureChapter = typeof adventureChapters.$inferSelect;
+export type InsertAdventureChapter = typeof adventureChapters.$inferInsert;
+export const insertAdventureChapterSchema = createInsertSchema(adventureChapters).omit({
+  id: true,
+  createdAt: true,
+});
+
+// =============================================================================
+// Adventure Locations Table - Dungeons, towns, wilderness areas
+// =============================================================================
+
+export const adventureLocations = sqliteTable("adventure_locations", {
+  id: text("id").primaryKey().default(generateUUID()),
+  adventureId: text("adventure_id")
+    .notNull()
+    .references(() => adventures.id, { onDelete: "cascade" }),
+  chapterId: text("chapter_id")
+    .references(() => adventureChapters.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  type: text("type").notNull(), // "dungeon", "town", "wilderness", "building", "room"
+  description: text("description").notNull(),
+  boxedText: text("boxed_text"), // Read-aloud descriptive text for DM
+  mapImageUrl: text("map_image_url"), // Optional map image
+  features: text("features", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()), // Notable features
+  connections: text("connections", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()), // IDs of connected locations
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [
+  index("idx_locations_adventure").on(table.adventureId),
+  index("idx_locations_chapter").on(table.chapterId),
+  index("idx_locations_type").on(table.type),
+]);
+
+export type AdventureLocation = typeof adventureLocations.$inferSelect;
+export type InsertAdventureLocation = typeof adventureLocations.$inferInsert;
+export const insertAdventureLocationSchema = createInsertSchema(adventureLocations).omit({
+  id: true,
+  createdAt: true,
+});
+
+// =============================================================================
+// Adventure Encounters Table - Combat, traps, puzzles
+// =============================================================================
+
+export const adventureEncounters = sqliteTable("adventure_encounters", {
+  id: text("id").primaryKey().default(generateUUID()),
+  adventureId: text("adventure_id")
+    .notNull()
+    .references(() => adventures.id, { onDelete: "cascade" }),
+  locationId: text("location_id")
+    .references(() => adventureLocations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  type: text("type").notNull(), // "combat", "trap", "puzzle", "social", "exploration"
+  difficulty: text("difficulty"), // "easy", "medium", "hard", "deadly"
+  description: text("description").notNull(),
+  enemies: text("enemies", { mode: 'json' }).$type<Array<{
+    name: string;
+    count: number;
+    hp?: number;
+    ac?: number;
+    specialAbilities?: string[];
+  }>>().default(emptyJsonArray()),
+  xpReward: integer("xp_reward").default(0),
+  treasure: text("treasure", { mode: 'json' }).$type<Array<{
+    item: string;
+    quantity?: number;
+    description?: string;
+  }>>().default(emptyJsonArray()),
+  triggerCondition: text("trigger_condition"), // When/how this encounter triggers
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [
+  index("idx_encounters_adventure").on(table.adventureId),
+  index("idx_encounters_location").on(table.locationId),
+  index("idx_encounters_type").on(table.type),
+]);
+
+export type AdventureEncounter = typeof adventureEncounters.$inferSelect;
+export type InsertAdventureEncounter = typeof adventureEncounters.$inferInsert;
+export const insertAdventureEncounterSchema = createInsertSchema(adventureEncounters).omit({
+  id: true,
+  createdAt: true,
+});
+
+// =============================================================================
+// Adventure NPCs Table - Named NPCs with personality and quest connections
+// =============================================================================
+
+export const adventureNpcs = sqliteTable("adventure_npcs", {
+  id: text("id").primaryKey().default(generateUUID()),
+  adventureId: text("adventure_id")
+    .notNull()
+    .references(() => adventures.id, { onDelete: "cascade" }),
+  locationId: text("location_id")
+    .references(() => adventureLocations.id, { onDelete: "set null" }),
+  name: text("name").notNull(),
+  race: text("race"), // "Dwarf", "Human", "Drow", etc.
+  role: text("role").notNull(), // "Quest Giver", "Villain", "Ally", "Merchant", etc.
+  description: text("description").notNull(),
+  personality: text("personality"), // Key personality traits
+  ideals: text("ideals"),
+  bonds: text("bonds"),
+  flaws: text("flaws"),
+  statsBlock: text("stats_block", { mode: 'json' }).$type<{
+    ac?: number;
+    hp?: number;
+    speed?: string;
+    abilities?: Record<string, number>;
+    specialAbilities?: string[];
+  }>(),
+  questConnections: text("quest_connections", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()), // Quest IDs this NPC is involved in
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [
+  index("idx_npcs_adventure").on(table.adventureId),
+  index("idx_npcs_location").on(table.locationId),
+  index("idx_npcs_role").on(table.role),
+]);
+
+export type AdventureNpc = typeof adventureNpcs.$inferSelect;
+export type InsertAdventureNpc = typeof adventureNpcs.$inferInsert;
+export const insertAdventureNpcSchema = createInsertSchema(adventureNpcs).omit({
+  id: true,
+  createdAt: true,
+});
+
+// =============================================================================
+// Adventure Quests Table - Quests and objectives with rewards
+// =============================================================================
+
+export const adventureQuests = sqliteTable("adventure_quests", {
+  id: text("id").primaryKey().default(generateUUID()),
+  adventureId: text("adventure_id")
+    .notNull()
+    .references(() => adventures.id, { onDelete: "cascade" }),
+  chapterId: text("chapter_id")
+    .references(() => adventureChapters.id, { onDelete: "set null" }),
+  questGiverId: text("quest_giver_id")
+    .references(() => adventureNpcs.id, { onDelete: "set null" }), // NPC who gives the quest
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  objectives: text("objectives", { mode: 'json' }).$type<string[]>().notNull().default(emptyJsonArray()),
+  rewards: text("rewards", { mode: 'json' }).$type<{
+    xp?: number;
+    gold?: number;
+    items?: string[];
+    other?: string[];
+  }>(),
+  isMainQuest: integer("is_main_quest", { mode: 'boolean' }).notNull().default(false),
+  prerequisiteQuestIds: text("prerequisite_quest_ids", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [
+  index("idx_quests_adventure").on(table.adventureId),
+  index("idx_quests_chapter").on(table.chapterId),
+  index("idx_quests_giver").on(table.questGiverId),
+]);
+
+export type AdventureQuest = typeof adventureQuests.$inferSelect;
+export type InsertAdventureQuest = typeof adventureQuests.$inferInsert;
+export const insertAdventureQuestSchema = createInsertSchema(adventureQuests).omit({
+  id: true,
+  createdAt: true,
+});
+
+// =============================================================================
+// Relations
+// =============================================================================
+
+export const adventuresRelations = relations(adventures, ({ many }) => ({
+  chapters: many(adventureChapters),
+  locations: many(adventureLocations),
+  encounters: many(adventureEncounters),
+  npcs: many(adventureNpcs),
+  quests: many(adventureQuests),
+}));
+
+export const adventureChaptersRelations = relations(adventureChapters, ({ one, many }) => ({
+  adventure: one(adventures, {
+    fields: [adventureChapters.adventureId],
+    references: [adventures.id],
+  }),
+  locations: many(adventureLocations),
+  quests: many(adventureQuests),
+}));
+
+export const adventureLocationsRelations = relations(adventureLocations, ({ one, many }) => ({
+  adventure: one(adventures, {
+    fields: [adventureLocations.adventureId],
+    references: [adventures.id],
+  }),
+  chapter: one(adventureChapters, {
+    fields: [adventureLocations.chapterId],
+    references: [adventureChapters.id],
+  }),
+  encounters: many(adventureEncounters),
+  npcs: many(adventureNpcs),
+}));
+
+export const adventureEncountersRelations = relations(adventureEncounters, ({ one }) => ({
+  adventure: one(adventures, {
+    fields: [adventureEncounters.adventureId],
+    references: [adventures.id],
+  }),
+  location: one(adventureLocations, {
+    fields: [adventureEncounters.locationId],
+    references: [adventureLocations.id],
+  }),
+}));
+
+export const adventureNpcsRelations = relations(adventureNpcs, ({ one, many }) => ({
+  adventure: one(adventures, {
+    fields: [adventureNpcs.adventureId],
+    references: [adventures.id],
+  }),
+  location: one(adventureLocations, {
+    fields: [adventureNpcs.locationId],
+    references: [adventureLocations.id],
+  }),
+  questsGiven: many(adventureQuests),
+}));
+
+export const adventureQuestsRelations = relations(adventureQuests, ({ one }) => ({
+  adventure: one(adventures, {
+    fields: [adventureQuests.adventureId],
+    references: [adventures.id],
+  }),
+  chapter: one(adventureChapters, {
+    fields: [adventureQuests.chapterId],
+    references: [adventureChapters.id],
+  }),
+  questGiver: one(adventureNpcs, {
+    fields: [adventureQuests.questGiverId],
+    references: [adventureNpcs.id],
+  }),
+}));

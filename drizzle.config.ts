@@ -5,7 +5,7 @@ import { resolve } from "path";
 config({ path: resolve(__dirname, ".env") });
 
 export default {
-  schema: "./shared/schema.ts",
+  schema: ["./shared/schema.ts", "./shared/adventure-schema.ts"],
   out: "./migrations",
   dialect: "sqlite",
   dbCredentials: {

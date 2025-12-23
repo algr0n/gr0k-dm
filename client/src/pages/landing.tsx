@@ -55,6 +55,8 @@ export default function Landing() {
   const [isPublic, setIsPublic] = useState(true);
   const [roomPassword, setRoomPassword] = useState("");
   const [browseFilter, setBrowseFilter] = useState<GameSystem | "all">("all");
+  const [useAdventureMode, setUseAdventureMode] = useState(false);
+  const [selectedAdventureId, setSelectedAdventureId] = useState<string | null>(null);
   
   // Multi-step host flow
   const [hostStep, setHostStep] = useState<HostStep>("details");
@@ -123,6 +125,35 @@ export default function Landing() {
     (char) => char.gameSystem === gameSystem
   ) || [];
 
+  // Fetch available adventures for the selected game system
+  type AdventureBasic = {
+    id: string;
+    slug: string;
+    name: string;
+    description: string;
+    gameSystem: string;
+    minLevel: number;
+    maxLevel: number;
+    estimatedHours: string | null;
+    source: string;
+    coverImageUrl: string | null;
+  };
+
+  const { data: adventures } = useQuery<AdventureBasic[]>({
+    queryKey: ["/api/adventures"],
+    queryFn: async () => {
+      const response = await fetch("/api/adventures");
+      if (!response.ok) throw new Error("Failed to fetch adventures");
+      return response.json();
+    },
+    enabled: hostDialogOpen && hostStep === "details",
+  });
+
+  // Filter adventures by game system
+  const availableAdventures = adventures?.filter(
+    (adventure) => adventure.gameSystem === gameSystem
+  ) || [];
+
   type PublicRoom = Room & { playerCount: number };
   
   const { data: publicRooms, isLoading: isLoadingPublicRooms } = useQuery<PublicRoom[]>({
@@ -152,6 +183,8 @@ export default function Landing() {
         gameSystem,
         isPublic,
         password: roomPassword && roomPassword.trim().length > 0 ? roomPassword : undefined,
+        useAdventureMode: useAdventureMode,
+        adventureId: useAdventureMode && selectedAdventureId ? selectedAdventureId : undefined,
       });
       return response.json() as Promise<Room & { hostPlayer: { id: string } }>;
     },
@@ -215,6 +248,8 @@ export default function Landing() {
     setHostName("");
     setIsPublic(true);
     setRoomPassword("");
+    setUseAdventureMode(false);
+    setSelectedAdventureId(null);
   };
 
   const handleHostGame = (e: React.FormEvent) => {
@@ -328,6 +363,75 @@ export default function Landing() {
                           Set a password to make this room private. Players will need the password to join.
                         </p>
                       </div>
+                      
+                      {/* Adventure Mode Selection */}
+                      <div className="space-y-3 border-t pt-4">
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="use-adventure"
+                            checked={useAdventureMode}
+                            onCheckedChange={(checked) => {
+                              setUseAdventureMode(checked === true);
+                              if (checked === false) {
+                                setSelectedAdventureId(null);
+                              }
+                            }}
+                            data-testid="checkbox-use-adventure"
+                          />
+                          <Label htmlFor="use-adventure" className="text-sm font-medium cursor-pointer">
+                            Use Pre-Made Adventure
+                          </Label>
+                        </div>
+                        
+                        {useAdventureMode && (
+                          <div className="space-y-2 ml-6">
+                            <Label htmlFor="adventure-select">Select Adventure</Label>
+                            <Select 
+                              value={selectedAdventureId || undefined} 
+                              onValueChange={(value) => setSelectedAdventureId(value)}
+                              disabled={availableAdventures.length === 0}
+                            >
+                              <SelectTrigger id="adventure-select" data-testid="select-adventure">
+                                <SelectValue placeholder={
+                                  availableAdventures.length === 0 
+                                    ? "No adventures available" 
+                                    : "Choose an adventure"
+                                } />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {availableAdventures.map((adventure) => (
+                                  <SelectItem key={adventure.id} value={adventure.id} data-testid={`adventure-${adventure.slug}`}>
+                                    {adventure.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            
+                            {selectedAdventureId && availableAdventures.find(a => a.id === selectedAdventureId) && (
+                              <div className="p-3 bg-muted/50 rounded-md text-sm space-y-1">
+                                <p className="font-medium">
+                                  {availableAdventures.find(a => a.id === selectedAdventureId)!.name}
+                                </p>
+                                <p className="text-muted-foreground">
+                                  {availableAdventures.find(a => a.id === selectedAdventureId)!.description}
+                                </p>
+                                <div className="flex gap-2 text-xs text-muted-foreground mt-2">
+                                  <Badge variant="outline">
+                                    Levels {availableAdventures.find(a => a.id === selectedAdventureId)!.minLevel}-
+                                    {availableAdventures.find(a => a.id === selectedAdventureId)!.maxLevel}
+                                  </Badge>
+                                  {availableAdventures.find(a => a.id === selectedAdventureId)!.estimatedHours && (
+                                    <Badge variant="outline">
+                                      {availableAdventures.find(a => a.id === selectedAdventureId)!.estimatedHours}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      
                       <div className="flex items-center space-x-2">
                         <Checkbox
                           id="is-public"
