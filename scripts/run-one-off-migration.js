@@ -15,6 +15,10 @@ async function run() {
     process.exit(1);
   }
 
+  if (!authToken) {
+    console.warn("Warning: TURSO_AUTH_TOKEN not set. Connection may fail if database requires authentication.");
+  }
+
   const client = createClient({ url, authToken });
 
   try {
@@ -25,7 +29,13 @@ async function run() {
     console.error("Migration error:", err);
     process.exit(1);
   } finally {
-    try { client.close && client.close(); } catch (e) {}
+    try {
+      if (client.close) {
+        client.close();
+      }
+    } catch (e) {
+      console.error("Error closing database connection:", e.message);
+    }
   }
 }
 
