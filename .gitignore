@@ -9,4 +9,9 @@ vite.config.ts.*
 !.env.example
 .archive
 *.db
-*.db-*
+*.db-*# Ignore local database files
+*.sqlite
+*.db
+
+# Environment files
+.env
