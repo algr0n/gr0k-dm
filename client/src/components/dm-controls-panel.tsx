@@ -134,7 +134,7 @@ export function DMControlsPanel({ roomCode, hostName, gameSystem }: DMControlsPa
     const newCurrency = { ...currentCurrency };
     newCurrency[currencyType] = Math.max(0, currentCurrency[currencyType] + delta);
     
-    // Apply automatic conversion
+    // Apply automatic conversion (100cp→1sp, 100sp→1gp)
     if (newCurrency.cp >= 100) {
       newCurrency.sp += Math.floor(newCurrency.cp / 100);
       newCurrency.cp = newCurrency.cp % 100;

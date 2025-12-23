@@ -251,10 +251,14 @@ interface DetectedItem {
 }
 
 interface DetectedCurrency {
-  cp: number;
-  sp: number;
-  gp: number;
+  cp: number;  // Copper pieces
+  sp: number;  // Silver pieces
+  gp: number;  // Gold pieces
 }
+
+// D&D 5e currency conversion rates
+const CP_TO_SP_RATE = 100;
+const SP_TO_GP_RATE = 100;
 
 // Detect currency mentions in natural language (copper, silver, gold)
 function detectCurrencyMentions(response: string): DetectedCurrency {
@@ -323,16 +327,16 @@ function detectCurrencyMentions(response: string): DetectedCurrency {
 function convertCurrency(currency: DetectedCurrency): DetectedCurrency {
   const result = { ...currency };
   
-  // Convert 100 cp → 1 sp
-  if (result.cp >= 100) {
-    result.sp += Math.floor(result.cp / 100);
-    result.cp = result.cp % 100;
+  // Convert copper to silver
+  if (result.cp >= CP_TO_SP_RATE) {
+    result.sp += Math.floor(result.cp / CP_TO_SP_RATE);
+    result.cp = result.cp % CP_TO_SP_RATE;
   }
   
-  // Convert 100 sp → 1 gp
-  if (result.sp >= 100) {
-    result.gp += Math.floor(result.sp / 100);
-    result.sp = result.sp % 100;
+  // Convert silver to gold
+  if (result.sp >= SP_TO_GP_RATE) {
+    result.gp += Math.floor(result.sp / SP_TO_GP_RATE);
+    result.sp = result.sp % SP_TO_GP_RATE;
   }
   
   return result;
@@ -728,20 +732,41 @@ async function executeGameActions(
                   // Build item properties with AI-generated stats or defaults
                   const itemProperties: any = {};
                   
+                  // Weapon damage mapping for common weapon types
+                  const weaponDamageMap: Record<string, string> = {
+                    'dagger': '1d4',
+                    'dart': '1d4',
+                    'shortsword': '1d6',
+                    'scimitar': '1d6',
+                    'spear': '1d6',
+                    'trident': '1d6',
+                    'mace': '1d6',
+                    'club': '1d6',
+                    'staff': '1d6',
+                    'quarterstaff': '1d6',
+                    'handaxe': '1d6',
+                    'light hammer': '1d6',
+                    'longsword': '1d8',
+                    'battleaxe': '1d8',
+                    'warhammer': '1d8',
+                    'greatsword': '2d6',
+                    'greataxe': '2d6',
+                    'maul': '2d6',
+                    'pike': '2d6',
+                  };
+                  
                   // Determine default damage for weapons based on type
                   const getDefaultDamage = (category: string, type: string): string | null => {
                     if (category !== "weapon") return null;
                     const lowerType = type.toLowerCase();
-                    if (lowerType.includes("dagger") || lowerType.includes("dart")) return "1d4";
-                    if (lowerType.includes("shortsword") || lowerType.includes("scimitar")) return "1d6";
-                    if (lowerType.includes("longsword") || lowerType.includes("battleaxe")) return "1d8";
-                    if (lowerType.includes("greatsword") || lowerType.includes("greataxe")) return "2d6";
-                    if (lowerType.includes("maul") || lowerType.includes("pike")) return "2d6";
-                    if (lowerType.includes("spear") || lowerType.includes("trident")) return "1d6";
-                    if (lowerType.includes("mace") || lowerType.includes("club")) return "1d6";
-                    if (lowerType.includes("staff") || lowerType.includes("quarterstaff")) return "1d6";
-                    if (lowerType.includes("warhammer")) return "1d8";
-                    if (lowerType.includes("handaxe") || lowerType.includes("light hammer")) return "1d6";
+                    
+                    // Check for exact or partial match in weapon damage map
+                    for (const [weaponType, damage] of Object.entries(weaponDamageMap)) {
+                      if (lowerType.includes(weaponType)) {
+                        return damage;
+                      }
+                    }
+                    
                     return "1d6"; // Default weapon damage
                   };
                   
