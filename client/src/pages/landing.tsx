@@ -107,7 +107,6 @@ export default function Landing() {
       sessionStorage.removeItem("lastRoomCode");
       setLastRoomCode(null);
       setLastPlayerName(null);
-      setPlayerName("");
       setHostName("");
       setPrevUserId(currentId);
     }
