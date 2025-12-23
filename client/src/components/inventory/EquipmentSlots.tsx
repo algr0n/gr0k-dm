@@ -74,9 +74,41 @@ export function EquipmentSlots({
   };
 
   const getItemForSlot = (slot: EquipmentSlot): CharacterInventoryItemWithDetails | null => {
-    // This is a simple implementation - in a real scenario, you'd need to map
-    // item types to slots based on the item's category and properties
-    return null;
+    // Map equipped items to their appropriate slots based on category and type
+    return equippedItems.find(invItem => {
+      const category = invItem.item.category;
+      const type = invItem.item.type?.toLowerCase() || "";
+      
+      switch (slot) {
+        case "head":
+          return category === "armor" && (type.includes("helmet") || type.includes("circlet"));
+        case "chest":
+          return category === "armor" && (
+            type.includes("armor") || 
+            type.includes("breastplate") ||
+            type.includes("chain mail") ||
+            type.includes("scale mail") ||
+            type.includes("plate")
+          );
+        case "hands":
+          return category === "armor" && type.includes("gauntlet");
+        case "legs":
+          return category === "armor" && type.includes("greaves");
+        case "feet":
+          return category === "armor" && type.includes("boots");
+        case "mainHand":
+          return category === "weapon" && !type.includes("shield");
+        case "offHand":
+          return (category === "weapon" && type.includes("shield")) || (category === "armor" && type.includes("shield"));
+        case "ring1":
+        case "ring2":
+          return category === "ring";
+        case "neck":
+          return category === "wondrous_item" && (type.includes("amulet") || type.includes("necklace"));
+        default:
+          return false;
+      }
+    }) || null;
   };
 
   const slots: EquipmentSlot[] = [

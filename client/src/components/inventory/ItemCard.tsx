@@ -54,6 +54,25 @@ const rarityColors: Record<ItemRarity, { text: string; border: string; bg: strin
   },
 };
 
+function getCategoryLabel(category: string): string {
+  const labels: Record<string, string> = {
+    weapon: "⚔️ Weapon",
+    armor: "🛡️ Armor",
+    potion: "🧪 Consumable",
+    scroll: "📜 Scroll",
+    wondrous_item: "✨ Wondrous",
+    ring: "💍 Ring",
+    rod: "🪄 Rod",
+    staff: "🪄 Staff",
+    wand: "🪄 Wand",
+    tool: "🔧 Tool",
+    adventuring_gear: "🎒 Gear",
+    ammunition: "🏹 Ammo",
+    other: "📦 Other",
+  };
+  return labels[category] || "📦 Item";
+}
+
 export function ItemCard({
   item,
   quantity = 1,
@@ -97,6 +116,13 @@ export function ItemCard({
             {item.type}
           </p>
           <div className="flex items-center gap-1 mt-1 flex-wrap">
+            {/* Category Badge */}
+            <Badge 
+              variant="secondary" 
+              className="text-xs h-5 px-1.5"
+            >
+              {getCategoryLabel(item.category)}
+            </Badge>
             {quantity > 1 && (
               <Badge variant="secondary" className="text-xs h-5 px-1.5">
                 x{quantity}

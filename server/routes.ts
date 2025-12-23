@@ -100,6 +100,7 @@ interface ParsedGameAction {
   maxHp?: number;
   itemName?: string;
   quantity?: number;
+  customProperties?: string; // NEW: JSON string with item stats
   goldAmount?: number;
   successes?: number;
   failures?: number;
@@ -121,14 +122,17 @@ function parseDMResponseTags(response: string): ParsedGameAction[] {
     });
   }
 
-  // Parse item additions: [ITEM: PlayerName | ItemName | Quantity]
-  const itemAddPattern = /\[ITEM:\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\]/gi;
+  // Parse item additions with optional JSON properties: 
+  // [ITEM: PlayerName | ItemName | Quantity] OR
+  // [ITEM: PlayerName | ItemName | Quantity | {"weight":3,"cost":500,...}]
+  const itemAddPattern = /\[ITEM:\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)(?:\s*\|\s*(\{[^\]]+\}))?\s*\]/gi;
   while ((match = itemAddPattern.exec(response)) !== null) {
     actions.push({
       type: "item_add",
       playerName: match[1].trim(),
       itemName: match[2].trim(),
       quantity: parseInt(match[3], 10),
+      customProperties: match[4] ? match[4].trim() : undefined,
     });
   }
 
@@ -565,6 +569,17 @@ async function executeGameActions(
 
             // If item doesn't exist, create it as a custom DM-created item
             if (!item) {
+              // Parse custom properties if provided
+              let customProps: any = {};
+              if (action.customProperties) {
+                try {
+                  customProps = JSON.parse(action.customProperties);
+                  console.log(`[DM Action] Creating custom item with properties:`, customProps);
+                } catch (error) {
+                  console.error(`[DM Action] Failed to parse custom properties for "${normalizedName}":`, error);
+                }
+              }
+
               // Create a slug from the normalized name, fallback to UUID if empty
               const slug = normalizedName
                 .toLowerCase()
@@ -577,16 +592,43 @@ async function executeGameActions(
 
               if (!item) {
                 try {
+                  // Build item properties with AI-generated stats or defaults
+                  const itemProperties: any = {};
+                  
+                  // Add damage properties if provided
+                  if (customProps.damage) {
+                    itemProperties.damage = {
+                      damage_dice: customProps.damage,
+                      damage_type: { name: customProps.damageType || "slashing" }
+                    };
+                  }
+                  
+                  // Add armor class if provided
+                  if (customProps.armorClass !== undefined) {
+                    itemProperties.armor_class = {
+                      base: customProps.armorClass,
+                      dex_bonus: customProps.dexBonus || false,
+                      max_bonus: customProps.maxBonus
+                    };
+                  }
+                  
+                  // Add any other custom properties
+                  Object.assign(itemProperties, customProps.properties || {});
+
                   item = await storage.createItem({
                     id: itemId,
                     name: normalizedName,
-                    category: "other",
-                    type: "Custom Item",
-                    description: `A custom item created by the Dungeon Master: ${normalizedName}`,
-                    rarity: "uncommon",
+                    category: customProps.category || "other",
+                    type: customProps.type || "Custom Item",
+                    description: customProps.description || `A custom item created by the Dungeon Master: ${normalizedName}`,
+                    rarity: customProps.rarity || "uncommon",
+                    cost: customProps.cost || null,
+                    weight: customProps.weight || null,
+                    properties: itemProperties,
+                    requiresAttunement: customProps.requiresAttunement || false,
                     gameSystem: room?.gameSystem || "dnd",
                   });
-                  console.log(`[DM Action] Created custom item "${normalizedName}" in database`);
+                  console.log(`[DM Action] Created custom item "${normalizedName}" in database with full stats`);
                 } catch (createError) {
                   console.error(`[DM Action] Failed to create custom item "${normalizedName}":`, createError);
                   break;
