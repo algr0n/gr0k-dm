@@ -8,7 +8,7 @@ import {
   HandIcon as Hand,
   WatchIcon as Boot,
   CrownIcon as Helmet,
-  RingIcon as Ring,
+  Circle as Ring,
 } from "lucide-react";
 
 type EquipmentSlot = 
