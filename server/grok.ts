@@ -204,6 +204,22 @@ INVENTORY MANAGEMENT:
 - When a player uses, consumes, or loses an item: [REMOVE_ITEM: PlayerName | ItemName | Quantity]
 Add these tags at the END of your response.
 
+CURRENCY SYSTEM (NOT INVENTORY ITEMS):
+- When granting money, use: [GOLD: PlayerName | Amount]
+- Amount formats:
+  * "X cp" or "X copper" for copper pieces (e.g., [GOLD: Jared | 50 cp])
+  * "X sp" or "X silver" for silver pieces (e.g., [GOLD: Jared | 10 sp])
+  * "X gp" or "X gold" for gold pieces (e.g., [GOLD: Jared | 25 gp])
+  * Just "X" defaults to gold pieces (e.g., [GOLD: Jared | 100])
+- Money updates the character's WALLET, NOT their inventory
+- NEVER create "gold", "silver", or "copper" as inventory items using [ITEM]
+- Examples:
+  * Finding "a pouch with 25 gold pieces" → [GOLD: Jared | 25 gp]
+  * Selling an item for 5 silver → [GOLD: Jared | 5 sp]
+  * Picking up 100 copper coins → [GOLD: Jared | 100 cp]
+- Currency automatically converts: 100cp→1sp, 100sp→1gp
+Add these tags at the END of your response.
+
 CUSTOM ITEMS WITH FULL STATS:
 When giving a unique/custom item that doesn't exist in the standard D&D equipment list, you can include full item properties in JSON format:
 [ITEM: PlayerName | ItemName | Quantity | {"category":"weapon","type":"Longsword","weight":3,"cost":5000,"damage":"1d8+1d6","damageType":"slashing/fire","rarity":"rare","description":"A blade wreathed in eternal flames","requiresAttunement":true}]
@@ -271,6 +287,13 @@ INVENTORY MANAGEMENT:
 - Do NOT give players items they already have (check their inventory first).
 - When a player gets a NEW item: [ITEM: PlayerName | ItemName | Quantity]
 - When a player uses or loses an item: [REMOVE_ITEM: PlayerName | ItemName | Quantity]
+Add these tags at the END of your response.
+
+EDDIES (CURRENCY):
+- When granting eddies (money), use: [GOLD: PlayerName | Amount]
+- Money updates the character's wallet, NOT their inventory
+- NEVER create "eddies" or "eurodollars" as inventory items
+- Example: Receiving payment of 500 eddies → [GOLD: V | 500]
 Add these tags at the END of your response.
 
 CUSTOM ITEMS WITH FULL STATS:

@@ -97,7 +97,21 @@ export function EquipmentSlots({
         case "feet":
           return category === "armor" && type.includes("boots");
         case "mainHand":
-          return category === "weapon" && !type.includes("shield");
+          // Accept weapons, wands, and items that look like weapons
+          return (
+            (category === "weapon" && !type.includes("shield")) ||
+            category === "wand" ||
+            (category === "wondrous_item" && type.includes("wand")) ||
+            type.includes("dagger") ||
+            type.includes("sword") ||
+            type.includes("axe") ||
+            type.includes("mace") ||
+            type.includes("staff") ||
+            type.includes("bow") ||
+            type.includes("crossbow") ||
+            type.includes("spear") ||
+            type.includes("weapon")
+          ) && !type.includes("shield");
         case "offHand":
           return (category === "weapon" && type.includes("shield")) || (category === "armor" && type.includes("shield"));
         case "ring1":
