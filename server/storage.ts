@@ -166,7 +166,7 @@ class DatabaseStorage implements Storage {
   async getPublicRooms(gameSystem?: string): Promise<Array<Room & { playerCount: number }>> {
     const query = db.select({
       room: rooms,
-      playerCount: sql<number>`count(${players.id})`,
+      playerCount: sql<number>`CAST(count(${players.id}) as INTEGER)`,
     })
       .from(rooms)
       .leftJoin(players, eq(rooms.id, players.roomId))
@@ -180,7 +180,8 @@ class DatabaseStorage implements Storage {
       .groupBy(rooms.id);
     
     const results = await query;
-    return results.map(r => ({ ...r.room, playerCount: r.playerCount }));
+    console.log('[getPublicRooms] Query results:', results.length, 'rooms found');
+    return results.map(r => ({ ...r.room, playerCount: Number(r.playerCount) || 0 }));
   }
 
   async updateRoomActivity(id: string): Promise<Room | undefined> {

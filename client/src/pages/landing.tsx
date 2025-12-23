@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Swords, Users, Dice6, Bot, Plus, LogIn, Loader2, RotateCcw, Globe, Search, Heart, ChevronLeft, User, AlertCircle, Package, ChevronDown, ChevronUp, Lock } from "lucide-react";
+import { Swords, Users, Dice6, Bot, Plus, Loader2, RotateCcw, Globe, Search, Heart, ChevronLeft, User, AlertCircle, Package, ChevronDown, ChevronUp, Lock } from "lucide-react";
 import cashAppQR from "@assets/IMG_2407_1765085234277.webp";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
@@ -41,7 +41,6 @@ interface InventoryItemWithDetails {
   };
 }
 
-type JoinStep = "details" | "character";
 type HostStep = "details" | "character";
 
 export default function Landing() {
@@ -49,27 +48,18 @@ export default function Landing() {
   const { toast } = useToast();
   
   const [hostDialogOpen, setHostDialogOpen] = useState(false);
-  const [joinDialogOpen, setJoinDialogOpen] = useState(false);
   const [browseDialogOpen, setBrowseDialogOpen] = useState(false);
   const [gameName, setGameName] = useState("");
   const [gameSystem, setGameSystem] = useState<GameSystem>("dnd");
   const [hostName, setHostName] = useState("");
   const [isPublic, setIsPublic] = useState(true);
   const [roomPassword, setRoomPassword] = useState("");
-  const [roomCode, setRoomCode] = useState("");
-  const [playerName, setPlayerName] = useState("");
   const [browseFilter, setBrowseFilter] = useState<GameSystem | "all">("all");
-  
-  // Multi-step join flow
-  const [joinStep, setJoinStep] = useState<JoinStep>("details");
-  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
-  const [targetRoom, setTargetRoom] = useState<Room | null>(null);
-  const [joinPassword, setJoinPassword] = useState("");
-  const [passwordRequired, setPasswordRequired] = useState(false);
   
   // Multi-step host flow
   const [hostStep, setHostStep] = useState<HostStep>("details");
   const [createdRoom, setCreatedRoom] = useState<(Room & { hostPlayer: { id: string } }) | null>(null);
+  const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   
   // Check for last game session with state to enable reactivity
   const [lastRoomCode, setLastRoomCode] = useState<string | null>(null);
@@ -126,12 +116,12 @@ export default function Landing() {
   // Fetch saved characters for the user
   const { data: savedCharacters, isLoading: isLoadingCharacters } = useQuery<SavedCharacter[]>({
     queryKey: ["/api/saved-characters"],
-    enabled: !!currentUser && (joinStep === "character" || hostStep === "character"),
+    enabled: !!currentUser && (hostStep === "character"),
   });
 
   // Filter characters by game system
   const availableCharacters = savedCharacters?.filter(
-    (char) => char.gameSystem === (targetRoom?.gameSystem || gameSystem)
+    (char) => char.gameSystem === gameSystem
   ) || [];
 
   type PublicRoom = Room & { playerCount: number };
@@ -151,60 +141,10 @@ export default function Landing() {
   ) || [];
 
   const handleJoinFromBrowser = (code: string) => {
-    setRoomCode(code);
     setBrowseDialogOpen(false);
-    setJoinDialogOpen(true);
+    // Navigate directly to the room - the room page will handle the join flow
+    setLocation(`/room/${code}`);
   };
-
-  // Fetch room info for join flow
-  const fetchRoomMutation = useMutation({
-    mutationFn: async (code: string) => {
-      const response = await fetch(`/api/rooms/${code}`);
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Room not found");
-      }
-      return response.json() as Promise<Room>;
-    },
-    onSuccess: (room) => {
-      setTargetRoom(room);
-      setJoinStep("character");
-    },
-    onError: (error: Error) => {
-      setJoinStep("details");
-      toast({
-        title: "Room not found",
-        description: error.message || "Check the room code and try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Join room (requires authentication)
-  const joinWithoutCharacterMutation = useMutation({
-    mutationFn: async () => {
-      const code = roomCode.toUpperCase();
-      const response = await apiRequest("POST", `/api/rooms/${code}/join`, {});
-      const data = await response.json();
-      return { ...data, code };
-    },
-    onSuccess: (data) => {
-      const displayName = currentUser?.username || "Player";
-      sessionStorage.setItem("playerName", displayName);
-      sessionStorage.setItem("playerId", data.player.id);
-      sessionStorage.setItem("lastRoomCode", data.code);
-      setJoinDialogOpen(false);
-      resetJoinDialog();
-      setLocation(`/room/${data.code}`);
-    },
-    onError: () => {
-      toast({
-        title: "Failed to join room",
-        description: "Check the room code and try again.",
-        variant: "destructive",
-      });
-    },
-  });
 
   const createRoomMutation = useMutation({
     mutationFn: async () => {
@@ -231,46 +171,6 @@ export default function Landing() {
     },
   });
 
-  const joinRoomMutation = useMutation({
-    mutationFn: async () => {
-      const code = roomCode.toUpperCase();
-      const charId = selectedCharacterId;
-      const response = await apiRequest("POST", `/api/rooms/${code}/join`, {
-        savedCharacterId: charId,
-        password: joinPassword && joinPassword.trim().length > 0 ? joinPassword : undefined,
-      });
-      const data = await response.json();
-      return { ...data, code };
-    },
-    onSuccess: (data) => {
-      const displayName = currentUser?.username || "Player";
-      sessionStorage.setItem("playerName", displayName);
-      sessionStorage.setItem("playerId", data.player.id);
-      sessionStorage.setItem("lastRoomCode", data.code);
-      setJoinDialogOpen(false);
-      resetJoinDialog();
-      setLocation(`/room/${data.code}`);
-    },
-    onError: (error: any) => {
-      // Check if password is required
-      if (error?.requiresPassword || error?.message?.includes("password")) {
-        setPasswordRequired(true);
-        toast({
-          title: "Password Required",
-          description: "This room requires a password to join.",
-          variant: "default",
-        });
-      } else {
-        toast({
-          title: "Failed to join room",
-          description: error?.message || "Check the room code and try again.",
-          variant: "destructive",
-        });
-      }
-    },
-  });
-
-  // Complete host flow with character selection
   const completeHostMutation = useMutation({
     mutationFn: async () => {
       if (!createdRoom) throw new Error("No room created");
@@ -308,16 +208,6 @@ export default function Landing() {
     },
   });
 
-  const resetJoinDialog = () => {
-    setJoinStep("details");
-    setSelectedCharacterId(null);
-    setTargetRoom(null);
-    setRoomCode("");
-    setPlayerName("");
-    setJoinPassword("");
-    setPasswordRequired(false);
-  };
-
   const resetHostDialog = () => {
     setHostStep("details");
     setSelectedCharacterId(null);
@@ -341,45 +231,15 @@ export default function Landing() {
     createRoomMutation.mutate();
   };
 
-  const handleJoinStep1 = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!roomCode.trim()) {
-      toast({
-        title: "Missing information",
-        description: "Please enter a room code.",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    // User must be authenticated (join button is hidden otherwise)
-    // Fetch room info and proceed to character selection
-    const displayName = currentUser?.username || "Player";
-    setPlayerName(displayName);
-    fetchRoomMutation.mutate(roomCode.toUpperCase());
-  };
-
-  const handleJoinWithCharacter = () => {
-    joinRoomMutation.mutate();
-  };
-
   const handleHostComplete = () => {
     completeHostMutation.mutate();
   };
 
-  const handleDialogClose = (open: boolean, type: "join" | "host") => {
+  const handleDialogClose = (open: boolean) => {
     if (!open) {
-      if (type === "join") {
-        resetJoinDialog();
-      } else {
-        resetHostDialog();
-      }
+      resetHostDialog();
     }
-    if (type === "join") {
-      setJoinDialogOpen(open);
-    } else {
-      setHostDialogOpen(open);
-    }
+    setHostDialogOpen(open);
   };
 
   return (
@@ -413,7 +273,7 @@ export default function Landing() {
             
             {currentUser && (
             <>
-            <Dialog open={hostDialogOpen} onOpenChange={(open) => handleDialogClose(open, "host")}>
+            <Dialog open={hostDialogOpen} onOpenChange={handleDialogClose}>
               <DialogTrigger asChild>
                 <Button size="lg" data-testid="button-host-game">
                   <Plus className="mr-2 h-5 w-5" />
@@ -545,121 +405,6 @@ export default function Landing() {
                           "Create a Character First"
                         ) : (
                           "Start Game"
-                        )}
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </DialogContent>
-            </Dialog>
-
-            <Dialog open={joinDialogOpen} onOpenChange={(open) => handleDialogClose(open, "join")}>
-              <DialogTrigger asChild>
-                <Button size="lg" variant="outline" data-testid="button-join-game">
-                  <LogIn className="mr-2 h-5 w-5" />
-                  Join a Game
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                {joinStep === "details" ? (
-                  <>
-                    <DialogHeader>
-                      <DialogTitle>Join a Game</DialogTitle>
-                      <DialogDescription>
-                        Enter the room code shared by your host to join the adventure.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <form onSubmit={handleJoinStep1} className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="room-code">Room Code</Label>
-                        <Input
-                          id="room-code"
-                          placeholder="e.g., ABC123"
-                          value={roomCode}
-                          onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                          maxLength={8}
-                          className="font-mono text-center text-lg tracking-widest"
-                          data-testid="input-room-code"
-                        />
-                      </div>
-                      {passwordRequired && (
-                        <div className="space-y-2">
-                          <Label htmlFor="join-password">Room Password</Label>
-                          <Input
-                            id="join-password"
-                            type="password"
-                            placeholder="Enter room password"
-                            value={joinPassword}
-                            onChange={(e) => setJoinPassword(e.target.value)}
-                            data-testid="input-join-password"
-                          />
-                        </div>
-                      )}
-                      <Button 
-                        type="submit" 
-                        className="w-full" 
-                        disabled={fetchRoomMutation.isPending}
-                        data-testid="button-submit-join"
-                      >
-                        {fetchRoomMutation.isPending ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Finding room...
-                          </>
-                        ) : (
-                          "Next: Select Character"
-                        )}
-                      </Button>
-                    </form>
-                  </>
-                ) : (
-                  <>
-                    <DialogHeader>
-                      <DialogTitle>Select Your Character</DialogTitle>
-                      <DialogDescription>
-                        Choose a character for {targetRoom ? gameSystemLabels[targetRoom.gameSystem as GameSystem] : "this game"}.
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setJoinStep("details")}
-                        className="mb-2"
-                        data-testid="button-join-back"
-                      >
-                        <ChevronLeft className="mr-1 h-4 w-4" />
-                        Back
-                      </Button>
-                      
-                      <CharacterSelectionList
-                        characters={availableCharacters}
-                        selectedId={selectedCharacterId}
-                        onSelect={setSelectedCharacterId}
-                        isLoading={isLoadingCharacters}
-                        gameSystem={targetRoom?.gameSystem as GameSystem}
-                      />
-                      
-                      <Button
-                        className="w-full"
-                        onClick={handleJoinWithCharacter}
-                        disabled={isLoadingCharacters || !selectedCharacterId || joinRoomMutation.isPending}
-                        data-testid="button-join-with-character"
-                      >
-                        {joinRoomMutation.isPending ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Joining...
-                          </>
-                        ) : isLoadingCharacters ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Loading characters...
-                          </>
-                        ) : availableCharacters.length === 0 ? (
-                          "Create a Character First"
-                        ) : (
-                          "Join Game"
                         )}
                       </Button>
                     </div>
