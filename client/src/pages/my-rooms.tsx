@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Trash2, PlayCircle, Users, Calendar, Shield, LogIn, Lock } from "lucide-react";
+import { Loader2, Trash2, PlayCircle, Users, Calendar, Shield, LogIn, Lock, StopCircle } from "lucide-react";
 import { gameSystemLabels, type GameSystem } from "@shared/schema";
 import { formatDistanceToNow } from "date-fns";
 
@@ -65,6 +65,27 @@ export default function MyRooms() {
       toast({
         title: "Delete Failed",
         description: error.message || "Failed to delete room",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // End room mutation
+  const endRoomMutation = useMutation({
+    mutationFn: async (roomCode: string) => {
+      await apiRequest("POST", `/api/rooms/${roomCode}/end`, {});
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/my-rooms"] });
+      toast({
+        title: "Room Ended",
+        description: "The game has been ended. You can now delete it if desired.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to End Room",
+        description: error.message || "Failed to end room",
         variant: "destructive",
       });
     },
@@ -166,6 +187,41 @@ export default function MyRooms() {
                       <PlayCircle className="mr-2 h-4 w-4" />
                       Enter Room
                     </Button>
+                    {room.isHost && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="outline"
+                            disabled={endRoomMutation.isPending}
+                          >
+                            {endRoomMutation.isPending ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <>
+                                <StopCircle className="mr-2 h-4 w-4" />
+                                End Game
+                              </>
+                            )}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>End Game?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This will end the game session "{room.name}". Players will be removed from the room, but the room data will be preserved. You can delete it afterwards if desired.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => endRoomMutation.mutate(room.code)}
+                            >
+                              End Game
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
                   </div>
                 </CardContent>
               </Card>
