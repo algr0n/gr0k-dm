@@ -54,6 +54,10 @@ export interface Storage {
     type: string;
     description: string;
     rarity?: string;
+    cost?: number | null;
+    weight?: number | null;
+    properties?: Record<string, unknown>;
+    requiresAttunement?: boolean;
     gameSystem?: string;
   }): Promise<Item>;
 
@@ -288,6 +292,10 @@ class DatabaseStorage implements Storage {
     type: string;
     description: string;
     rarity?: string;
+    cost?: number | null;
+    weight?: number | null;
+    properties?: Record<string, unknown>;
+    requiresAttunement?: boolean;
     gameSystem?: string;
   }): Promise<Item> {
     const [created] = await db.insert(items).values(item).returning();

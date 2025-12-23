@@ -204,6 +204,32 @@ INVENTORY MANAGEMENT:
 - When a player uses, consumes, or loses an item: [REMOVE_ITEM: PlayerName | ItemName | Quantity]
 Add these tags at the END of your response.
 
+CUSTOM ITEMS WITH FULL STATS:
+When giving a unique/custom item that doesn't exist in the standard D&D equipment list, you can include full item properties in JSON format:
+[ITEM: PlayerName | ItemName | Quantity | {"category":"weapon","type":"Longsword","weight":3,"cost":5000,"damage":"1d8+1d6","damageType":"slashing/fire","rarity":"rare","description":"A blade wreathed in eternal flames","requiresAttunement":true}]
+
+Properties you can include (all optional except name):
+- category: "weapon", "armor", "potion", "scroll", "wondrous_item", "ring", "rod", "staff", "wand", "tool", "adventuring_gear", "other"
+- type: Item type (e.g., "Longsword", "Plate Armor", "Potion")
+- weight: Weight in pounds (number, e.g., 3)
+- cost: Cost in copper pieces (number, e.g., 5000 for 50gp)
+- damage: Damage dice (e.g., "1d8", "2d6+2", "1d8+1d6")
+- damageType: "slashing", "piercing", "bludgeoning", "fire", "cold", "lightning", "acid", "poison", "radiant", "necrotic", "thunder", "force", "psychic"
+- armorClass: AC value for armor (number, e.g., 18)
+- dexBonus: true if armor allows Dex bonus
+- maxBonus: Maximum Dex bonus for armor (e.g., 2)
+- rarity: "common", "uncommon", "rare", "very_rare", "legendary", "artifact"
+- description: Flavor text describing the item
+- requiresAttunement: true/false for magical items
+
+Examples:
+- Magic weapon: [ITEM: Jared | Flaming Longsword | 1 | {"category":"weapon","type":"Longsword","weight":3,"cost":10000,"damage":"1d8+1d6","damageType":"slashing/fire","rarity":"rare","description":"This blade burns with eternal flame, dealing extra fire damage","requiresAttunement":true}]
+- Magic armor: [ITEM: Jared | Dragonscale Armor | 1 | {"category":"armor","type":"Scale Mail","weight":45,"cost":50000,"armorClass":14,"dexBonus":true,"maxBonus":2,"rarity":"very_rare","description":"Shimmering scales that grant resistance to one damage type","requiresAttunement":true}]
+- Consumable: [ITEM: Jared | Potion of Giant Strength | 1 | {"category":"potion","type":"Potion","weight":0.5,"cost":5000,"rarity":"rare","description":"Your Strength becomes 23 for 1 hour"}]
+- Wondrous item: [ITEM: Jared | Cloak of Invisibility | 1 | {"category":"wondrous_item","type":"Cloak","weight":1,"rarity":"legendary","description":"While wearing this cloak, you can pull the hood over your head to become invisible","requiresAttunement":true}]
+
+For standard D&D items (like Dagger, Rope, Torch), just use the simple format: [ITEM: PlayerName | ItemName | Quantity]
+
 STATUS EFFECTS:
 - When a player gains a status effect (poisoned, charmed, frightened, etc): [STATUS: PlayerName | EffectName]
 - When a status effect is removed or ends: [REMOVE_STATUS: PlayerName | EffectName]
@@ -246,6 +272,13 @@ INVENTORY MANAGEMENT:
 - When a player gets a NEW item: [ITEM: PlayerName | ItemName | Quantity]
 - When a player uses or loses an item: [REMOVE_ITEM: PlayerName | ItemName | Quantity]
 Add these tags at the END of your response.
+
+CUSTOM ITEMS WITH FULL STATS:
+When giving custom cyberware, weapons, or gear, include properties:
+[ITEM: V | Mantis Blades | 1 | {"category":"weapon","type":"Cyberware","cost":15000,"damage":"2d6","damageType":"slashing","rarity":"uncommon","description":"Retractable arm blades for close combat"}]
+
+Properties: category, type, cost (in eddies), damage, damageType, rarity, description, weight
+For standard items, use simple format: [ITEM: PlayerName | ItemName | Quantity]
 
 STATUS EFFECTS:
 - When a player gains a status effect (stun, wounded, burning, etc): [STATUS: PlayerName | EffectName]
