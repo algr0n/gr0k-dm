@@ -291,7 +291,6 @@ export default function RoomPage() {
   useEffect(() => {
     const storedPlayerName = sessionStorage.getItem("playerName");
     const storedPlayerId = sessionStorage.getItem("playerId");
-    
     if (storedPlayerName) {
       setPlayerName(storedPlayerName);
     }
