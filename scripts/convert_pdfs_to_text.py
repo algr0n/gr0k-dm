@@ -55,15 +55,20 @@ def list_pdfs_from_repo() -> List[Dict[str, str]]:
     
     print(f"📋 Fetching PDF list from {UPSTREAM_OWNER}/{UPSTREAM_REPO} (branch: {UPSTREAM_BRANCH})...")
     
+    # Prepare headers with authentication if token is available
+    headers = {}
+    if GITHUB_TOKEN:
+        headers['Authorization'] = f'token {GITHUB_TOKEN}'
+    
     try:
-        response = requests.get(api_url, timeout=30)
+        response = requests.get(api_url, headers=headers, timeout=30)
         response.raise_for_status()
         data = response.json()
         
         pdfs = []
         for item in data.get('tree', []):
             if item['type'] == 'blob' and item['path'].lower().endswith('.pdf'):
-                pdf_name = item['path'].split('/')[-1]  # Get filename only
+                pdf_name = Path(item['path']).name  # Get filename using Path
                 raw_url = f"https://raw.githubusercontent.com/{UPSTREAM_OWNER}/{UPSTREAM_REPO}/{UPSTREAM_BRANCH}/{item['path']}"
                 pdfs.append({
                     'name': pdf_name,
@@ -95,7 +100,11 @@ def download_pdf(pdf_info: Dict[str, str]) -> Optional[Path]:
         response = requests.get(pdf_url, stream=True, timeout=60)
         response.raise_for_status()
         
-        total_size = int(response.headers.get('content-length', 0))
+        # Parse content-length defensively
+        try:
+            total_size = int(response.headers.get('content-length', 0))
+        except (ValueError, TypeError):
+            total_size = 0
         
         with open(output_path, 'wb') as f:
             if total_size > 0 and HAS_TQDM:
