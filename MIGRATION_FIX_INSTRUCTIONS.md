@@ -337,7 +337,7 @@ This ensures migrations are automatically applied before each deployment.
 **Safety notes:**
 - The migration adds a nullable TEXT column and is safe and non-destructive for existing rows.
 - Still recommend taking a DB snapshot/backup before running changes in production.
-- The ALTER statement is idempotent - if the column already exists, the migration will fail gracefully.
+- The migration uses `IF NOT EXISTS` to ensure true idempotency - safe to run multiple times without errors.
 
 **Files involved:**
 - `migrations/0001_add_room_password_hash.sql` - Contains the ALTER TABLE statement

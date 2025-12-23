@@ -23,16 +23,14 @@ async function run() {
 
   try {
     console.log("Applying ALTER TABLE to add rooms.password_hash ...");
-    await client.execute(`ALTER TABLE rooms ADD COLUMN password_hash TEXT;`);
+    await client.execute(`ALTER TABLE rooms ADD COLUMN IF NOT EXISTS password_hash TEXT;`);
     console.log("Migration applied successfully.");
   } catch (err) {
     console.error("Migration error:", err);
     process.exit(1);
   } finally {
     try {
-      if (client.close) {
-        client.close();
-      }
+      client.close();
     } catch (e) {
       console.error("Error closing database connection:", e.message);
     }
