@@ -16,3 +16,7 @@ vite.config.ts.*
 # Environment files
 .env
 .env
+
+# PDF conversion outputs (downloaded at runtime, not committed)
+/pdfs/
+/texts/

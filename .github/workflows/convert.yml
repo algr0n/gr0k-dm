@@ -1,0 +1,54 @@
+name: Convert DnD PDFs to plain text
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: 'Commit the converted texts to the repository'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils tesseract-ocr
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pdf2image pytesseract pillow requests tqdm
+
+      - name: Run PDF conversion script
+        env:
+          UPSTREAM_OWNER: tyndivelspaz
+          UPSTREAM_REPO: DnD-Manuals
+          UPSTREAM_BRANCH: main
+          COMMIT_OUTPUTS: ${{ github.event.inputs.commit }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/convert_pdfs_to_text.py
+
+      - name: Upload converted texts as artifact
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: converted-texts
+          path: texts/
+          if-no-files-found: warn
