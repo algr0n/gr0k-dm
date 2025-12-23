@@ -18,10 +18,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, type CharacterStatusEffect, gameSystemLabels, type GameSystem, statusEffectDefinitions, getMaxSpellSlots, isSpellcaster, buildSkillStats, dndSkills, type DndSkill, getSpellLimitInfo, getAbilityModifier, getSpellcastingAbility } from "@shared/schema";
+import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, type CharacterStatusEffect, type CharacterInventoryItemWithDetails, gameSystemLabels, type GameSystem, statusEffectDefinitions, getMaxSpellSlots, isSpellcaster, buildSkillStats, dndSkills, type DndSkill, getSpellLimitInfo, getAbilityModifier, getSpellcastingAbility } from "@shared/schema";
 import { SpellBrowser } from "@/components/spell-browser";
 import { FloatingCharacterPanel } from "@/components/floating-character-panel";
 import { DMControlsPanel } from "@/components/dm-controls-panel";
+import { InventoryLayout } from "@/components/inventory/InventoryLayout";
 import { Heart } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -1660,20 +1661,21 @@ export default function RoomPage() {
           </TabsContent>
 
           <TabsContent value="inventory" className="flex-1 mt-0 overflow-auto data-[state=inactive]:hidden">
-            <div className="max-w-2xl mx-auto space-y-4 p-4">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between gap-4">
-                  <div>
-                    <CardTitle className="font-serif flex items-center gap-2">
-                      <Package className="h-5 w-5" />
-                      Inventory
-                    </CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                      Track your items here.
-                      {isHost && " Use /give @PlayerName ItemName x Quantity to grant items to players."}
-                    </p>
-                  </div>
-                  {myCharacterData && (
+            <div className="space-y-4 p-4">
+              {/* Add Item Form - shown at top */}
+              {myCharacterData && (
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between gap-4">
+                    <div>
+                      <CardTitle className="font-serif flex items-center gap-2">
+                        <Package className="h-5 w-5" />
+                        Inventory
+                      </CardTitle>
+                      <p className="text-sm text-muted-foreground">
+                        Track your items here.
+                        {isHost && " Use /give @PlayerName ItemName x Quantity to grant items to players."}
+                      </p>
+                    </div>
                     <Button 
                       size="sm" 
                       onClick={() => setShowAddItemForm(!showAddItemForm)}
@@ -1682,11 +1684,9 @@ export default function RoomPage() {
                       <Plus className="h-4 w-4 mr-1" />
                       Add Item
                     </Button>
-                  )}
-                </CardHeader>
-                <CardContent>
-                  {showAddItemForm && myCharacterData && (
-                    <div className="mb-4 p-3 border rounded-md space-y-3">
+                  </CardHeader>
+                  {showAddItemForm && (
+                    <CardContent>
                       <div className="flex gap-2">
                         <Input
                           placeholder="Item name"
@@ -1710,73 +1710,51 @@ export default function RoomPage() {
                           {addInventoryItemMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Add"}
                         </Button>
                       </div>
-                    </div>
+                    </CardContent>
                   )}
-                  {!myCharacterData ? (
-                    <div className="text-center py-8">
-                      <p className="text-muted-foreground">Create a character first to see your inventory.</p>
-                      <Button 
-                        variant="outline" 
-                        className="mt-2"
-                        onClick={() => setActiveTab("character")}
-                        data-testid="button-go-to-character"
-                      >
-                        Go to Character Tab
-                      </Button>
-                    </div>
-                  ) : isLoadingInventory ? (
-                    <div className="flex justify-center py-8">
-                      <Loader2 className="h-6 w-6 animate-spin" />
-                    </div>
-                  ) : inventory && inventory.length > 0 ? (
-                    <div className="space-y-2">
-                      {inventory.map((item) => (
-                        <div 
-                          key={item.id} 
-                          className="flex items-center justify-between p-3 border rounded-md"
-                          data-testid={`inventory-item-${item.id}`}
-                        >
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-medium" data-testid={`text-item-name-${item.id}`}>{item.item.name}</span>
-                              {item.quantity > 1 && (
-                                <Badge variant="secondary" data-testid={`badge-quantity-${item.id}`}>
-                                  x{item.quantity}
-                                </Badge>
-                              )}
-                            </div>
-                            {item.item.description && (
-                              <p className="text-sm text-muted-foreground mt-1">{item.item.description}</p>
-                            )}
-                            {item.notes && (
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Note: {item.notes}
-                              </p>
-                            )}
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => deleteInventoryItemMutation.mutate(item.id)}
-                            disabled={deleteInventoryItemMutation.isPending}
-                            data-testid={`button-delete-item-${item.id}`}
-                          >
-                            <Trash2 className="h-4 w-4 text-muted-foreground" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-8">
-                      <Package className="h-12 w-12 mx-auto text-muted-foreground mb-2" />
-                      <p className="text-muted-foreground">Your inventory is empty.</p>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        The DM can grant you items during the game.
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                </Card>
+              )}
+
+              {/* No Character State */}
+              {!myCharacterData ? (
+                <Card>
+                  <CardContent className="text-center py-8">
+                    <p className="text-muted-foreground">Create a character first to see your inventory.</p>
+                    <Button 
+                      variant="outline" 
+                      className="mt-2"
+                      onClick={() => setActiveTab("character")}
+                      data-testid="button-go-to-character"
+                    >
+                      Go to Character Tab
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : isLoadingInventory ? (
+                <Card>
+                  <CardContent className="flex justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                  </CardContent>
+                </Card>
+              ) : (
+                <InventoryLayout
+                  items={inventory || []}
+                  gold={myCharacterData.roomCharacter.gold}
+                  armorClass={myCharacterData.savedCharacter.ac}
+                  currentWeight={0}
+                  maxWeight={150}
+                  attunedCount={inventory?.filter(item => item.attunementSlot).length || 0}
+                  maxAttunement={3}
+                  onItemClick={(item) => {
+                    // Could show item details modal here
+                    console.log('Item clicked:', item);
+                  }}
+                  onItemDoubleClick={(item) => {
+                    // Could toggle equip/unequip here
+                    console.log('Item double-clicked:', item);
+                  }}
+                />
+              )}
             </div>
           </TabsContent>
 
