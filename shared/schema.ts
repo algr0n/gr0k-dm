@@ -394,6 +394,11 @@ export const unifiedCharacters = sqliteTable("unified_characters", {
   initiativeModifier: integer("initiative_modifier").notNull().default(0),
   xp: integer("xp").notNull().default(0),
   gold: integer("gold").notNull().default(0),
+  currency: text("currency", { mode: 'json' }).$type<{
+    cp: number;  // copper pieces
+    sp: number;  // silver pieces  
+    gp: number;  // gold pieces
+  }>().default(sql`'{"cp":0,"sp":0,"gp":0}'`),
   isAlive: integer("is_alive", { mode: 'boolean' }).notNull().default(true),
   backstory: text("backstory"),
   notes: text("notes"),

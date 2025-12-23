@@ -87,6 +87,7 @@ interface ParsedGameAction {
     | "item_add"
     | "item_remove"
     | "gold_change"
+    | "currency_change"
     | "combat_start"
     | "combat_end"
     | "death_save"
@@ -102,6 +103,7 @@ interface ParsedGameAction {
   quantity?: number;
   customProperties?: string; // NEW: JSON string with item stats
   goldAmount?: number;
+  currency?: { cp: number; sp: number; gp: number };
   successes?: number;
   failures?: number;
   statusName?: string;
@@ -144,6 +146,38 @@ function parseDMResponseTags(response: string): ParsedGameAction[] {
       playerName: match[1].trim(),
       itemName: match[2].trim(),
       quantity: parseInt(match[3], 10),
+    });
+  }
+
+  // Parse currency/gold: [GOLD: PlayerName | Amount]
+  // Amount can be: "50 cp", "10 sp", "5 gp", or just "50" (defaults to gp)
+  const goldPattern = /\[GOLD:\s*([^|]+?)\s*\|\s*([^\]]+?)\s*\]/gi;
+  while ((match = goldPattern.exec(response)) !== null) {
+    const playerName = match[1].trim();
+    const amountStr = match[2].trim().toLowerCase();
+    
+    // Parse the amount string
+    const currency = { cp: 0, sp: 0, gp: 0 };
+    
+    if (amountStr.includes('cp') || amountStr.includes('copper')) {
+      const amount = parseInt(amountStr.match(/(\d+)/)?.[1] || '0', 10);
+      currency.cp = amount;
+    } else if (amountStr.includes('sp') || amountStr.includes('silver')) {
+      const amount = parseInt(amountStr.match(/(\d+)/)?.[1] || '0', 10);
+      currency.sp = amount;
+    } else {
+      // Default to gold pieces
+      const amount = parseInt(amountStr.match(/(\d+)/)?.[1] || '0', 10);
+      currency.gp = amount;
+    }
+    
+    // Apply automatic conversion
+    const converted = convertCurrency(currency);
+    
+    actions.push({
+      type: "currency_change",
+      playerName,
+      currency: converted,
     });
   }
 
@@ -216,16 +250,36 @@ interface DetectedItem {
   quantity: number;
 }
 
-interface DetectedGold {
-  amount: number;
+interface DetectedCurrency {
+  cp: number;  // Copper pieces
+  sp: number;  // Silver pieces
+  gp: number;  // Gold pieces
 }
 
-// Detect gold/GP mentions in natural language
-function detectGoldMentions(response: string): DetectedGold[] {
-  const goldResults: DetectedGold[] = [];
+// D&D 5e currency conversion rates
+const CP_TO_SP_RATE = 100;
+const SP_TO_GP_RATE = 100;
 
-  // Patterns for gold detection: "10 gp", "10 gold", "10 gold pieces", "receives 50 gold"
-  const goldPatterns = [
+// Detect currency mentions in natural language (copper, silver, gold)
+function detectCurrencyMentions(response: string): DetectedCurrency {
+  const currency: DetectedCurrency = { cp: 0, sp: 0, gp: 0 };
+
+  // Patterns for currency detection
+  const cpPatterns = [
+    /(\d+)\s*(?:cp|copper\s*pieces?|copper)/gi,
+    /receives?\s+(\d+)\s*(?:cp|copper)/gi,
+    /gains?\s+(\d+)\s*(?:cp|copper)/gi,
+    /finds?\s+(\d+)\s*(?:cp|copper)/gi,
+  ];
+
+  const spPatterns = [
+    /(\d+)\s*(?:sp|silver\s*pieces?|silver)/gi,
+    /receives?\s+(\d+)\s*(?:sp|silver)/gi,
+    /gains?\s+(\d+)\s*(?:sp|silver)/gi,
+    /finds?\s+(\d+)\s*(?:sp|silver)/gi,
+  ];
+
+  const gpPatterns = [
     /(\d+)\s*(?:gp|gold\s*pieces?|gold)/gi,
     /receives?\s+(\d+)\s*(?:gp|gold)/gi,
     /gains?\s+(\d+)\s*(?:gp|gold)/gi,
@@ -233,20 +287,59 @@ function detectGoldMentions(response: string): DetectedGold[] {
     /(?:has|have)\s+(\d+)\s*(?:gp|gold)/gi,
   ];
 
-  const seenAmounts = new Set<number>();
-
-  for (const pattern of goldPatterns) {
+  // Extract copper
+  for (const pattern of cpPatterns) {
     let match;
     while ((match = pattern.exec(response)) !== null) {
       const amount = parseInt(match[1], 10);
-      if (amount > 0 && !seenAmounts.has(amount)) {
-        seenAmounts.add(amount);
-        goldResults.push({ amount });
+      if (amount > 0) {
+        currency.cp += amount;
       }
     }
   }
 
-  return goldResults;
+  // Extract silver
+  for (const pattern of spPatterns) {
+    let match;
+    while ((match = pattern.exec(response)) !== null) {
+      const amount = parseInt(match[1], 10);
+      if (amount > 0) {
+        currency.sp += amount;
+      }
+    }
+  }
+
+  // Extract gold
+  for (const pattern of gpPatterns) {
+    let match;
+    while ((match = pattern.exec(response)) !== null) {
+      const amount = parseInt(match[1], 10);
+      if (amount > 0) {
+        currency.gp += amount;
+      }
+    }
+  }
+
+  return currency;
+}
+
+// Convert currency automatically: 100 cp → 1 sp, 100 sp → 1 gp
+function convertCurrency(currency: DetectedCurrency): DetectedCurrency {
+  const result = { ...currency };
+  
+  // Convert copper to silver
+  if (result.cp >= CP_TO_SP_RATE) {
+    result.sp += Math.floor(result.cp / CP_TO_SP_RATE);
+    result.cp = result.cp % CP_TO_SP_RATE;
+  }
+  
+  // Convert silver to gold
+  if (result.sp >= SP_TO_GP_RATE) {
+    result.gp += Math.floor(result.sp / SP_TO_GP_RATE);
+    result.sp = result.sp % SP_TO_GP_RATE;
+  }
+  
+  return result;
 }
 
 // Detect item mentions using fuzzy matching against the items database
@@ -324,8 +417,19 @@ async function detectItemMentions(
   const matchItem = (potentialItemName: string, quantity: number, allowExisting: boolean): boolean => {
     const lowerPotential = potentialItemName.toLowerCase();
 
-    // Skip if it's gold (handled separately)
-    if (lowerPotential.includes("gold") || lowerPotential.includes(" gp")) return false;
+    // Skip if it's currency (handled separately)
+    if (
+      lowerPotential.includes("gold") || 
+      lowerPotential.includes(" gp") ||
+      lowerPotential.includes("silver") ||
+      lowerPotential.includes(" sp") ||
+      lowerPotential.includes("copper") ||
+      lowerPotential.includes(" cp") ||
+      lowerPotential.includes("eddies") ||
+      lowerPotential.includes("eurodollar")
+    ) {
+      return false;
+    }
 
     // Try exact match first
     if (itemNameMap.has(lowerPotential)) {
@@ -391,13 +495,15 @@ async function parseNaturalLanguageItems(
   const actions: ParsedGameAction[] = [];
   const existingItemNames = new Set(existingInventory.map((n) => n.toLowerCase()));
 
-  // Detect gold mentions
-  const goldMentions = detectGoldMentions(response);
-  for (const gold of goldMentions) {
+  // Detect currency mentions (copper, silver, gold)
+  const currencyMentions = detectCurrencyMentions(response);
+  if (currencyMentions.cp > 0 || currencyMentions.sp > 0 || currencyMentions.gp > 0) {
+    // Apply automatic currency conversion
+    const converted = convertCurrency(currencyMentions);
     actions.push({
-      type: "gold_change",
+      type: "currency_change",
       playerName: characterName,
-      goldAmount: gold.amount,
+      currency: converted,
     });
   }
 
@@ -557,6 +663,37 @@ async function executeGameActions(
           break;
         }
 
+        case "currency_change": {
+          if (!action.playerName || !action.currency) break;
+          const char = findCharacter(action.playerName);
+          if (char) {
+            // Get current currency or initialize with defaults
+            const currentCurrency = char.currency || { cp: 0, sp: 0, gp: 0 };
+            
+            // Add new currency amounts
+            const newCurrency = {
+              cp: (currentCurrency.cp || 0) + (action.currency.cp || 0),
+              sp: (currentCurrency.sp || 0) + (action.currency.sp || 0),
+              gp: (currentCurrency.gp || 0) + (action.currency.gp || 0),
+            };
+            
+            // Apply automatic conversion
+            const convertedCurrency = convertCurrency(newCurrency);
+            
+            // Update character with new currency
+            await storage.updateSavedCharacter(char.id, { currency: convertedCurrency });
+            
+            broadcastFn(roomCode, {
+              type: "character_update",
+              characterId: char.id,
+              updates: { currency: convertedCurrency },
+            });
+            
+            console.log(`[DM Action] Updated currency for ${action.playerName}: +${action.currency.cp}cp +${action.currency.sp}sp +${action.currency.gp}gp (total: ${convertedCurrency.cp}cp ${convertedCurrency.sp}sp ${convertedCurrency.gp}gp)`);
+          }
+          break;
+        }
+
         case "item_add": {
           if (!action.playerName || !action.itemName) break;
           const char = findCharacter(action.playerName);
@@ -595,12 +732,58 @@ async function executeGameActions(
                   // Build item properties with AI-generated stats or defaults
                   const itemProperties: any = {};
                   
-                  // Add damage properties if provided
+                  // Weapon damage mapping for common weapon types
+                  const weaponDamageMap: Record<string, string> = {
+                    'dagger': '1d4',
+                    'dart': '1d4',
+                    'shortsword': '1d6',
+                    'scimitar': '1d6',
+                    'spear': '1d6',
+                    'trident': '1d6',
+                    'mace': '1d6',
+                    'club': '1d6',
+                    'staff': '1d6',
+                    'quarterstaff': '1d6',
+                    'handaxe': '1d6',
+                    'light hammer': '1d6',
+                    'longsword': '1d8',
+                    'battleaxe': '1d8',
+                    'warhammer': '1d8',
+                    'greatsword': '2d6',
+                    'greataxe': '2d6',
+                    'maul': '2d6',
+                    'pike': '2d6',
+                  };
+                  
+                  // Determine default damage for weapons based on type
+                  const getDefaultDamage = (category: string, type: string): string | null => {
+                    if (category !== "weapon") return null;
+                    const lowerType = type.toLowerCase();
+                    
+                    // Check for exact or partial match in weapon damage map
+                    for (const [weaponType, damage] of Object.entries(weaponDamageMap)) {
+                      if (lowerType.includes(weaponType)) {
+                        return damage;
+                      }
+                    }
+                    
+                    return "1d6"; // Default weapon damage
+                  };
+                  
+                  // Add damage properties if provided, or set defaults for weapons
                   if (customProps.damage) {
                     itemProperties.damage = {
                       damage_dice: customProps.damage,
                       damage_type: { name: customProps.damageType || "slashing" }
                     };
+                  } else if (customProps.category === "weapon") {
+                    const defaultDamage = getDefaultDamage(customProps.category, customProps.type || normalizedName);
+                    if (defaultDamage) {
+                      itemProperties.damage = {
+                        damage_dice: defaultDamage,
+                        damage_type: { name: customProps.damageType || "slashing" }
+                      };
+                    }
                   }
                   
                   // Add armor class if provided
@@ -615,6 +798,10 @@ async function executeGameActions(
                   // Add any other custom properties
                   Object.assign(itemProperties, customProps.properties || {});
 
+                  // Set sensible defaults for weight and cost
+                  const defaultWeight = customProps.weight ?? 0.1;
+                  const defaultCost = customProps.cost ?? 1;
+
                   item = await storage.createItem({
                     id: itemId,
                     name: normalizedName,
@@ -622,8 +809,8 @@ async function executeGameActions(
                     type: customProps.type || "Custom Item",
                     description: customProps.description || `A custom item created by the Dungeon Master: ${normalizedName}`,
                     rarity: customProps.rarity || "uncommon",
-                    cost: customProps.cost || null,
-                    weight: customProps.weight || null,
+                    cost: defaultCost,
+                    weight: defaultWeight,
                     properties: itemProperties,
                     requiresAttunement: customProps.requiresAttunement || false,
                     gameSystem: room?.gameSystem || "dnd",

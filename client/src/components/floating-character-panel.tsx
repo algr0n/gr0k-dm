@@ -138,6 +138,7 @@ export function FloatingCharacterPanel({
             <InventoryLayout
               items={inventoryWithDetails as CharacterInventoryItemWithDetails[] || []}
               gold={roomChar?.gold || 0}
+              currency={character?.currency}
               armorClass={character?.ac || 10}
               currentWeight={currentWeight}
               maxWeight={maxWeight}
@@ -196,7 +197,16 @@ export function FloatingCharacterPanel({
                 <span className="font-medium">XP:</span> {character?.xp || 0}
               </div>
               <div>
-                <span className="font-medium">Gold:</span> {roomChar?.gold || 0}
+                <span className="font-medium">Currency:</span>{" "}
+                {character?.currency ? (
+                  <>
+                    <span className="text-amber-600">{character.currency.gp}gp</span>{" "}
+                    <span className="text-slate-400">{character.currency.sp}sp</span>{" "}
+                    <span className="text-amber-700">{character.currency.cp}cp</span>
+                  </>
+                ) : (
+                  <span>{roomChar?.gold || 0} gp</span>
+                )}
               </div>
             </div>
 
