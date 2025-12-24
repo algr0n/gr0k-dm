@@ -55,9 +55,8 @@ cp .env.example .env
 # Push database schema
 npm run db:push
 
-# Seed items and spells (optional but recommended)
-npm run seed:items
-npm run seed:spells
+# Seed adventure modules (optional but recommended)
+npm run seed:adventures
 ```
 
 ### Development
@@ -117,7 +116,8 @@ gr0k-dm/
 - **[Quick Reference](QUICK_REFERENCE.md)** - Quick overview and environment setup
 - **[Design Guidelines](design_guidelines.md)** - UI/UX design specifications
 - **[Testing Guide](TESTING_GUIDE.md)** - Testing strategies and best practices
-- **[Database Migration Guide](DATABASE_MIGRATION_README.md)** - Database setup and migration
+- **[Database Setup Guide](DATABASE_SETUP.md)** - Database setup, migrations, and schema management
+- **[Adventure System](ADVENTURE_SYSTEM.md)** - Pre-made adventure modules and implementation
 - **[Roadmap](ROADMAP.md)** - Feature roadmap and development plans
 
 ## Environment Variables
@@ -141,8 +141,7 @@ npm start            # Run production build
 npm run check        # TypeScript type checking
 npm run db:push      # Push database schema changes
 npm run db:generate  # Generate database migrations
-npm run seed:items   # Seed item compendium
-npm run seed:spells  # Seed spell compendium
+npm run seed:adventures  # Seed adventure modules
 ```
 
 ## Contributing
@@ -164,7 +163,7 @@ See [Design Guidelines](design_guidelines.md) for UI/UX standards and [DESIGN_DO
 
 See [ROADMAP.md](ROADMAP.md) for detailed feature plans and development phases:
 
-- **Phase 1**: Stability & Security (security hardening, testing infrastructure) ⚠️ In Progress
+- **Phase 1**: Stability & Security (database migration ✅ COMPLETED, security hardening, testing infrastructure) ⚠️ In Progress
 - **Phase 2**: Mobile & UX (mobile optimization, PWA support)
 - **Phase 3**: Game Systems (Pathfinder 2e, Call of Cthulhu)
 - **Phase 4**: Social & Multiplayer (friends, campaigns, Discord integration)
@@ -172,10 +171,11 @@ See [ROADMAP.md](ROADMAP.md) for detailed feature plans and development phases:
 
 ## Known Issues & Limitations
 
-- SQLite write contention possible for high-concurrency scenarios (mitigated by Turso)
-- No automated testing infrastructure yet (Phase 1 priority)
-- Mobile experience needs optimization (Phase 2)
-- Limited to D&D 5e and Cyberpunk RED game systems currently
+- SQLite write contention possible for high-concurrency scenarios (mitigated by Turso's edge replication)
+- Limited automated testing infrastructure (Phase 1 priority)
+- Mobile experience can be improved (Phase 2)
+- Currently supports D&D 5e (comprehensive) and Cyberpunk RED (basic) game systems
+- Some TypeScript compilation warnings exist and are being addressed
 
 ## License
 

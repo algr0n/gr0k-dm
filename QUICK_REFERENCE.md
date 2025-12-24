@@ -123,7 +123,7 @@ Room → Type message/action → AI responds → Roll dice (/roll 2d6+3) → AI 
 ## Environment Variables
 
 ```bash
-DATABASE_URL=              # Turso database URL
+DATABASE_URL=              # Turso database URL (libsql://...)
 TURSO_AUTH_TOKEN=          # Turso auth token
 XAI_API_KEY=               # xAI Grok API key
 SESSION_SECRET=            # Express session secret (random string)
@@ -150,7 +150,7 @@ npm run db:push         # Push schema changes to database
 ## Top 10 Improvement Opportunities
 
 ### 🔴 High Priority
-1. **Database Migration** - Convert PostgreSQL types to SQLite types
+1. **~~Database Migration~~** - ✅ COMPLETED (SQLite types migration)
 2. **Security Audit** - Verify bcrypt password hashing, add rate limiting
 3. **Test Coverage** - Unit tests for dice, integration tests for API
 4. **WebSocket Reconnection** - Auto-reconnect with exponential backoff
@@ -223,17 +223,16 @@ See [DESIGN_DOCUMENT.md](./DESIGN_DOCUMENT.md) for 14 more improvement ideas!
 
 ## Quick Stats
 
-- **Lines of Code**: ~15,000+ (TypeScript)
-- **Components**: 50+ React components
-- **Database Tables**: 12 tables
-- **API Endpoints**: 30+ REST endpoints
+- **Lines of Code**: ~20,000+ (TypeScript)
+- **Components**: 60+ React components
+- **Database Tables**: 15+ tables (including adventure system)
+- **API Endpoints**: 40+ REST endpoints
 - **Game Systems**: 2 (D&D 5e full, Cyberpunk RED basic)
-- **Item Compendium**: 200+ D&D 5e items
-- **Spell Compendium**: 300+ D&D 5e spells
+- **Adventure Modules**: 2 (Lost Mine of Phandelver, Dragon of Icespire Peak)
 - **Supported Dice**: d4, d6, d8, d10, d12, d20, d100
 
 ---
 
 **Version**: 1.0  
-**Last Updated**: December 8, 2025  
+**Last Updated**: December 24, 2024  
 **For detailed information, see**: [DESIGN_DOCUMENT.md](./DESIGN_DOCUMENT.md)

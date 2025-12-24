@@ -17,6 +17,9 @@ vite.config.ts.*
 .env
 .env
 
+# PDF files (copyrighted materials should not be in repo)
+*.pdf
+
 # PDF conversion outputs (downloaded at runtime, not committed)
 /pdfs/
 /texts/
