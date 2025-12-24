@@ -41,6 +41,7 @@ import {
   adventureLocations,
   adventureNpcs,
   adventureQuests,
+  questObjectiveProgress,
 } from "@shared/adventure-schema";
 import { eq, sql, desc, inArray } from "drizzle-orm";
 import { setupAuth, isAuthenticated, getSession } from "./auth";
@@ -1472,10 +1473,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Detect and log story events from DM response
       try {
         const { detectAndLogStoryEvents } = await import('./utils/story-detection');
-        const eventIds = await detectAndLogStoryEvents(dmResponse, room.id, adventureContext);
-        if (eventIds.length > 0) {
-          console.log(`[Story Detection] Logged ${eventIds.length} story events for room ${roomCode}`);
+        const result = await detectAndLogStoryEvents(dmResponse, room.id, adventureContext, room.gameSystem);
+        if (result.eventIds.length > 0) {
+          console.log(`[Story Detection] Logged ${result.eventIds.length} story events for room ${roomCode}`);
           // Invalidate story cache since new events were created
+          const { storyCache } = await import('./cache/story-cache');
+          storyCache.invalidate(room.id);
+        }
+        if (result.questId) {
+          console.log(`[Quest Detection] Created dynamic quest (ID: ${result.questId}) for room ${roomCode}`);
+          // Invalidate story cache to include new quest
           const { storyCache } = await import('./cache/story-cache');
           storyCache.invalidate(room.id);
         }
@@ -3602,6 +3609,108 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error updating quest objective:", error);
       res.status(500).json({ error: "Failed to update quest objective" });
+    }
+  });
+
+  // POST /api/rooms/:roomId/quests - Manually create a dynamic quest (DM tool)
+  app.post("/api/rooms/:roomId/quests", async (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const { title, description, objectives, questGiver, rewards, urgency, isMainQuest } = req.body;
+
+      // Validate required fields
+      if (!title || !description || !objectives || !Array.isArray(objectives) || objectives.length === 0) {
+        return res.status(400).json({ 
+          error: "Missing required fields: title, description, and at least one objective" 
+        });
+      }
+
+      // Create the quest
+      const questResult = await db.insert(adventureQuests).values({
+        name: title,
+        description: description,
+        objectives: objectives,
+        roomId: roomId,
+        questGiver: questGiver || 'Unknown',
+        isDynamic: true,
+        urgency: urgency || 'medium',
+        rewards: rewards ? { other: Array.isArray(rewards) ? rewards : [rewards] } : undefined,
+        isMainQuest: isMainQuest || false,
+      }).returning();
+
+      if (questResult.length === 0) {
+        return res.status(500).json({ error: "Failed to create quest" });
+      }
+
+      const createdQuest = questResult[0];
+
+      // Create quest objectives in progress table
+      const objectivePromises = objectives.map((obj: string, index: number) =>
+        db.insert(questObjectiveProgress).values({
+          roomId: roomId,
+          questId: createdQuest.id,
+          objectiveIndex: index,
+          objectiveText: obj,
+          isCompleted: false,
+        })
+      );
+
+      await Promise.all(objectivePromises);
+
+      // Log story event for manual quest creation
+      await storage.createStoryEvent({
+        roomId,
+        eventType: 'quest_start',
+        title: `Quest: ${title}`,
+        summary: `${questGiver || 'The DM'} has given the party a new quest: ${title}`,
+        participants: [],
+        relatedQuestId: createdQuest.id,
+        importance: 3,
+      });
+
+      // Invalidate story cache
+      const { storyCache } = await import("./cache/story-cache");
+      storyCache.invalidate(roomId);
+
+      // Broadcast to room
+      broadcastToRoom(roomId, {
+        type: "quest_created",
+        quest: createdQuest,
+      });
+
+      console.log(`[Manual Quest] Created quest "${title}" for room ${roomId}`);
+
+      res.json({
+        quest: createdQuest,
+        objectiveCount: objectives.length,
+      });
+    } catch (error) {
+      console.error("Error creating manual quest:", error);
+      res.status(500).json({ error: "Failed to create quest" });
+    }
+  });
+
+  // GET /api/rooms/:roomId/quests - Get all quests for a room
+  app.get("/api/rooms/:roomId/quests", async (req, res) => {
+    try {
+      const { roomId } = req.params;
+      
+      // Get both adventure quests and dynamic quests for this room
+      const quests = await db
+        .select()
+        .from(adventureQuests)
+        .where(
+          sql`${adventureQuests.roomId} = ${roomId} OR ${adventureQuests.id} IN (
+            SELECT DISTINCT ${questObjectiveProgress.questId} 
+            FROM ${questObjectiveProgress} 
+            WHERE ${questObjectiveProgress.roomId} = ${roomId}
+          )`
+        );
+
+      res.json(quests);
+    } catch (error) {
+      console.error("Error fetching quests:", error);
+      res.status(500).json({ error: "Failed to fetch quests" });
     }
   });
 

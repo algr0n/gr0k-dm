@@ -3,12 +3,15 @@
  * 
  * This module analyzes DM responses to identify key story moments and creates
  * story event records for AI memory and continuity tracking.
+ * 
+ * Also detects quest-giving language and creates dynamic quests.
  */
 
 import type { AdventureContext } from '@shared/adventure-schema';
 import type { InsertStoryEvent } from '@shared/adventure-schema';
 import { db } from '../db';
-import { storyEvents } from '@shared/adventure-schema';
+import { storyEvents, adventureQuests, questObjectiveProgress } from '@shared/adventure-schema';
+import { containsQuestLanguage, extractQuestFromNarrative } from './quest-detection';
 
 // Event detection patterns
 const QUEST_COMPLETE_PATTERNS = [
@@ -40,14 +43,17 @@ const PLAYER_DEATH_PATTERNS = [
  * @param dmResponse The DM's response text
  * @param roomId The room ID where the event occurred
  * @param adventureContext Optional adventure context for linking to quests/NPCs/locations
- * @returns Array of created story event IDs
+ * @param gameSystem The game system being used (for context in quest extraction)
+ * @returns Object with created story event IDs and quest IDs
  */
 export async function detectAndLogStoryEvents(
   dmResponse: string,
   roomId: string,
-  adventureContext?: AdventureContext
-): Promise<string[]> {
+  adventureContext?: AdventureContext,
+  gameSystem?: string
+): Promise<{ eventIds: string[]; questId?: string }> {
   const events: InsertStoryEvent[] = [];
+  let createdQuestId: string | undefined;
   
   // Detect boss defeats (highest importance)
   for (const pattern of BOSS_DEFEAT_PATTERNS) {
@@ -158,6 +164,79 @@ export async function detectAndLogStoryEvents(
     }
   }
 
+  // ============================================================================
+  // QUEST DETECTION - Only for rooms without a predefined adventure
+  // ============================================================================
+  if (!adventureContext?.adventureName) {
+    console.log('[Quest Detection] Checking for quest-giving language...');
+    
+    if (containsQuestLanguage(dmResponse)) {
+      console.log('[Quest Detection] ✅ Quest language detected, extracting quest data...');
+      
+      const extractedQuest = await extractQuestFromNarrative(
+        dmResponse,
+        roomId,
+        {
+          currentLocation: adventureContext?.currentLocation?.name,
+          recentNpcs: adventureContext?.availableNpcs?.map(npc => npc.name),
+          gameSystem: gameSystem || 'dnd',
+        }
+      );
+
+      if (extractedQuest) {
+        try {
+          // Create the dynamic quest in the database
+          const questResult = await db.insert(adventureQuests).values({
+            name: extractedQuest.title,
+            description: dmResponse.substring(0, 500), // First 500 chars as description
+            objectives: extractedQuest.objectives,
+            roomId: roomId,
+            questGiver: extractedQuest.questGiver,
+            isDynamic: true,
+            urgency: extractedQuest.urgency,
+            rewards: extractedQuest.rewards ? { other: [extractedQuest.rewards] } : undefined,
+            isMainQuest: false,
+          }).returning({ id: adventureQuests.id });
+
+          if (questResult.length > 0) {
+            createdQuestId = questResult[0].id;
+            console.log(`[Quest Detection] ✅ Created dynamic quest: "${extractedQuest.title}" (ID: ${createdQuestId})`);
+
+            // Create quest objectives in progress table
+            for (let i = 0; i < extractedQuest.objectives.length; i++) {
+              await db.insert(questObjectiveProgress).values({
+                roomId: roomId,
+                questId: createdQuestId,
+                objectiveIndex: i,
+                objectiveText: extractedQuest.objectives[i],
+                isCompleted: false,
+              });
+            }
+
+            // Log a story event for quest start
+            events.push({
+              roomId,
+              eventType: 'quest_start',
+              title: `Quest: ${extractedQuest.title}`,
+              summary: `${extractedQuest.questGiver} has given the party a new quest: ${extractedQuest.title}`,
+              participants: [],
+              relatedQuestId: createdQuestId,
+              importance: 3,
+            });
+
+            console.log(`[Quest Detection] ✅ Created ${extractedQuest.objectives.length} quest objectives`);
+          }
+        } catch (error) {
+          console.error('[Quest Detection] Error creating dynamic quest:', error);
+        }
+      } else {
+        console.log('[Quest Detection] ❌ No valid quest extracted from narrative');
+      }
+    }
+  } else {
+    console.log('[Quest Detection] Skipping (predefined adventure active)');
+  }
+
   // Insert all detected events into the database
   const createdIds: string[] = [];
   if (events.length > 0) {
@@ -174,7 +253,7 @@ export async function detectAndLogStoryEvents(
     }
   }
 
-  return createdIds;
+  return { eventIds: createdIds, questId: createdQuestId };
 }
 
 /**

@@ -199,12 +199,13 @@ export const insertAdventureNpcSchema = createInsertSchema(adventureNpcs).omit({
 export const adventureQuests = sqliteTable("adventure_quests", {
   id: text("id").primaryKey().default(generateUUID()),
   adventureId: text("adventure_id")
-    .notNull()
-    .references(() => adventures.id, { onDelete: "cascade" }),
+    .references(() => adventures.id, { onDelete: "cascade" }), // NULL for dynamic quests
   chapterId: text("chapter_id")
     .references(() => adventureChapters.id, { onDelete: "set null" }),
   questGiverId: text("quest_giver_id")
     .references(() => adventureNpcs.id, { onDelete: "set null" }), // NPC who gives the quest
+  roomId: text("room_id"), // For dynamic quests not tied to adventures
+  questGiver: text("quest_giver"), // Free-form NPC name for dynamic quests
   name: text("name").notNull(),
   description: text("description").notNull(),
   objectives: text("objectives", { mode: 'json' }).$type<string[]>().notNull().default(emptyJsonArray()),
@@ -215,12 +216,16 @@ export const adventureQuests = sqliteTable("adventure_quests", {
     other?: string[];
   }>(),
   isMainQuest: integer("is_main_quest", { mode: 'boolean' }).notNull().default(false),
+  isDynamic: integer("is_dynamic", { mode: 'boolean' }).notNull().default(false), // AI-generated quest
+  urgency: text("urgency"), // low, medium, high, critical
   prerequisiteQuestIds: text("prerequisite_quest_ids", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
   createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
 }, (table) => [
   index("idx_quests_adventure").on(table.adventureId),
   index("idx_quests_chapter").on(table.chapterId),
   index("idx_quests_giver").on(table.questGiverId),
+  index("idx_quests_room").on(table.roomId),
+  index("idx_quests_dynamic").on(table.isDynamic),
 ]);
 
 export type AdventureQuest = typeof adventureQuests.$inferSelect;
