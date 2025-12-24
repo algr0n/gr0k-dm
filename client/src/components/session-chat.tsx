@@ -131,20 +131,20 @@ export function SessionChat() {
             </div>
           ) : (
             <div className="space-y-4">
-              {messages.map((message) => (
+              {messages.map((message) => {
+                const isAssistant = message.type === "dm";
+                return (
                 <div
                   key={message.id}
-                  className={`flex gap-3 ${message.role === "assistant" ? "flex-row" : "flex-row-reverse"}`}
+                  className={`flex gap-3 ${isAssistant ? "flex-row" : "flex-row-reverse"}`}
                   data-testid={`message-${message.id}`}
                 >
                   <div
                     className={`h-8 w-8 rounded-full flex items-center justify-center shrink-0 ${
-                      message.role === "assistant"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted"
+                      isAssistant ? "bg-primary text-primary-foreground" : "bg-muted"
                     }`}
                   >
-                    {message.role === "assistant" ? (
+                    {isAssistant ? (
                       <Bot className="h-4 w-4" />
                     ) : (
                       <User className="h-4 w-4" />
@@ -152,14 +152,12 @@ export function SessionChat() {
                   </div>
                   <div
                     className={`flex-1 max-w-[80%] ${
-                      message.role === "assistant" ? "" : "text-right"
+                      isAssistant ? "" : "text-right"
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className="text-sm font-medium">
-                        {message.role === "assistant"
-                          ? "Grok DM"
-                          : message.username || "Player"}
+                        {isAssistant ? "Grok DM" : message.playerName || "Player"}
                       </span>
                       <span className="text-xs text-muted-foreground">
                         {new Date(message.timestamp).toLocaleTimeString()}
@@ -167,16 +165,15 @@ export function SessionChat() {
                     </div>
                     <div
                       className={`p-3 rounded-lg ${
-                        message.role === "assistant"
-                          ? "bg-muted/50"
-                          : "bg-primary/10"
+                        isAssistant ? "bg-muted/50" : "bg-primary/10"
                       }`}
                     >
                       <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                     </div>
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           )}
         </ScrollArea>

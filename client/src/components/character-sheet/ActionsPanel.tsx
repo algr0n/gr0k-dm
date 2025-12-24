@@ -73,7 +73,7 @@ export function ActionsPanel({
                         {attack.damage} {attack.damageType}
                       </Badge>
                       {attack.range && (
-                        <Badge variant="ghost" className="text-xs">
+                        <Badge variant="outline" className="text-xs">
                           {attack.range}
                         </Badge>
                       )}

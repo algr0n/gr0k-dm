@@ -1335,7 +1335,7 @@ export default function RoomPage() {
 
             <Separator />
 
-            {roomData?.gameSystem === "dnd" && myCharacterData?.savedCharacter?.stats?.str && (
+            {roomData?.gameSystem === "dnd" && (myCharacterData?.savedCharacter?.stats as Record<string, number> | undefined)?.str != null && (
               <div className="px-4 pt-3 pb-1">
                 <div className="flex items-center gap-1 flex-wrap">
                   <span className="text-xs text-muted-foreground mr-2">Quick Roll:</span>
@@ -1347,8 +1347,8 @@ export default function RoomPage() {
                     { stat: "wis", label: "WIS" },
                     { stat: "cha", label: "CHA" },
                   ].map(({ stat, label }) => {
-                    const stats = myCharacterData.savedCharacter.stats as Record<string, number>;
-                    const value = stats[stat] || 10;
+                    const stats = (myCharacterData?.savedCharacter?.stats as Record<string, number>) || {};
+                    const value = (stats[stat] as number) || 10;
                     const modifier = Math.floor((value - 10) / 2);
                     const modifierStr = modifier >= 0 ? `+${modifier}` : `${modifier}`;
                     return (

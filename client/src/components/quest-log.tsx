@@ -137,14 +137,17 @@ function QuestCard({ quest }: { quest: QuestEntry & { sessionName: string } }) {
       </div>
       {quest.objectives && quest.objectives.length > 0 && (
         <div className="mt-2 space-y-1">
-          {quest.objectives.map((obj, idx) => (
-            <div key={idx} className="flex items-center gap-2 text-sm">
-              <Checkbox checked={obj.completed} disabled className="h-3 w-3" />
-              <span className={obj.completed ? "line-through text-muted-foreground" : ""}>
-                {obj.text}
-              </span>
-            </div>
-          ))}
+          {quest.objectives.map((obj, idx) => {
+            const objective = typeof obj === "string" ? { text: obj, completed: false } : obj as { text: string; completed?: boolean };
+            return (
+              <div key={idx} className="flex items-center gap-2 text-sm">
+                <Checkbox checked={!!objective.completed} disabled className="h-3 w-3" />
+                <span className={objective.completed ? "line-through text-muted-foreground" : ""}>
+                  {objective.text}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
       <p className="text-xs text-muted-foreground mt-2">{quest.sessionName}</p>

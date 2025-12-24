@@ -24,8 +24,10 @@ import {
   updateUserProfileSchema,
   type Message,
   type SavedCharacter,
+  type InsertSavedInventoryItem,
   rooms,
   players,
+  users,
   roomAdventureProgress,
   getLevelFromXP,
   classDefinitions,
@@ -2701,8 +2703,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const room = await storage.getRoomByCode(code);
       if (!room) return res.status(404).json({ error: 'Room not found' });
 
-      const characters = await storage.getCharactersByRoomCode(code);
-      const char = characters.find(c => c.characterName === playerName || c.playerName === playerName);
+          const characters = await storage.getCharactersByRoomCode(code);
+      let char = characters.find(c => c.characterName === playerName);
+      if (!char) {
+        // Try matching by the player's username if no character name match
+        const userRec = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.username, playerName))
+          .limit(1);
+
+        if (userRec && userRec.length > 0) {
+          const userId = userRec[0].id;
+          char = characters.find(c => c.userId === userId);
+        }
+      }
+
       if (!char) return res.status(404).json({ error: 'Character not found in room' });
 
       const currentCurrency = char.currency || { cp: 0, sp: 0, gp: 0 };
@@ -2969,8 +2985,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const { search, category, rarity } = req.query as {
         search?: string;
-        category?: typeof itemCategoryEnum.enumValues[number];
-        rarity?: typeof itemRarityEnum.enumValues[number];
+        category?: string;
+        rarity?: string;
       };
 
       let result;
@@ -3054,7 +3070,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ error: "itemId is required" });
       }
 
-      const insert: InsertInventoryItem = {
+      const insert: InsertSavedInventoryItem = {
         characterId,
         itemId,
         quantity,

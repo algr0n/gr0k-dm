@@ -16,8 +16,11 @@ import type {
   SavedCharacter,
   InsertSavedCharacter,
   SavedInventoryItem,
-  InsertInventoryItem,
+  InsertSavedInventoryItem,
   CharacterInventoryItemWithDetails,
+  User,
+  InsertUser,
+  Spell,
 } from "@shared/schema";
 
 export interface Storage {
@@ -81,7 +84,7 @@ export interface Storage {
 
   // Alternative / compatibility inventory API used by some parts of the server
   getInventoryWithDetails(characterId: string): Promise<(SavedInventoryItem & { item: Item })[]>;
-  addToInventory(insert: InsertInventoryItem): Promise<SavedInventoryItem>;
+  addToInventory(insert: InsertSavedInventoryItem): Promise<SavedInventoryItem>;
   addToSavedInventory(insert: { characterId: string; itemId: string; quantity?: number }): Promise<SavedInventoryItem>;
   updateSavedInventoryItem(id: string, updates: Partial<SavedInventoryItem>): Promise<SavedInventoryItem | undefined>;
   deleteSavedInventoryItem(id: string): Promise<boolean>;
@@ -101,13 +104,15 @@ export interface Storage {
   removeStatusEffect(id: string): Promise<boolean>;
 
   // Users
-  getUser(id: string): Promise<any | undefined>;
-  updateUserProfile(id: string, updates: Partial<any>): Promise<any | undefined>;
+  getUser(id: string): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  updateUserProfile(id: string, updates: Partial<User>): Promise<User | undefined>;
 
-  // Misc
-  searchSpells(query: string): Promise<any[]>;
-  getSpells(level?: number, school?: string, classFilter?: string): Promise<any[]>;
-  getSpell(id: string): Promise<any | undefined>;
+  // Misc (spells)
+  searchSpells(query: string): Promise<Spell[]>;
+  getSpells(level?: number, school?: string, classFilter?: string): Promise<Spell[]>;
+  getSpell(id: string): Promise<Spell | undefined>;
 
   // Token usage
   // getTokenUsage is implemented in grok.ts - exported separately
@@ -123,12 +128,7 @@ import {
   rooms, players, diceRolls, items, spells,
   savedCharacters, characterInventoryItems, characterStatusEffects, users,
 } from "@shared/schema";
-import type { 
-  Room, Player, DiceRollRecord, Item, Spell,
-  SavedCharacter, InsertSavedCharacter,
-  SavedInventoryItem, InsertInventoryItem,
-  CharacterInventoryItemWithDetails, User, InsertUser
-} from "@shared/schema";
+// Type imports are already declared above; keep only the table imports (avoid duplicate type declarations).
 import { eq, and, like, desc, sql, lt } from "drizzle-orm";
 
 class DatabaseStorage implements Storage {
@@ -385,7 +385,7 @@ class DatabaseStorage implements Storage {
     return await this.getSavedInventoryWithDetails(characterId);
   }
 
-  async addToInventory(insert: InsertInventoryItem): Promise<SavedInventoryItem> {
+  async addToInventory(insert: InsertSavedInventoryItem): Promise<SavedInventoryItem> {
     return await this.addToSavedInventory(insert);
   }
 

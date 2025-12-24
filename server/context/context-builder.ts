@@ -96,11 +96,8 @@ export class ContextBuilder {
     if (context.activeQuests && context.activeQuests.length > 0) {
       adventurePrompt += `ACTIVE QUESTS:\n`;
       context.activeQuests.forEach((quest: AdventureQuest) => {
-        adventurePrompt += `  - ${quest.name}${quest.type ? ` (${quest.type})` : ''}\n`;
-        adventurePrompt += `    ${quest.description}\n`;
-        if (quest.objectives && quest.objectives.length > 0) {
-          adventurePrompt += `    Objectives: ${quest.objectives.join(', ')}\n`;
-        }
+        const questLabel = (quest as any).type ? ` (${(quest as any).type})` : (quest.isMainQuest ? ' (Main Quest)' : '');
+        adventurePrompt += `  - ${quest.name}${questLabel}\n`;
       });
       adventurePrompt += '\n';
     }
@@ -229,10 +226,10 @@ export class ContextBuilder {
     return this;
   }
 
-  async addMonsterContext(monsterName: string, client: Client, cachedMonster?: MonsterDetail): Promise<this> {
+  async addMonsterContext(monsterName: string, client: Client, cachedMonster?: MonsterDetail | null): Promise<this> {
     try {
       // Use cached monster if provided, otherwise fetch from DB
-      let monster = cachedMonster;
+      let monster: MonsterDetail | null | undefined = cachedMonster ?? null;
       if (!monster) {
         monster = await getMonsterByName(client, monsterName);
       }

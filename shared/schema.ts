@@ -95,6 +95,36 @@ export const messageSchema = z.object({
 
 export type Message = z.infer<typeof messageSchema>;
 
+// Simple types for UI components and dashboard
+export type QuestObjective = { text: string; completed?: boolean };
+
+export type QuestEntry = {
+  id: string;
+  title: string;
+  description?: string;
+  objectives?: (string | QuestObjective)[];
+  status: "active" | "completed" | "failed" | "inactive";
+};
+
+export type GameSession = {
+  id: string;
+  name: string;
+  gameSystem: string;
+  description?: string;
+  messageHistory: Message[];
+  currentScene?: string;
+  quests: QuestEntry[];
+  isActive: boolean;
+};
+
+export type BotStatus = {
+  isOnline?: boolean;
+  connectedGuilds?: number;
+  activeGames?: number;
+  totalCharacters?: number;
+  lastActivity?: string | number;
+};
+
 // Room/game session table
 export const rooms = sqliteTable("rooms", {
   id: text("id").primaryKey(),

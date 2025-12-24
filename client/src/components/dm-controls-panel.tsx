@@ -130,9 +130,13 @@ export function DMControlsPanel({ roomCode, hostName, gameSystem }: DMControlsPa
       gp: selectedCharacter.roomCharacter.gold || 0
     };
     
-    // Apply change to the selected currency type
-    const newCurrency = { ...currentCurrency };
-    newCurrency[currencyType] = Math.max(0, currentCurrency[currencyType] + delta);
+    // Apply change to the selected currency type (ensure numeric values)
+    const newCurrency = {
+      cp: Number(currentCurrency.cp || 0),
+      sp: Number(currentCurrency.sp || 0),
+      gp: Number(currentCurrency.gp || 0),
+    };
+    newCurrency[currencyType] = Math.max(0, (newCurrency as any)[currencyType] + delta);
     
     // Apply automatic conversion (100cp→1sp, 100sp→1gp)
     if (newCurrency.cp >= 100) {

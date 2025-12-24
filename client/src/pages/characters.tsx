@@ -301,13 +301,13 @@ export default function Characters() {
   };
 
   // Get race skill info for the selected race/subrace
-  const getRaceSkillInfo = () => {
+  const getRaceSkillInfo = (): { autoSkills: DndSkill[]; bonusChoices: { count: number; from: DndSkill[] | "any" } | null } => {
     const race = dndForm.race as DndRace;
-    if (!race || !raceDefinitions[race]) return { autoSkills: [], bonusChoices: null };
+    if (!race || !raceDefinitions[race]) return { autoSkills: [] as DndSkill[], bonusChoices: null };
     
     const raceDef = raceDefinitions[race];
-    let autoSkills = [...raceDef.skillProficiencies];
-    let bonusChoices = raceDef.bonusSkillChoices;
+    let autoSkills: DndSkill[] = [...raceDef.skillProficiencies];
+    let bonusChoices: { count: number; from: DndSkill[] | "any" } | null = raceDef.bonusSkillChoices ?? null;
     
     // Check subrace for additional skills
     if (dndForm.subrace && subraceDefinitions[dndForm.subrace]) {
@@ -334,8 +334,8 @@ export default function Characters() {
     if (checked) {
       // Prevent selecting skills already granted by race auto or chosen as race bonus
       if (selectedClassSkills.length < classDef.numSkillChoices && 
-          !autoSkills.includes(skill) && 
-          !selectedRaceBonusSkills.includes(skill)) {
+          !autoSkills.includes(skill as any) && 
+          !selectedRaceBonusSkills.includes(skill as any)) {
         setSelectedClassSkills([...selectedClassSkills, skill]);
       }
     } else {
@@ -349,7 +349,7 @@ export default function Characters() {
     if (!bonusChoices) return;
     
     if (checked) {
-      if (selectedRaceBonusSkills.length < bonusChoices.count && !autoSkills.includes(skill) && !selectedClassSkills.includes(skill)) {
+      if (selectedRaceBonusSkills.length < bonusChoices.count && !autoSkills.includes(skill as any) && !selectedClassSkills.includes(skill as any)) {
         setSelectedRaceBonusSkills([...selectedRaceBonusSkills, skill]);
       }
     } else {
@@ -508,9 +508,9 @@ export default function Characters() {
     
     // Get base race skills separately from subrace skills
     const race = dndForm.race as DndRace;
-    const baseRaceSkills = race && raceDefinitions[race] ? [...raceDefinitions[race].skillProficiencies] : [];
+    const baseRaceSkills = race && raceDefinitions[race] ? [...(raceDefinitions[race].skillProficiencies || [])] : [];
     const subraceSkills = dndForm.subrace && subraceDefinitions[dndForm.subrace]?.skillProficiencies 
-      ? [...subraceDefinitions[dndForm.subrace].skillProficiencies] 
+      ? [...(subraceDefinitions[dndForm.subrace]?.skillProficiencies || [])] 
       : [];
     
     // Base race auto-granted skills
@@ -671,7 +671,7 @@ export default function Characters() {
         autoSkills = [...raceDefinitions[baseRace as DndRace].skillProficiencies];
       }
       if (subrace && subraceDefinitions[subrace]?.skillProficiencies) {
-        autoSkills = [...autoSkills, ...subraceDefinitions[subrace].skillProficiencies];
+        autoSkills = [...autoSkills, ...(subraceDefinitions[subrace].skillProficiencies || [])];
       }
       
       // Race bonus skills are any stored skills that are NOT auto-granted and NOT class skills
@@ -1044,9 +1044,9 @@ export default function Characters() {
                                 <div key={skill} className="flex items-center gap-2">
                                   <Checkbox
                                     id={`class-skill-${skill}`}
-                                    checked={selectedClassSkills.includes(skill)}
-                                    onCheckedChange={(checked) => handleClassSkillToggle(skill, !!checked)}
-                                    disabled={getRaceSkillInfo().autoSkills.includes(skill) || selectedRaceBonusSkills.includes(skill)}
+                                    checked={selectedClassSkills.includes(skill as DndSkill)}
+                                    onCheckedChange={(checked) => handleClassSkillToggle(skill as DndSkill, !!checked)}
+                                    disabled={getRaceSkillInfo().autoSkills.includes(skill as DndSkill) || selectedRaceBonusSkills.includes(skill as DndSkill)}
                                     data-testid={`checkbox-class-skill-${skill}`}
                                   />
                                   <label htmlFor={`class-skill-${skill}`} className="text-sm cursor-pointer">{skill}</label>
