@@ -2692,6 +2692,43 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // DEV: Debug endpoint to force-add currency to a player (non-production only)
+  app.post("/api/rooms/:code/debug/add-currency", async (req, res) => {
+    if (process.env.NODE_ENV === 'production') return res.status(404).json({ error: 'Not available in production' });
+    try {
+      const { code } = req.params;
+      const { playerName, gp = 0, sp = 0, cp = 0 } = req.body;
+      const room = await storage.getRoomByCode(code);
+      if (!room) return res.status(404).json({ error: 'Room not found' });
+
+      const characters = await storage.getCharactersByRoomCode(code);
+      const char = characters.find(c => c.characterName === playerName || c.playerName === playerName);
+      if (!char) return res.status(404).json({ error: 'Character not found in room' });
+
+      const currentCurrency = char.currency || { cp: 0, sp: 0, gp: 0 };
+      const newCurrency = { cp: currentCurrency.cp + cp, sp: currentCurrency.sp + sp, gp: currentCurrency.gp + gp };
+      const converted = convertCurrency(newCurrency);
+      const updates: any = { currency: converted, gold: converted.gp };
+      await storage.updateSavedCharacter(char.id, updates);
+
+      broadcastToRoom(code, {
+        type: 'character_update',
+        characterId: char.id,
+        updates,
+      });
+
+      broadcastToRoom(code, {
+        type: 'system',
+        content: `[CURRENCY] ${playerName} gains: ${converted.gp} gp, ${converted.sp} sp, ${converted.cp} cp`,
+      });
+
+      res.json({ success: true, updates });
+    } catch (error) {
+      console.error('Debug add currency error:', error);
+      res.status(500).json({ error: 'Failed to add currency' });
+    }
+  });
+
   // Token usage stats (for admin/debug)
   app.get("/api/stats/token-usage/:roomId", async (req, res) => {
     try {
