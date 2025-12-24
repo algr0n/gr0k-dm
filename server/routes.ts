@@ -27,6 +27,11 @@ import {
   rooms,
   players,
   roomAdventureProgress,
+  getLevelFromXP,
+  classDefinitions,
+  getAbilityModifier,
+  calculateLevelUpHP,
+  type DndClass,
 } from "@shared/schema";
 import {
   adventures,
@@ -150,7 +155,7 @@ interface QueuedMessage {
   playerName: string;
   content: string;
   type: "chat" | "action";
-  diceResult?: { expression: string; total: number; rolls: number[] };
+  diceResult?: { expression: string; total: number; rolls: number[]; modifier: number };
   timestamp: number;
 }
 
@@ -789,13 +794,21 @@ async function executeGameActions(
             // Apply automatic conversion
             const convertedCurrency = convertCurrency(newCurrency);
             
-            // Update character with new currency
-            await storage.updateSavedCharacter(char.id, { currency: convertedCurrency });
+            // Update character with new currency and sync legacy gold (gp) for UI compatibility
+            const updates: any = { currency: convertedCurrency, gold: convertedCurrency.gp };
+            await storage.updateSavedCharacter(char.id, updates);
             
+            // Broadcast character update so clients will refresh
             broadcastFn(roomCode, {
               type: "character_update",
               characterId: char.id,
-              updates: { currency: convertedCurrency },
+              updates,
+            });
+
+            // Also send a system message to the room so players see the currency change in chat
+            broadcastFn(roomCode, {
+              type: "system",
+              content: `[CURRENCY] ${action.playerName} receives: ${convertedCurrency.gp} gp, ${convertedCurrency.sp} sp, ${convertedCurrency.cp} cp`,
             });
             
             console.log(`[DM Action] Updated currency for ${action.playerName}: +${action.currency.cp}cp +${action.currency.sp}sp +${action.currency.gp}gp (total: ${convertedCurrency.cp}cp ${convertedCurrency.sp}sp ${convertedCurrency.gp}gp)`);
@@ -2511,7 +2524,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         playerName,
         content: msgContent,
         type: msgType as any,
-        diceResult,
+        diceResult: diceResult ?? undefined,
         timestamp: Date.now(),
       });
 
@@ -2627,11 +2640,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       const droppedId = randomUUID();
-      roomDroppedItems.get(code)!.push({ ...item, id: droppedId });
+      const dropped: DroppedItem = {
+        id: droppedId,
+        name: item.name,
+        quantity: item.quantity,
+        description: (item as any).description || "",
+        location: (item as any).location || "ground",
+      };
+      roomDroppedItems.get(code)!.push(dropped);
 
       broadcastToRoom(code, {
         type: "system",
-        content: `An item has been dropped: ${item.name} (${item.quantity}) at ${item.location}`,
+        content: `An item has been dropped: ${dropped.name} (${dropped.quantity}) at ${dropped.location}`,
       });
 
       res.json({ success: true, droppedId });

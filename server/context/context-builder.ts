@@ -40,12 +40,15 @@ export interface ItemInfo {
 export interface DroppedItemInfo {
   name: string;
   quantity: number;
+  description?: string;
+  location?: string;
 }
 
 export interface DiceResult {
   expression: string;
   total: number;
   rolls: number[];
+  modifier: number;
 }
 
 export class ContextBuilder {
