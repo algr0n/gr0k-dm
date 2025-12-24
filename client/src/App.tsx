@@ -1,4 +1,5 @@
 import { Switch, Route, Link, useLocation } from "wouter";
+import { Suspense, lazy } from "react";
 import { QueryClientProvider, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
@@ -19,9 +20,12 @@ import MyRooms from "@/pages/my-rooms";
 import NotFound from "@/pages/not-found";
 import ComponentsDemo from "@/pages/ComponentsDemo";
 
+const Bestiary = lazy(() => import("@/pages/bestiary"));
+
 function Router() {
   return (
-    <Switch>
+    <Suspense fallback={<div className="p-8">Loading...</div>}>
+      <Switch>
       <Route path="/" component={Landing} />
       <Route path="/auth" component={AuthPage} />
       <Route path="/demo" component={ComponentsDemo} />
@@ -29,9 +33,10 @@ function Router() {
       <Route path="/characters" component={Characters} />
       <Route path="/profile" component={ProfileSettings} />
       <Route path="/my-rooms" component={MyRooms} />
-      <Route path="/bestiary" component={require("@/pages/bestiary").default} />
+      <Route path="/bestiary" component={Bestiary} />
       <Route component={NotFound} />
-    </Switch>
+      </Switch>
+    </Suspense>
   );
 }
 
