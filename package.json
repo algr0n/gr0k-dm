@@ -16,7 +16,8 @@
     "migrate:prod": "tsx script/run-migrations.ts",
     "db:migrate-turso": "tsx scripts/run-migration-turso.ts",
     "db:health-check": "tsx scripts/health-check-db.ts",
-    "seed:adventures": "tsx server/seed-adventures.ts"
+    "seed:adventures": "tsx server/seed-adventures.ts",
+    "seed:spells": "tsx server/seed-spells.ts"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.18.0",
