@@ -103,9 +103,6 @@ async function importMonster(client, monster) {
   const abilities = monster.ability_scores || {};
   const legendaryCount = monster.legendary_actions?.count || 0;
   
-  // Start transaction
-  await client.execute("BEGIN TRANSACTION");
-  
   try {
     // Upsert monster
     const monsterResult = await client.execute({
@@ -291,15 +288,26 @@ async function importMonster(client, monster) {
         return base;
       }).join(" ");
       
+      // For FTS5 tables, we need to delete by rowid, not by regular columns
+      // First, find the rowid(s) for this monster_id
+      const existingRows = await client.execute({
+        sql: "SELECT rowid FROM bestiary_fts WHERE monster_id = ?",
+        args: [monsterId]
+      });
+      
+      // Delete existing entries using rowid
+      for (const row of existingRows.rows) {
+        await client.execute({
+          sql: "DELETE FROM bestiary_fts WHERE rowid = ?",
+          args: [row.rowid]
+        });
+      }
+      
+      // Insert new FTS entry
       await client.execute({
         sql: `
           INSERT INTO bestiary_fts (monster_id, name, description, traits_text, actions_text)
           VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(monster_id) DO UPDATE SET
-            name = excluded.name,
-            description = excluded.description,
-            traits_text = excluded.traits_text,
-            actions_text = excluded.actions_text
         `,
         args: [
           monsterId,
@@ -311,18 +319,13 @@ async function importMonster(client, monster) {
       });
     } catch (ftsError) {
       // FTS5 might not be available, skip gracefully
-      if (!ftsError.message.includes("no such table")) {
+      if (!ftsError.message.includes("no such table") && !ftsError.message.includes("virtual table")) {
         console.warn(`   ⚠️  FTS update skipped: ${ftsError.message}`);
       }
     }
     
-    // Commit transaction
-    await client.execute("COMMIT");
-    
     return { success: true, id: monsterId };
   } catch (error) {
-    // Rollback on error
-    await client.execute("ROLLBACK");
     throw error;
   }
 }

@@ -2,6 +2,7 @@
 
 import OpenAI from "openai";
 import type { Message } from "@shared/schema";
+import type { Client } from "@libsql/client";
 import type { 
   AdventureChapter, 
   AdventureLocation, 
@@ -9,6 +10,8 @@ import type {
   AdventureQuest 
 } from "@shared/adventure-schema";
 import { getSystemPrompt } from "../prompts";
+import { getMonsterByName, formatMonsterStatBlock, type MonsterDetail } from "../db/bestiary";
+import { monsterCacheManager } from "../cache/monster-cache";
 
 // Adventure context for AI DM
 export interface AdventureContext {
@@ -220,6 +223,32 @@ export class ContextBuilder {
 
   addUserMessage(content: string): this {
     this.messages.push({ role: "user", content });
+    return this;
+  }
+
+  async addMonsterContext(monsterName: string, client: Client, cachedMonster?: MonsterDetail): Promise<this> {
+    try {
+      // Use cached monster if provided, otherwise fetch from DB
+      let monster = cachedMonster;
+      if (!monster) {
+        monster = await getMonsterByName(client, monsterName);
+      }
+      
+      if (monster) {
+        const statBlock = formatMonsterStatBlock(monster);
+        this.messages.push({ 
+          role: "system", 
+          content: `MONSTER STATS FOR: ${monsterName}\n${statBlock}` 
+        });
+        
+        // Store in cache for future use (if not already cached)
+        if (!cachedMonster && client) {
+          // Note: Room ID passed elsewhere, cache manager handles it at call site
+        }
+      }
+    } catch (error) {
+      console.warn(`Failed to load monster context for ${monsterName}:`, error);
+    }
     return this;
   }
 

@@ -1,16 +1,19 @@
 // Combat DM turn generator
 
 import OpenAI from "openai";
+import type { Client } from "@libsql/client";
 import type { Room } from "@shared/schema";
 import { tokenTracker } from "../utils/token-tracker";
 import { ContextBuilder } from "../context/context-builder";
 import type { CharacterInfo } from "../context/context-builder";
+import { monsterCacheManager } from "../cache/monster-cache";
 
 // Generate enemy actions during combat when it's the DM's turn
 export async function generateCombatDMTurn(
   openaiClient: OpenAI,
   room: Room,
-  partyCharacters?: CharacterInfo[]
+  partyCharacters?: CharacterInfo[],
+  client?: Client
 ): Promise<string> {
   const gameSystem = room.gameSystem || "dnd";
 
@@ -37,6 +40,41 @@ export async function generateCombatDMTurn(
   // Add recent combat history for context
   builder.addMessageHistory(room.messageHistory || [], 10);
 
+  // Add monster context from bestiary with caching
+  if (client && room.messageHistory && room.messageHistory.length > 0) {
+    // Try to extract monster names from recent messages
+    const recentMessages = room.messageHistory.slice(-5);
+    const monsterNames = extractMonsterNames(recentMessages);
+    const cache = monsterCacheManager.getCache(room.id);
+    
+    for (const monsterName of monsterNames.slice(0, 3)) { // Limit to 3 monsters to avoid token bloat
+      // Check cache first
+      let cachedMonster = cache.get(monsterName);
+      if (cachedMonster) {
+        console.log(`[Combat Cache HIT] ${monsterName} in room ${room.id}`);
+        await builder.addMonsterContext(monsterName, client, cachedMonster);
+      } else {
+        // Cache miss - fetch from DB
+        console.log(`[Combat Cache MISS] ${monsterName} in room ${room.id}`);
+        try {
+          const { getMonsterByName } = await import("../db/bestiary");
+          const fetchedMonster = await getMonsterByName(client, monsterName);
+          if (fetchedMonster) {
+            // Store in cache for next time
+            cache.set(monsterName, fetchedMonster);
+            await builder.addMonsterContext(monsterName, client, fetchedMonster);
+          }
+        } catch (error) {
+          console.warn(`Failed to fetch monster ${monsterName}:`, error);
+        }
+      }
+    }
+    
+    // Log cache statistics
+    const stats = cache.getStats();
+    console.log(`[Combat Cache Stats] Room: ${room.id}, Cached: ${stats.size}/${stats.maxSize}, Utilization: ${stats.utilization}%`);
+  }
+
   builder.addUserMessage(`[COMBAT - ENEMY TURN] The enemies act now. Describe their actions, roll their attacks, and narrate the results. Keep it brief and dramatic.`);
 
   const messages = builder.build();
@@ -56,4 +94,27 @@ export async function generateCombatDMTurn(
     console.error("Combat DM turn error:", error);
     return "The enemies ready themselves for their next attack...";
   }
+}
+
+/**
+ * Extract potential monster names from recent chat history
+ */
+function extractMonsterNames(messages: any[]): string[] {
+  const monsterNames = new Set<string>();
+  const commonMonsters = [
+    "goblin", "orc", "ogre", "dragon", "troll", "skeleton", "zombie",
+    "spider", "giant", "demon", "devil", "angel", "beholder", "owlbear",
+    "wyvern", "basilisk", "manticore", "hydra", "lich", "vampire"
+  ];
+  
+  for (const msg of messages) {
+    const content = (msg.content || "").toLowerCase();
+    for (const monster of commonMonsters) {
+      if (content.includes(monster)) {
+        monsterNames.add(monster.charAt(0).toUpperCase() + monster.slice(1));
+      }
+    }
+  }
+  
+  return Array.from(monsterNames);
 }

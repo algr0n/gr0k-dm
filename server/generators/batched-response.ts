@@ -1,6 +1,7 @@
 // Batched DM response generator for multi-player actions
 
 import OpenAI from "openai";
+import type { Client } from "@libsql/client";
 import type { Room } from "@shared/schema";
 import { tokenTracker } from "../utils/token-tracker";
 import { getOrCreateConversationSummary } from "../utils/conversation-summary";
@@ -22,7 +23,8 @@ export async function generateBatchedDMResponse(
   playerCount?: number,
   partyCharacters?: CharacterInfo[],
   droppedItems?: DroppedItemInfo[],
-  adventureContext?: AdventureContext
+  adventureContext?: AdventureContext,
+  client?: Client
 ): Promise<string> {
   const gameSystem = room.gameSystem || "dnd";
 

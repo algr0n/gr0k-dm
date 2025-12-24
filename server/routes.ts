@@ -1340,7 +1340,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         undefined, 
         characterInfos, 
         undefined,
-        adventureContext
+        adventureContext,
+        (db as any).$client
       );
 
       // Send DM response
@@ -2454,6 +2455,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Delete the room and all associated data
       await storage.deleteRoomWithAllData(room.id);
+      
+      // Clean up monster cache for this room
+      try {
+        const { monsterCacheManager } = await import("./cache/monster-cache");
+        monsterCacheManager.removeCache(room.id);
+        console.log(`[Cache Cleanup] Removed monster cache for room ${room.id}`);
+      } catch (error) {
+        console.warn(`Failed to clean up monster cache for room ${room.id}:`, error);
+      }
 
       res.json({ success: true });
     } catch (error) {
@@ -2589,7 +2599,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (state.currentTurnIndex >= state.initiatives.length / 2) {
         const room = await storage.getRoomByCode(code);
         if (room) {
-          const enemyActions = await generateCombatDMTurn(openai, room);
+          const enemyActions = await generateCombatDMTurn(openai, room, undefined, (db as any).$client);
           broadcastToRoom(code, {
             type: "dm",
             content: enemyActions,
@@ -2670,6 +2680,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(usage);
     } catch (error) {
       res.status(500).json({ error: "Failed to get token usage" });
+    }
+  });
+
+  // Monster cache stats (for admin/debug/monitoring)
+  app.get("/api/stats/monster-cache/:roomId", async (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const { monsterCacheManager } = await import("./cache/monster-cache");
+      const cache = monsterCacheManager.getCache(roomId);
+      const stats = cache.getStats();
+      
+      res.json({
+        room: {
+          id: roomId,
+          cached: stats.size,
+          maxSize: stats.maxSize,
+          utilization: `${stats.utilization}%`,
+          hotMonsters: stats.hotMonsters,
+        },
+        global: monsterCacheManager.getGlobalStats(),
+      });
+    } catch (error) {
+      console.error("Cache stats error:", error);
+      res.status(500).json({ error: "Failed to get cache stats" });
     }
   });
 
@@ -2851,6 +2885,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         console.log(`[Cleanup] Deleting stale room: ${room.code} (ID: ${room.id}, inactive since ${room.lastActivityAt})`);
         await storage.deleteRoomWithAllData(room.id);
         roomConnections.delete(room.code);
+        
+        // Clean up monster cache for this room
+        try {
+          const { monsterCacheManager } = await import("./cache/monster-cache");
+          monsterCacheManager.removeCache(room.id);
+        } catch (error) {
+          console.warn(`Failed to clean up monster cache for room ${room.id}:`, error);
+        }
       }
       if (staleRooms.length > 0) {
         console.log(`[Cleanup] Deleted ${staleRooms.length} stale room(s)`);
@@ -3156,6 +3198,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Catch-all for unmatched API routes - return JSON 404 instead of falling back to static/index.html
   app.use("/api/*", (req, res) => {
     res.status(404).json({ error: "API endpoint not found" });
+  });
+
+  // Monster bestiary API
+  app.get("/api/monsters", async (req, res) => {
+    try {
+      const { search, type, minCr, maxCr, limit } = req.query;
+      const client = (db as any).$client;
+      const { searchMonsters, getMonstersByType, getMonstersByCR } = await import("./db/bestiary");
+      let monsters = [];
+      if (search) {
+        monsters = await searchMonsters(client, String(search), Number(limit) || 50);
+      } else if (type) {
+        monsters = await getMonstersByType(client, String(type), Number(limit) || 50);
+      } else if (minCr || maxCr) {
+        monsters = await getMonstersByCR(client, {
+          min: minCr ? Number(minCr) : 0,
+          max: maxCr ? Number(maxCr) : 30,
+        }, Number(limit) || 50);
+      } else {
+        monsters = await searchMonsters(client, "", Number(limit) || 50);
+      }
+      res.json(monsters);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch monsters" });
+    }
   });
 
   return httpServer;

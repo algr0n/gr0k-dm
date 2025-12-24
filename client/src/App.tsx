@@ -29,6 +29,7 @@ function Router() {
       <Route path="/characters" component={Characters} />
       <Route path="/profile" component={ProfileSettings} />
       <Route path="/my-rooms" component={MyRooms} />
+      <Route path="/bestiary" component={require("@/pages/bestiary").default} />
       <Route component={NotFound} />
     </Switch>
   );
