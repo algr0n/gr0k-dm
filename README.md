@@ -112,13 +112,15 @@ gr0k-dm/
 
 ## Documentation
 
-- **[Design Document](DESIGN_DOCUMENT.md)** - Complete architecture and design details
+- **[README](README.md)** - This file - Project overview and getting started
+- **[Developer Guide](DEVELOPER_GUIDE.md)** - New developer onboarding and quick start
 - **[Quick Reference](QUICK_REFERENCE.md)** - Quick overview and environment setup
+- **[Design Document](DESIGN_DOCUMENT.md)** - Complete architecture and design details
 - **[AI Dungeon Master Guide](AI_DM_GUIDE.md)** - Understanding and extending the AI system
-- **[Design Guidelines](design_guidelines.md)** - UI/UX design specifications
-- **[Testing Guide](TESTING_GUIDE.md)** - Testing strategies and best practices
 - **[Database Setup Guide](DATABASE_SETUP.md)** - Database setup, migrations, and schema management
 - **[Adventure System](ADVENTURE_SYSTEM.md)** - Pre-made adventure modules and implementation
+- **[Design Guidelines](design_guidelines.md)** - UI/UX design specifications
+- **[Testing Guide](TESTING_GUIDE.md)** - Testing strategies and best practices
 - **[Roadmap](ROADMAP.md)** - Feature roadmap and development plans
 
 ## Environment Variables
@@ -151,14 +153,15 @@ Contributions are welcome! Please follow these guidelines:
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes following the existing code style
-4. Run `npm run check` to verify TypeScript types
-5. Test your changes thoroughly
-6. Commit your changes (`git commit -m 'Add amazing feature'`)
-7. Push to the branch (`git push origin feature/amazing-feature`)
-8. Open a Pull Request
+3. Read the [Developer Guide](DEVELOPER_GUIDE.md) for onboarding
+4. Make your changes following the existing code style
+5. Run `npm run check` to verify TypeScript types
+6. Test your changes thoroughly
+7. Commit your changes (`git commit -m 'feat: add amazing feature'`)
+8. Push to the branch (`git push origin feature/amazing-feature`)
+9. Open a Pull Request
 
-See [Design Guidelines](design_guidelines.md) for UI/UX standards and [DESIGN_DOCUMENT.md](DESIGN_DOCUMENT.md) for architecture details.
+See [Design Guidelines](design_guidelines.md) for UI/UX standards, [DESIGN_DOCUMENT.md](DESIGN_DOCUMENT.md) for architecture details, and [AI_DM_GUIDE.md](AI_DM_GUIDE.md) for AI system documentation.
 
 ## Roadmap
 
