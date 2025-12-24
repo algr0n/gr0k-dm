@@ -20,12 +20,14 @@ export {
 } from "./generators";
 
 // Re-export cache utilities
-export { responseCache } from "./cache/response-cache";
+import { responseCache } from "./cache/response-cache";
+export { responseCache };
 export function getCacheStats(): { size: number; entries: string[] } {
   return responseCache.getStats();
 }
 
 // Re-export token tracking
+import { tokenTracker } from "./utils/token-tracker";
 export { tokenTracker, type TokenUsage } from "./utils/token-tracker";
 export function getTokenUsage(roomId: string) {
   return tokenTracker.get(roomId);
