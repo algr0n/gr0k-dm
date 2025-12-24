@@ -7,6 +7,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { parseDiceExpression } from "./dice";
 import {
+  openai,
   generateDMResponse,
   generateBatchedDMResponse,
   generateStartingScene,
@@ -14,6 +15,7 @@ import {
   type CharacterInfo,
   type BatchedMessage,
   type DroppedItemInfo,
+  type AdventureContext,
   getTokenUsage,
 } from "./grok";
 import {
@@ -32,7 +34,6 @@ import {
   adventureLocations,
   adventureNpcs,
   adventureQuests,
-  type AdventureContext,
 } from "@shared/adventure-schema";
 import { eq, sql, desc, inArray } from "drizzle-orm";
 import { setupAuth, isAuthenticated, getSession } from "./auth";
@@ -1333,6 +1334,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Generate batched DM response with adventure context
       const dmResponse = await generateBatchedDMResponse(
+        openai,
         batchedMessages, 
         room, 
         undefined, 
@@ -2557,7 +2559,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
 
       // Generate starting combat scene if needed
-      const startingScene = await generateStartingScene(room.gameSystem, room.name);
+      const startingScene = await generateStartingScene(openai, room.gameSystem, room.name);
       broadcastToRoom(code, {
         type: "dm",
         content: startingScene,
@@ -2587,7 +2589,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (state.currentTurnIndex >= state.initiatives.length / 2) {
         const room = await storage.getRoomByCode(code);
         if (room) {
-          const enemyActions = await generateCombatDMTurn(room);
+          const enemyActions = await generateCombatDMTurn(openai, room);
           broadcastToRoom(code, {
             type: "dm",
             content: enemyActions,
