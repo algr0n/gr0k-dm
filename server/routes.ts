@@ -186,10 +186,11 @@ async function fetchStoryContext(
         questProgress = quests.map(quest => {
           const questObjectives = objectives.filter((o: any) => o.questId === quest.id);
           const completed = questObjectives.filter((o: any) => o.isCompleted).length;
+          const total = questObjectives.length;
           return {
             quest,
             objectives: questObjectives,
-            completionPercentage: Math.round((completed / questObjectives.length) * 100),
+            completionPercentage: total > 0 ? Math.round((completed / total) * 100) : 0,
           };
         });
       }
@@ -3534,10 +3535,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Calculate completion percentages
       const questProgress = Array.from(questMap.entries()).map(([questId, objs]) => {
         const completed = objs.filter((o: any) => o.isCompleted).length;
+        const total = objs.length;
         return {
           questId,
           objectives: objs,
-          completionPercentage: Math.round((completed / objs.length) * 100),
+          completionPercentage: total > 0 ? Math.round((completed / total) * 100) : 0,
         };
       });
 

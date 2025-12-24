@@ -20,7 +20,7 @@ const QUEST_COMPLETE_PATTERNS = [
 const COMBAT_VICTORY_PATTERNS = [
   /(defeated|killed|slain|vanquished).*(enemy|monster|foe|creature)/i,
   /(enemy|monster|foe|creature).*(defeated|killed|slain|falls?|dies?)/i,
-  /victory|victorious|triump/i,
+  /victory|victorious|triumph/i,
 ];
 
 const BOSS_DEFEAT_PATTERNS = [
