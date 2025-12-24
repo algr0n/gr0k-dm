@@ -231,6 +231,93 @@ export const insertAdventureQuestSchema = createInsertSchema(adventureQuests).om
 });
 
 // =============================================================================
+// Quest Objective Progress Table - Track individual quest objectives per room
+// =============================================================================
+
+export const questObjectiveProgress = sqliteTable("quest_objective_progress", {
+  id: text("id").primaryKey().default(generateUUID()),
+  roomId: text("room_id").notNull(), // FK to rooms, cascade delete handled by application
+  questId: text("quest_id")
+    .notNull()
+    .references(() => adventureQuests.id, { onDelete: "cascade" }),
+  objectiveIndex: integer("objective_index").notNull(), // Which objective in the quest (0-based)
+  objectiveText: text("objective_text").notNull(), // Description of objective
+  isCompleted: integer("is_completed", { mode: 'boolean' }).notNull().default(false),
+  completedAt: integer("completed_at", { mode: 'timestamp' }),
+  completedBy: text("completed_by"), // Character name(s) who completed it
+  notes: text("notes"), // DM or AI-generated notes
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [
+  index("idx_quest_progress_room").on(table.roomId),
+  index("idx_quest_progress_quest").on(table.questId),
+]);
+
+export type QuestObjectiveProgress = typeof questObjectiveProgress.$inferSelect;
+export type InsertQuestObjectiveProgress = typeof questObjectiveProgress.$inferInsert;
+export const insertQuestObjectiveProgressSchema = createInsertSchema(questObjectiveProgress).omit({
+  id: true,
+  createdAt: true,
+});
+
+// =============================================================================
+// Story Events Table - Log key story moments for AI memory
+// =============================================================================
+
+export const storyEvents = sqliteTable("story_events", {
+  id: text("id").primaryKey().default(generateUUID()),
+  roomId: text("room_id").notNull(), // FK to rooms, cascade delete handled by application
+  eventType: text("event_type").notNull(), // "quest_start", "quest_complete", "npc_met", "location_discovered", "combat_victory", "boss_defeated", "player_death", "milestone"
+  title: text("title").notNull(), // Short title like "Met Sildar Hallwinter"
+  summary: text("summary").notNull(), // 1-2 sentence description
+  participants: text("participants", { mode: 'json' }).$type<string[]>().notNull().default(emptyJsonArray()), // Character names involved
+  relatedQuestId: text("related_quest_id"), // Optional FK to quest
+  relatedNpcId: text("related_npc_id"), // Optional FK to NPC
+  relatedLocationId: text("related_location_id"), // Optional FK to location
+  importance: integer("importance").notNull().default(1), // 1-5 scale, higher = more important for AI context
+  timestamp: integer("timestamp", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [
+  index("idx_story_events_room").on(table.roomId),
+  index("idx_story_events_type").on(table.eventType),
+  index("idx_story_events_importance").on(table.importance),
+]);
+
+export type StoryEvent = typeof storyEvents.$inferSelect;
+export type InsertStoryEvent = typeof storyEvents.$inferInsert;
+export const insertStoryEventSchema = createInsertSchema(storyEvents).omit({
+  id: true,
+  timestamp: true,
+});
+
+// =============================================================================
+// Session Summaries Table - AI-generated or DM-written session summaries
+// =============================================================================
+
+export const sessionSummaries = sqliteTable("session_summaries", {
+  id: text("id").primaryKey().default(generateUUID()),
+  roomId: text("room_id").notNull(), // FK to rooms, cascade delete handled by application
+  sessionNumber: integer("session_number").notNull(),
+  summary: text("summary").notNull(), // AI-generated summary
+  keyEvents: text("key_events", { mode: 'json' }).$type<string[]>().notNull().default(emptyJsonArray()), // Top 5-10 events
+  questsProgressed: text("quests_progressed", { mode: 'json' }).$type<string[]>().notNull().default(emptyJsonArray()), // Quest IDs
+  npcsEncountered: text("npcs_encountered", { mode: 'json' }).$type<string[]>().notNull().default(emptyJsonArray()), // NPC names
+  locationsVisited: text("locations_visited", { mode: 'json' }).$type<string[]>().notNull().default(emptyJsonArray()), // Location names
+  messageCount: integer("message_count").notNull().default(0), // Messages in this session
+  startedAt: integer("started_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+  endedAt: integer("ended_at", { mode: 'timestamp' }),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [
+  index("idx_session_summaries_room").on(table.roomId),
+  index("idx_session_summaries_number").on(table.sessionNumber),
+]);
+
+export type SessionSummary = typeof sessionSummaries.$inferSelect;
+export type InsertSessionSummary = typeof sessionSummaries.$inferInsert;
+export const insertSessionSummarySchema = createInsertSchema(sessionSummaries).omit({
+  id: true,
+  createdAt: true,
+});
+
+// =============================================================================
 // Relations
 // =============================================================================
 
@@ -287,7 +374,7 @@ export const adventureNpcsRelations = relations(adventureNpcs, ({ one, many }) =
   questsGiven: many(adventureQuests),
 }));
 
-export const adventureQuestsRelations = relations(adventureQuests, ({ one }) => ({
+export const adventureQuestsRelations = relations(adventureQuests, ({ one, many }) => ({
   adventure: one(adventures, {
     fields: [adventureQuests.adventureId],
     references: [adventures.id],
@@ -299,6 +386,14 @@ export const adventureQuestsRelations = relations(adventureQuests, ({ one }) => 
   questGiver: one(adventureNpcs, {
     fields: [adventureQuests.questGiverId],
     references: [adventureNpcs.id],
+  }),
+  objectiveProgress: many(questObjectiveProgress),
+}));
+
+export const questObjectiveProgressRelations = relations(questObjectiveProgress, ({ one }) => ({
+  quest: one(adventureQuests, {
+    fields: [questObjectiveProgress.questId],
+    references: [adventureQuests.id],
   }),
 }));
 
@@ -313,4 +408,17 @@ export interface AdventureContext {
   availableNpcs?: AdventureNpc[];
   metNpcIds?: string[];
   discoveredLocationIds?: string[];
+}
+
+// Story tracking interfaces
+export interface QuestWithProgress {
+  quest: AdventureQuest;
+  objectives: QuestObjectiveProgress[];
+  completionPercentage: number;
+}
+
+export interface StoryContext {
+  questProgress: QuestWithProgress[];
+  storyEvents: StoryEvent[];
+  sessionSummary?: SessionSummary;
 }
