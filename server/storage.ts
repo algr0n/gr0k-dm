@@ -114,6 +114,25 @@ export interface Storage {
   getSpells(level?: number, school?: string, classFilter?: string): Promise<Spell[]>;
   getSpell(id: string): Promise<Spell | undefined>;
 
+  // Story Tracking - Quest Objective Progress
+  getQuestObjectivesByRoom(roomId: string): Promise<any[]>;
+  getQuestObjectivesByQuest(questId: string): Promise<any[]>;
+  createQuestObjective(objective: any): Promise<any>;
+  updateQuestObjective(id: string, updates: any): Promise<any | undefined>;
+  deleteQuestObjectivesByRoom(roomId: string): Promise<boolean>;
+
+  // Story Tracking - Story Events
+  getStoryEventsByRoom(roomId: string, options?: { limit?: number; eventType?: string; minImportance?: number }): Promise<any[]>;
+  createStoryEvent(event: any): Promise<any>;
+  deleteStoryEventsByRoom(roomId: string): Promise<boolean>;
+
+  // Story Tracking - Session Summaries
+  getSessionSummariesByRoom(roomId: string): Promise<any[]>;
+  getLatestSessionSummary(roomId: string): Promise<any | undefined>;
+  createSessionSummary(summary: any): Promise<any>;
+  updateSessionSummary(id: string, updates: any): Promise<any | undefined>;
+  deleteSessionSummariesByRoom(roomId: string): Promise<boolean>;
+
   // Token usage
   // getTokenUsage is implemented in grok.ts - exported separately
 
@@ -128,8 +147,13 @@ import {
   rooms, players, diceRolls, items, spells,
   savedCharacters, characterInventoryItems, characterStatusEffects, users,
 } from "@shared/schema";
+import {
+  questObjectiveProgress,
+  storyEvents,
+  sessionSummaries,
+} from "@shared/adventure-schema";
 // Type imports are already declared above; keep only the table imports (avoid duplicate type declarations).
-import { eq, and, like, desc, sql, lt } from "drizzle-orm";
+import { eq, and, like, desc, sql, lt, gte } from "drizzle-orm";
 
 class DatabaseStorage implements Storage {
   // ==============================================================================
@@ -528,6 +552,121 @@ class DatabaseStorage implements Storage {
 
   async getSpell(id: string): Promise<Spell | undefined> {
     return await db.query.spells.findFirst({ where: eq(spells.id, id) });
+  }
+
+  // ==============================================================================
+  // Story Tracking - Quest Objective Progress
+  // ==============================================================================
+  async getQuestObjectivesByRoom(roomId: string): Promise<any[]> {
+    return await db.select()
+      .from(questObjectiveProgress)
+      .where(eq(questObjectiveProgress.roomId, roomId))
+      .orderBy(questObjectiveProgress.questId, questObjectiveProgress.objectiveIndex);
+  }
+
+  async getQuestObjectivesByQuest(questId: string): Promise<any[]> {
+    return await db.select()
+      .from(questObjectiveProgress)
+      .where(eq(questObjectiveProgress.questId, questId))
+      .orderBy(questObjectiveProgress.objectiveIndex);
+  }
+
+  async createQuestObjective(objective: any): Promise<any> {
+    const [created] = await db.insert(questObjectiveProgress)
+      .values(objective)
+      .returning();
+    return created;
+  }
+
+  async updateQuestObjective(id: string, updates: any): Promise<any | undefined> {
+    const [updated] = await db.update(questObjectiveProgress)
+      .set(updates)
+      .where(eq(questObjectiveProgress.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteQuestObjectivesByRoom(roomId: string): Promise<boolean> {
+    await db.delete(questObjectiveProgress)
+      .where(eq(questObjectiveProgress.roomId, roomId));
+    return true;
+  }
+
+  // ==============================================================================
+  // Story Tracking - Story Events
+  // ==============================================================================
+  async getStoryEventsByRoom(
+    roomId: string,
+    options?: { limit?: number; eventType?: string; minImportance?: number }
+  ): Promise<any[]> {
+    const { limit = 20, eventType, minImportance } = options || {};
+    
+    const conditions = [eq(storyEvents.roomId, roomId)];
+    if (eventType) {
+      conditions.push(eq(storyEvents.eventType, eventType));
+    }
+    if (minImportance !== undefined) {
+      conditions.push(gte(storyEvents.importance, minImportance));
+    }
+
+    return await db.select()
+      .from(storyEvents)
+      .where(and(...conditions))
+      .orderBy(desc(storyEvents.timestamp))
+      .limit(limit);
+  }
+
+  async createStoryEvent(event: any): Promise<any> {
+    const [created] = await db.insert(storyEvents)
+      .values(event)
+      .returning();
+    return created;
+  }
+
+  async deleteStoryEventsByRoom(roomId: string): Promise<boolean> {
+    await db.delete(storyEvents)
+      .where(eq(storyEvents.roomId, roomId));
+    return true;
+  }
+
+  // ==============================================================================
+  // Story Tracking - Session Summaries
+  // ==============================================================================
+  async getSessionSummariesByRoom(roomId: string): Promise<any[]> {
+    return await db.select()
+      .from(sessionSummaries)
+      .where(eq(sessionSummaries.roomId, roomId))
+      .orderBy(sessionSummaries.sessionNumber);
+  }
+
+  async getLatestSessionSummary(roomId: string): Promise<any | undefined> {
+    const results = await db.select()
+      .from(sessionSummaries)
+      .where(eq(sessionSummaries.roomId, roomId))
+      .orderBy(desc(sessionSummaries.sessionNumber))
+      .limit(1);
+    return results.length > 0 ? results[0] : undefined;
+  }
+
+  async createSessionSummary(summary: any): Promise<any> {
+    const [created] = await db.insert(sessionSummaries)
+      .values(summary)
+      .returning();
+    return created;
+  }
+
+  async updateSessionSummary(id: string, updates: any): Promise<any | undefined> {
+    const [updated] = await db.update(sessionSummaries)
+      .set(updates)
+      .where(eq(sessionSummaries.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteSessionSummariesByRoom(roomId: string): Promise<boolean> {
+    await db.delete(sessionSummaries)
+      .where(eq(sessionSummaries.roomId, roomId));
+    return true;
   }
 
   // ==============================================================================

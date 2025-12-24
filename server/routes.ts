@@ -145,6 +145,72 @@ async function fetchAdventureContext(
   }
 }
 
+// ============================================================================
+// Story Context Helper - Fetch from cache or database
+// ============================================================================
+async function fetchStoryContext(
+  roomId: string,
+  adventureId?: string
+): Promise<import('@shared/adventure-schema').StoryContext | undefined> {
+  try {
+    const { storyCache } = await import('./cache/story-cache');
+    
+    // Check cache first
+    const cached = storyCache.get(roomId);
+    if (cached) {
+      console.log(`[Story Context] Cache hit for room ${roomId}`);
+      return cached;
+    }
+
+    console.log(`[Story Context] Cache miss for room ${roomId}, fetching from DB`);
+
+    // Fetch from database
+    const storyEvents = await storage.getStoryEventsByRoom(roomId, { limit: 10, minImportance: 2 });
+    const sessionSummary = await storage.getLatestSessionSummary(roomId);
+    
+    // Fetch quest progress if adventure exists
+    let questProgress: import('@shared/adventure-schema').QuestWithProgress[] = [];
+    if (adventureId) {
+      const objectives = await storage.getQuestObjectivesByRoom(roomId);
+      
+      // Get quest details and group objectives
+      const { adventureQuests } = await import('@shared/adventure-schema');
+      const questIds = [...new Set(objectives.map((o: any) => o.questId))];
+      
+      if (questIds.length > 0) {
+        const quests = await db
+          .select()
+          .from(adventureQuests)
+          .where(inArray(adventureQuests.id, questIds));
+        
+        questProgress = quests.map(quest => {
+          const questObjectives = objectives.filter((o: any) => o.questId === quest.id);
+          const completed = questObjectives.filter((o: any) => o.isCompleted).length;
+          return {
+            quest,
+            objectives: questObjectives,
+            completionPercentage: Math.round((completed / questObjectives.length) * 100),
+          };
+        });
+      }
+    }
+
+    const context = {
+      questProgress,
+      storyEvents,
+      sessionSummary,
+    };
+
+    // Cache the result
+    storyCache.set(roomId, context);
+
+    return context;
+  } catch (error) {
+    console.error('[Story Context] Error fetching context:', error);
+    return undefined;
+  }
+}
+
 interface AuthenticatedWebSocket extends WebSocket {
   userId?: string;
   playerName?: string;
@@ -1347,6 +1413,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         adventureContext = await fetchAdventureContext(room.id, room.adventureId);
       }
 
+      // Fetch story context (quest progress, story events, session summary)
+      const storyContext = await fetchStoryContext(room.id, room.adventureId);
+
       // Generate batched DM response with adventure context
       const dmResponse = await generateBatchedDMResponse(
         openai,
@@ -1356,7 +1425,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         characterInfos, 
         undefined,
         adventureContext,
-        (db as any).$client
+        (db as any).$client,
+        storyContext
       );
 
       // Send DM response
@@ -1396,6 +1466,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (gameActions.length > 0) {
         console.log(`[DM Response] Found ${gameActions.length} game actions to execute`);
         await executeGameActions(gameActions, roomCode, broadcastToRoom);
+      }
+
+      // Detect and log story events from DM response
+      try {
+        const { detectAndLogStoryEvents } = await import('./utils/story-detection');
+        const eventIds = await detectAndLogStoryEvents(dmResponse, room.id, adventureContext);
+        if (eventIds.length > 0) {
+          console.log(`[Story Detection] Logged ${eventIds.length} story events for room ${roomCode}`);
+          // Invalidate story cache since new events were created
+          const { storyCache } = await import('./cache/story-cache');
+          storyCache.invalidate(room.id);
+        }
+      } catch (error) {
+        console.error('[Story Detection] Error detecting story events:', error);
       }
 
       // Update room history
@@ -3265,6 +3349,239 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error updating adventure progress:", error);
       res.status(500).json({ error: "Failed to update adventure progress" });
+    }
+  });
+
+  // ==============================================================================
+  // Story Tracking API Endpoints
+  // ==============================================================================
+
+  // GET /api/rooms/:roomId/story-events - List story events for room
+  app.get("/api/rooms/:roomId/story-events", async (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const { limit, eventType, minImportance } = req.query;
+
+      const options = {
+        limit: limit ? parseInt(limit as string) : 20,
+        eventType: eventType as string | undefined,
+        minImportance: minImportance ? parseInt(minImportance as string) : undefined,
+      };
+
+      const events = await storage.getStoryEventsByRoom(roomId, options);
+      res.json(events);
+    } catch (error) {
+      console.error("Error fetching story events:", error);
+      res.status(500).json({ error: "Failed to fetch story events" });
+    }
+  });
+
+  // POST /api/rooms/:roomId/story-events - Create a story event (manual DM entry)
+  app.post("/api/rooms/:roomId/story-events", async (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const { eventType, title, summary, importance, relatedQuestId, relatedNpcId, relatedLocationId } = req.body;
+
+      if (!eventType || !title || !summary) {
+        return res.status(400).json({ error: "Missing required fields: eventType, title, summary" });
+      }
+
+      const event = await storage.createStoryEvent({
+        roomId,
+        eventType,
+        title,
+        summary,
+        importance: importance || 1,
+        participants: [],
+        relatedQuestId,
+        relatedNpcId,
+        relatedLocationId,
+      });
+
+      // Invalidate story cache for this room
+      const { storyCache } = await import("./cache/story-cache");
+      storyCache.invalidate(roomId);
+
+      // Broadcast to room clients
+      broadcastToRoom(roomId, {
+        type: "story_event_created",
+        event,
+      });
+
+      res.json(event);
+    } catch (error) {
+      console.error("Error creating story event:", error);
+      res.status(500).json({ error: "Failed to create story event" });
+    }
+  });
+
+  // GET /api/rooms/:roomId/session-summaries - List session summaries
+  app.get("/api/rooms/:roomId/session-summaries", async (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const summaries = await storage.getSessionSummariesByRoom(roomId);
+      res.json(summaries);
+    } catch (error) {
+      console.error("Error fetching session summaries:", error);
+      res.status(500).json({ error: "Failed to fetch session summaries" });
+    }
+  });
+
+  // POST /api/rooms/:roomId/session-summaries/generate - Generate session summary
+  app.post("/api/rooms/:roomId/session-summaries/generate", async (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const room = await storage.getRoom(roomId);
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+
+      const messageHistory = room.messageHistory || [];
+      const lastSummary = await storage.getLatestSessionSummary(roomId);
+      
+      // Get messages since last summary
+      const lastSummaryMessageCount = lastSummary?.messageCount || 0;
+      const newMessages = messageHistory.slice(lastSummaryMessageCount);
+
+      if (newMessages.length < 50) {
+        return res.status(400).json({ 
+          error: "Not enough messages for summary generation",
+          currentMessages: newMessages.length,
+          required: 50,
+        });
+      }
+
+      // Generate summary with AI
+      const gameSystem = room.gameSystem || "dnd";
+      const summaryPrompt = `Summarize the following game session in 3-5 sentences. Include key events, NPCs met, locations visited, and quests progressed:\n\n${
+        newMessages.slice(-100).map(m => `${m.playerName}: ${m.content}`).join('\n')
+      }`;
+
+      const summaryResponse = await openai.chat.completions.create({
+        model: "grok-4-1-fast-reasoning",
+        messages: [
+          { role: "system", content: `You are summarizing a ${gameSystem} game session.` },
+          { role: "user", content: summaryPrompt },
+        ],
+        max_tokens: 500,
+        temperature: 0.5,
+      });
+
+      const summaryText = summaryResponse.choices[0]?.message?.content || "Session summary unavailable.";
+
+      // Extract key events from recent story events
+      const recentEvents = await storage.getStoryEventsByRoom(roomId, { limit: 10 });
+      const keyEvents = recentEvents.slice(0, 5).map(e => e.title);
+
+      // Create session summary
+      const sessionNumber = (lastSummary?.sessionNumber || 0) + 1;
+      const summary = await storage.createSessionSummary({
+        roomId,
+        sessionNumber,
+        summary: summaryText,
+        keyEvents,
+        questsProgressed: [],
+        npcsEncountered: [],
+        locationsVisited: [],
+        messageCount: messageHistory.length,
+        startedAt: Math.floor(Date.now() / 1000),
+      });
+
+      // Invalidate story cache
+      const { storyCache } = await import("./cache/story-cache");
+      storyCache.invalidate(roomId);
+
+      res.json(summary);
+    } catch (error) {
+      console.error("Error generating session summary:", error);
+      res.status(500).json({ error: "Failed to generate session summary" });
+    }
+  });
+
+  // GET /api/rooms/:roomId/quest-progress - Get quest progress
+  app.get("/api/rooms/:roomId/quest-progress", async (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const objectives = await storage.getQuestObjectivesByRoom(roomId);
+
+      // Group by quest
+      const questMap = new Map();
+      for (const obj of objectives) {
+        if (!questMap.has(obj.questId)) {
+          questMap.set(obj.questId, []);
+        }
+        questMap.get(obj.questId).push(obj);
+      }
+
+      // Calculate completion percentages
+      const questProgress = Array.from(questMap.entries()).map(([questId, objs]) => {
+        const completed = objs.filter((o: any) => o.isCompleted).length;
+        return {
+          questId,
+          objectives: objs,
+          completionPercentage: Math.round((completed / objs.length) * 100),
+        };
+      });
+
+      res.json(questProgress);
+    } catch (error) {
+      console.error("Error fetching quest progress:", error);
+      res.status(500).json({ error: "Failed to fetch quest progress" });
+    }
+  });
+
+  // PATCH /api/rooms/:roomId/quest-progress/:objectiveId - Update objective
+  app.patch("/api/rooms/:roomId/quest-progress/:objectiveId", async (req, res) => {
+    try {
+      const { roomId, objectiveId } = req.params;
+      const { isCompleted, completedBy, notes } = req.body;
+
+      const updates: any = {};
+      if (isCompleted !== undefined) {
+        updates.isCompleted = isCompleted;
+        if (isCompleted) {
+          updates.completedAt = Math.floor(Date.now() / 1000);
+        }
+      }
+      if (completedBy) updates.completedBy = completedBy;
+      if (notes !== undefined) updates.notes = notes;
+
+      const updated = await storage.updateQuestObjective(objectiveId, updates);
+      if (!updated) {
+        return res.status(404).json({ error: "Quest objective not found" });
+      }
+
+      // Check if quest is fully completed
+      const questObjectives = await storage.getQuestObjectivesByQuest(updated.questId);
+      const allCompleted = questObjectives.every((o: any) => o.isCompleted);
+
+      if (allCompleted && isCompleted) {
+        // Log quest completion story event
+        await storage.createStoryEvent({
+          roomId,
+          eventType: "quest_complete",
+          title: "Quest Completed",
+          summary: `All objectives for quest have been completed.`,
+          participants: completedBy ? [completedBy] : [],
+          relatedQuestId: updated.questId,
+          importance: 3,
+        });
+      }
+
+      // Invalidate story cache
+      const { storyCache } = await import("./cache/story-cache");
+      storyCache.invalidate(roomId);
+
+      // Broadcast update to room
+      broadcastToRoom(roomId, {
+        type: "quest_objective_updated",
+        objective: updated,
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating quest objective:", error);
+      res.status(500).json({ error: "Failed to update quest objective" });
     }
   });
 
