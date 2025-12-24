@@ -1132,10 +1132,7 @@
           "description": "Grasping roots and vines sprout in a 15-foot radius centered on the blight, lasting 1 minute. The area is difficult terrain for non-plant creatures. Creatures of the blight's choice in the area when plants appear must succeed on a DC 12 Strength saving throw or be restrained. A creature can use its action to make a DC 12 Strength check to free itself or another."
         }
       ]
-    }
-  ]
-}{
-  "monsters": [
+    },
     {
       "name": "Bugbear",
       "size": "Medium",
@@ -1834,11 +1831,9 @@
           "description": "Polymorph into a humanoid or beast of CR ≤ own, or back to true form. Retains statistics and speech, but AC, movement, Str, Dex, etc. replaced by new form. Gains new form's capabilities (except class features, legendary/lair actions)."
         }
       ]
-    }
-  ]
-}[
-  {
-    "name": "Couatl",
+    },
+    {
+      "name": "Couatl",
     "size": "Medium",
     "type": "celestial",
     "alignment": "lawful good",
@@ -3204,8 +3199,7 @@
         "hit": "10 (3d6) fire damage. Flammable objects catch fire."
       }
     ]
-  }
-],[
+  },
   {
     "name": "Bearded Devil",
     "size": "Medium",
@@ -5561,8 +5555,7 @@
         "description": "The dragon exhales fire in a 15-foot cone. Each creature in that area must make a DC 13 Dexterity saving throw, taking 24 (7d6) fire damage on a failed save, or half as much damage on a successful one."
       }
     ]
-  }
-][
+  },
   {
     "name": "Ancient White Dragon",
     "size": "Gargantuan",
@@ -5856,8 +5849,7 @@
         "description": "The dragon exhales an icy blast of hail in a 15-foot cone. Each creature in that area must make a DC 12 Constitution saving throw, taking 22 (5d8) cold damage on a failed save, or half as much damage on a successful one."
       }
     ]
-  }
-][
+  },
   {
     "name": "Ancient Gold Dragon",
     "size": "Gargantuan",
@@ -6931,8 +6923,7 @@
         "description": "Each creature in the elemental's space must make a DC 15 Strength saving throw. On a failure, a target takes 13 (2d8 + 4) bludgeoning damage. If it is Large or smaller, it is also grappled (escape DC 14). Until this grapple ends, the target is restrained and unable to breathe unless it can breathe water. If the saving throw is successful, the target is pushed out of the elemental's space. The elemental can grapple one Large creature or up to two Medium or smaller creatures at one time. At the start of each of the elemental's turns, each target grappled by it takes 13 (2d8 + 4) bludgeoning damage. A creature within 5 feet of the elemental can pull a creature or object out of it by taking an action to make a DC 14 Strength check and succeeding."
       }
     ]
-  }
-][
+  },
   {
     "name": "Drow",
     "size": "Medium",
@@ -7196,8 +7187,7 @@
         "description": "The drow attempts to magically summon a yochlol with a 30 percent chance of success. If the attempt fails, the drow takes 5 (1d10) psychic damage. Otherwise, the summoned demon appears in an unoccupied space within 60 feet of its summoner, acts as an ally of its summoner, and can't summon other demons. It remains for 10 minutes, until it or its summoner dies, or until its summoner dismisses it as an action."
       }
     ]
-  }
-][
+  },
   {
     "name": "Empyrean",
     "size": "Huge",
@@ -7845,10 +7835,10 @@
         "hit": "5 (1d6 + 2) slashing damage."
       }
     ]
-  }
-]{
-  "name": "Gargoyle",
-  "size": "Medium",
+  },
+  {
+    "name": "Gargoyle",
+    "size": "Medium",
   "type": "elemental",
   "alignment": "chaotic evil",
   "armor_class": 15,
@@ -7898,7 +7888,7 @@
       "hit": "5 (1d6 + 2) slashing damage."
     }
   ]
-}[
+  },
   {
     "name": "Dao",
     "size": "Large",
@@ -8222,8 +8212,7 @@
         "description": "One humanoid within 5 feet must succeed on a DC 13 Charisma saving throw or be possessed. The ghost disappears, controls the target, and retains its own alignment, Intelligence, Wisdom, Charisma, and immunities. The possession ends if the body drops to 0 hit points, the ghost ends it as a bonus action, or it is turned or forced out."
       }
     ]
-  }
-][
+  },
   {
     "name": "Gibbering Mouther",
     "size": "Medium",
@@ -10001,8 +9990,7 @@
         "hit": "1 piercing damage."
       }
     ]
-  }
-],[
+  },
   {
     "name": "Mammoth",
     "size": "Huge",
@@ -11508,3 +11496,4 @@
     ]
   }
 ]
+}
