@@ -114,6 +114,7 @@ gr0k-dm/
 
 - **[Design Document](DESIGN_DOCUMENT.md)** - Complete architecture and design details
 - **[Quick Reference](QUICK_REFERENCE.md)** - Quick overview and environment setup
+- **[AI Dungeon Master Guide](AI_DM_GUIDE.md)** - Understanding and extending the AI system
 - **[Design Guidelines](design_guidelines.md)** - UI/UX design specifications
 - **[Testing Guide](TESTING_GUIDE.md)** - Testing strategies and best practices
 - **[Database Setup Guide](DATABASE_SETUP.md)** - Database setup, migrations, and schema management
