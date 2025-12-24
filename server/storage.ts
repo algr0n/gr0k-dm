@@ -218,7 +218,12 @@ class DatabaseStorage implements Storage {
   }
 
   async deleteRoomWithAllData(roomId: string): Promise<boolean> {
-    // Cascade delete should handle related data
+    // Delete story tracking data (not cascade-deleted since no FK to rooms)
+    await this.deleteQuestObjectivesByRoom(roomId);
+    await this.deleteStoryEventsByRoom(roomId);
+    await this.deleteSessionSummariesByRoom(roomId);
+    
+    // Cascade delete should handle related data with FKs
     await this.deleteRoom(roomId);
     return true;
   }

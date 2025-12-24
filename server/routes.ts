@@ -1414,7 +1414,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       // Fetch story context (quest progress, story events, session summary)
-      const storyContext = await fetchStoryContext(room.id, room.adventureId);
+      const storyContext = await fetchStoryContext(room.id, room.adventureId || undefined);
 
       // Generate batched DM response with adventure context
       const dmResponse = await generateBatchedDMResponse(
@@ -2433,6 +2433,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       await storage.updateRoom(room.id, { isActive: false });
 
+      // Clean up story cache for this room
+      try {
+        const { storyCache } = await import("./cache/story-cache");
+        storyCache.invalidate(room.id);
+        console.log(`[Cache Cleanup] Invalidated story cache for room ${room.id}`);
+      } catch (error) {
+        console.warn(`Failed to clean up story cache for room ${room.id}:`, error);
+      }
+
       broadcastToRoom(code, {
         type: "system",
         content: "The adventure has ended. Thanks for playing!",
@@ -2554,6 +2563,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Delete the room and all associated data
       await storage.deleteRoomWithAllData(room.id);
+      
+      // Clean up story cache for this room
+      try {
+        const { storyCache } = await import("./cache/story-cache");
+        storyCache.invalidate(room.id);
+        console.log(`[Cache Cleanup] Invalidated story cache for room ${room.id}`);
+      } catch (error) {
+        console.warn(`Failed to clean up story cache for room ${room.id}:`, error);
+      }
       
       // Clean up monster cache for this room
       try {
