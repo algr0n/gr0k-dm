@@ -252,6 +252,80 @@ export class ContextBuilder {
     return this;
   }
 
+  addQuestProgress(quests: import('@shared/adventure-schema').QuestWithProgress[]): this {
+    if (quests && quests.length > 0) {
+      let questPrompt = 'QUEST PROGRESS:\n';
+      quests.forEach((q) => {
+        const completedCount = q.objectives.filter(obj => obj.isCompleted).length;
+        const totalCount = q.objectives.length;
+        questPrompt += `  - ${q.quest.name}: ${completedCount}/${totalCount} objectives complete\n`;
+        
+        // Show incomplete objectives
+        const incompleteObjectives = q.objectives.filter(obj => !obj.isCompleted);
+        if (incompleteObjectives.length > 0) {
+          incompleteObjectives.forEach(obj => {
+            questPrompt += `    ☐ ${obj.objectiveText}\n`;
+          });
+        }
+      });
+      questPrompt += '\nIMPORTANT: Track quest objectives naturally as players make progress. Guide them toward completing objectives without being heavy-handed.';
+      
+      this.messages.push({
+        role: 'system',
+        content: questPrompt,
+      });
+    }
+    return this;
+  }
+
+  addStoryHistory(events: import('@shared/adventure-schema').StoryEvent[], limit: number = 10): this {
+    if (events && events.length > 0) {
+      // Sort by importance and recency (importance desc, timestamp desc)
+      const sortedEvents = [...events].sort((a, b) => {
+        if (a.importance !== b.importance) {
+          return b.importance - a.importance; // Higher importance first
+        }
+        return b.timestamp.getTime() - a.timestamp.getTime(); // More recent first
+      });
+      
+      // Take top N events
+      const topEvents = sortedEvents.slice(0, limit);
+      
+      let historyPrompt = 'IMPORTANT STORY EVENTS:\n';
+      topEvents.forEach((event) => {
+        historyPrompt += `  - ${event.title}: ${event.summary}\n`;
+      });
+      historyPrompt += '\nIMPORTANT: Keep these past events in mind for story continuity. Reference them naturally when relevant.';
+      
+      this.messages.push({
+        role: 'system',
+        content: historyPrompt,
+      });
+    }
+    return this;
+  }
+
+  addSessionSummary(summary: import('@shared/adventure-schema').SessionSummary): this {
+    let summaryPrompt = `PREVIOUS SESSION #${summary.sessionNumber}:\n\n`;
+    summaryPrompt += `${summary.summary}\n\n`;
+    
+    if (summary.keyEvents && summary.keyEvents.length > 0) {
+      summaryPrompt += 'Key Events:\n';
+      summary.keyEvents.forEach((event) => {
+        summaryPrompt += `  - ${event}\n`;
+      });
+      summaryPrompt += '\n';
+    }
+    
+    summaryPrompt += 'IMPORTANT: The party is resuming from the previous session. Maintain continuity with these events while focusing on current gameplay.';
+    
+    this.messages.push({
+      role: 'system',
+      content: summaryPrompt,
+    });
+    return this;
+  }
+
   build(): OpenAI.ChatCompletionMessageParam[] {
     return this.messages;
   }

@@ -24,7 +24,8 @@ export async function generateBatchedDMResponse(
   partyCharacters?: CharacterInfo[],
   droppedItems?: DroppedItemInfo[],
   adventureContext?: AdventureContext,
-  client?: Client
+  client?: Client,
+  storyContext?: import('@shared/adventure-schema').StoryContext
 ): Promise<string> {
   const gameSystem = room.gameSystem || "dnd";
 
@@ -34,6 +35,19 @@ export async function generateBatchedDMResponse(
   // Add adventure context if available
   if (adventureContext) {
     builder.addAdventureContext(adventureContext);
+  }
+
+  // Add story context (quest progress, story events, session summary)
+  if (storyContext) {
+    if (storyContext.sessionSummary) {
+      builder.addSessionSummary(storyContext.sessionSummary);
+    }
+    if (storyContext.questProgress && storyContext.questProgress.length > 0) {
+      builder.addQuestProgress(storyContext.questProgress);
+    }
+    if (storyContext.storyEvents && storyContext.storyEvents.length > 0) {
+      builder.addStoryHistory(storyContext.storyEvents, 10);
+    }
   }
 
   if (room.currentScene) {
