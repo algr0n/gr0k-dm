@@ -36,17 +36,22 @@ if (!TURSO_DATABASE_URL || !TURSO_AUTH_TOKEN) {
 }
 
 /**
- * Parse challenge rating string to decimal value
+ * Parse challenge rating string or number to decimal value
  */
 function parseChallengeRating(cr) {
-  if (!cr) return 0;
+  if (!cr && cr !== 0) return 0;
   
-  if (cr.includes("/")) {
-    const [num, denom] = cr.split("/").map(Number);
+  // Handle numeric input
+  if (typeof cr === "number") return cr;
+  
+  // Handle string fractions
+  const crStr = String(cr);
+  if (crStr.includes("/")) {
+    const [num, denom] = crStr.split("/").map(Number);
     return num / denom;
   }
   
-  return parseFloat(cr) || 0;
+  return parseFloat(crStr) || 0;
 }
 
 /**
