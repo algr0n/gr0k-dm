@@ -1083,11 +1083,14 @@ async function executeGameActions(
         }
 
         case "combat_start": {
+          console.log(`[Combat Start] Processing combat_start action for room ${roomCode}`);
           let combatState = roomCombatState.get(roomCode);
           if (!combatState) {
             combatState = { isActive: true, currentTurnIndex: 0, initiatives: [] };
+            console.log(`[Combat Start] Created new combat state`);
           } else {
             combatState.isActive = true;
+            console.log(`[Combat Start] Reactivated existing combat state with ${combatState.initiatives?.length || 0} initiatives`);
           }
 
           // If there are no initiatives yet, roll initiatives including dynamic NPCs
@@ -1095,46 +1098,66 @@ async function executeGameActions(
             try {
               const players = await storage.getPlayersByRoom(room.id);
               const chars = await storage.getCharactersByRoomCode(roomCode);
+              console.log(`[Combat Start] Found ${players.length} players and ${chars.length} characters`);
 
               let monsters: any[] = [];
               try {
                 monsters = await storage.getDynamicNpcsByRoom(room.id) || [];
+                console.log(`[Combat Start] Found ${monsters.length} monsters/NPCs`);
               } catch (err) {
                 console.warn(`[Combat Start] Failed to load dynamic NPCs for room ${room.id}:`, err);
               }
 
-              const initiatives = rollInitiativesForCombat(chars, players, monsters);
-              const combatFull = createCombatState(roomCode, initiatives);
-              roomFullCombatState.set(roomCode, combatFull as FullCombatState);
+              if (chars.length === 0 && monsters.length === 0) {
+                console.warn(`[Combat Start] No characters or monsters found for combat in room ${roomCode}`);
+                // Still create an empty combat state to indicate combat is active
+                combatState.initiatives = [];
+                broadcastFn(roomCode, {
+                  type: "system",
+                  content: "Combat begins! (No participants found - please ensure characters are in the room)",
+                });
+              } else {
+                const initiatives = rollInitiativesForCombat(chars, players, monsters);
+                console.log(`[Combat Start] Rolled ${initiatives.length} initiatives:`, initiatives.map(i => `${i.name}(${i.total})`));
+                
+                if (initiatives.length === 0) {
+                  console.warn(`[Combat Start] rollInitiativesForCombat returned empty array despite having ${chars.length} chars and ${monsters.length} monsters`);
+                }
+                
+                const combatFull = createCombatState(roomCode, initiatives);
+                roomFullCombatState.set(roomCode, combatFull as FullCombatState);
 
-              const initiativesForState = initiatives.map((e) => ({
-                playerId: e.metadata?.userId ?? e.id,
-                playerName: e.metadata?.playerName ?? (e.controller === 'player' ? e.name : 'DM'),
-                characterName: e.name,
-                roll: e.roll,
-                modifier: e.modifier,
-                total: e.total,
-                currentHp: e.currentHp,
-                maxHp: e.maxHp,
-                ac: e.ac,
-              }));
+                const initiativesForState = initiatives.map((e) => ({
+                  playerId: e.metadata?.userId ?? e.id,
+                  playerName: e.metadata?.playerName ?? (e.controller === 'player' ? e.name : 'DM'),
+                  characterName: e.name,
+                  roll: e.roll,
+                  modifier: e.modifier,
+                  total: e.total,
+                  currentHp: e.currentHp,
+                  maxHp: e.maxHp,
+                  ac: e.ac,
+                }));
 
-              combatState.initiatives = initiativesForState;
-              combatState.currentTurnIndex = combatFull.currentTurnIndex;
-              combatState.isActive = combatFull.isActive;
+                combatState.initiatives = initiativesForState;
+                combatState.currentTurnIndex = combatFull.currentTurnIndex;
+                combatState.isActive = combatFull.isActive;
+                console.log(`[Combat Start] Combat state prepared with ${initiativesForState.length} initiatives`);
 
-              // Broadcast initiative order
-              broadcastFn(roomCode, {
-                type: "system",
-                content: "Combat begins! Initiative order:",
-                initiatives: initiatives.map((entry) => `${entry.name} (${entry.total})`),
-              });
+                // Broadcast initiative order
+                broadcastFn(roomCode, {
+                  type: "system",
+                  content: "Combat begins! Initiative order:",
+                  initiatives: initiatives.map((entry) => `${entry.name} (${entry.total})`),
+                });
+              }
             } catch (err) {
               console.error('[DM Action] Failed to roll initiatives on combat_start:', err);
             }
           }
 
           roomCombatState.set(roomCode, combatState);
+          console.log(`[Combat Start] Broadcasting combat_update with state:`, JSON.stringify(combatState));
           broadcastFn(roomCode, { type: "combat_update", combat: combatState });
           console.log(`[DM Action] Combat started in room ${roomCode}`);
           break;
@@ -2174,6 +2197,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           } else if (message.type === "get_combat_state") {
             // Send current combat state
             const combatState = roomCombatState.get(code);
+            console.log(`[WebSocket] get_combat_state request for room ${code}, state:`, combatState ? `active=${combatState.isActive}, initiatives=${combatState.initiatives?.length || 0}` : 'null');
             if (combatState) {
               ws.send(JSON.stringify({ type: "combat_update", combat: combatState }));
             }

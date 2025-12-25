@@ -60,11 +60,18 @@ export function initiativeModFromMonster(monster: any): number {
  */
 export function rollInitiativesForCombat(characters: any[], players: any[], monsters: any[]): InitiativeEntry[] {
   const initiatives: InitiativeEntry[] = [];
+  
+  console.log(`[rollInitiativesForCombat] Processing ${characters.length} characters, ${players.length} players, ${monsters.length} monsters`);
+  console.log(`[rollInitiativesForCombat] Characters:`, characters.map(c => ({ id: c.id, userId: c.userId, name: c.characterName, initMod: c.initiativeModifier })));
+  console.log(`[rollInitiativesForCombat] Players:`, players.map(p => ({ id: p.id, userId: p.userId, name: p.name })));
 
   for (const char of characters) {
-    const player = players.find((p: any) => p.userId === char.userId) || { id: char.userId };
+    const player = players.find((p: any) => p.userId === char.userId) || { id: char.userId, name: 'Unknown' };
     const roll = rollD20();
     const modifier = typeof char.initiativeModifier === "number" ? char.initiativeModifier : 0;
+    
+    console.log(`[rollInitiativesForCombat] Character ${char.characterName}: roll=${roll}, modifier=${modifier}, total=${roll + modifier}`);
+    
     initiatives.push({
       id: char.id || randomUUID(),
       controller: "player",
@@ -75,7 +82,7 @@ export function rollInitiativesForCombat(characters: any[], players: any[], mons
       ac: char.ac ?? 10,
       currentHp: char.currentHp ?? char.maxHp ?? 1,
       maxHp: char.maxHp ?? 1,
-      metadata: { userId: player.id },
+      metadata: { userId: player.id || char.userId, playerName: player.name },
     });
   }
 

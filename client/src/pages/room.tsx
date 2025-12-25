@@ -870,6 +870,7 @@ export default function RoomPage() {
             setLocation("/");
           }
         } else if (data.type === "combat_update") {
+          console.log("[WebSocket] Received combat_update:", data.combat);
           setCombatState(data.combat);
         } else if (data.type === "character_update") {
           // Check if this update is for the current user's character using ref for latest value
@@ -1124,80 +1125,89 @@ export default function RoomPage() {
           
           {combatState?.isActive ? (
             <div className="space-y-2">
-              <ScrollArea className="h-48">
-                <div className="space-y-1">
-                  {combatState.initiatives.map((entry, idx) => {
-                    const isCurrentTurn = idx === combatState.currentTurnIndex;
-                    const isMyCharacter = entry.characterName === myCharacterData?.roomCharacter?.characterName;
-                    const canControl = isHost || isMyCharacter;
-                    
-                    return (
-                      <div
-                        key={entry.playerId}
-                        className={cn(
-                          "flex flex-col text-sm px-2 py-1.5 rounded gap-1",
-                          isCurrentTurn && "bg-primary/20 font-medium border-l-2 border-primary"
-                        )}
-                        data-testid={`initiative-${entry.playerId}`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="truncate flex-1">
-                            {idx + 1}. {entry.characterName}
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            {entry.currentHp !== undefined && entry.maxHp !== undefined && (
-                              <span className="text-xs text-muted-foreground font-mono">
-                                {entry.currentHp}/{entry.maxHp} HP
-                              </span>
-                            )}
-                            <Badge variant="outline" className="text-xs">
-                              {entry.total}
-                            </Badge>
-                          </div>
-                        </div>
+              {combatState.initiatives && combatState.initiatives.length > 0 ? (
+                <>
+                  <ScrollArea className="h-48">
+                    <div className="space-y-1">
+                      {combatState.initiatives.map((entry, idx) => {
+                        const isCurrentTurn = idx === combatState.currentTurnIndex;
+                        const isMyCharacter = entry.characterName === myCharacterData?.roomCharacter?.characterName;
+                        const canControl = isHost || isMyCharacter;
                         
-                        {isCurrentTurn && canControl && !gameEnded && (
-                          <div className="flex gap-1.5 mt-1">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-6 text-xs flex-1"
-                              onClick={() => {
-                                if (wsRef.current?.readyState === WebSocket.OPEN) {
-                                  wsRef.current.send(JSON.stringify({
-                                    type: "hold_turn",
-                                    actorId: entry.playerId,
-                                    holdType: "end"
-                                  }));
-                                }
-                              }}
-                              data-testid={`button-hold-${entry.playerId}`}
-                            >
-                              Hold
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-6 text-xs flex-1"
-                              onClick={() => {
-                                if (wsRef.current?.readyState === WebSocket.OPEN) {
-                                  wsRef.current.send(JSON.stringify({
-                                    type: "pass_turn",
-                                    actorId: entry.playerId
-                                  }));
-                                }
-                              }}
-                              data-testid={`button-pass-${entry.playerId}`}
-                            >
-                              Pass
-                            </Button>
+                        return (
+                          <div
+                            key={entry.playerId}
+                            className={cn(
+                              "flex flex-col text-sm px-2 py-1.5 rounded gap-1",
+                              isCurrentTurn && "bg-primary/20 font-medium border-l-2 border-primary"
+                            )}
+                            data-testid={`initiative-${entry.playerId}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate flex-1">
+                                {idx + 1}. {entry.characterName}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                {entry.currentHp !== undefined && entry.maxHp !== undefined && (
+                                  <span className="text-xs text-muted-foreground font-mono">
+                                    {entry.currentHp}/{entry.maxHp} HP
+                                  </span>
+                                )}
+                                <Badge variant="outline" className="text-xs">
+                                  {entry.total}
+                                </Badge>
+                              </div>
+                            </div>
+                            
+                            {isCurrentTurn && canControl && !gameEnded && (
+                              <div className="flex gap-1.5 mt-1">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 text-xs flex-1"
+                                  onClick={() => {
+                                    if (wsRef.current?.readyState === WebSocket.OPEN) {
+                                      wsRef.current.send(JSON.stringify({
+                                        type: "hold_turn",
+                                        actorId: entry.playerId,
+                                        holdType: "end"
+                                      }));
+                                    }
+                                  }}
+                                  data-testid={`button-hold-${entry.playerId}`}
+                                >
+                                  Hold
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 text-xs flex-1"
+                                  onClick={() => {
+                                    if (wsRef.current?.readyState === WebSocket.OPEN) {
+                                      wsRef.current.send(JSON.stringify({
+                                        type: "pass_turn",
+                                        actorId: entry.playerId
+                                      }));
+                                    }
+                                  }}
+                                  data-testid={`button-pass-${entry.playerId}`}
+                                >
+                                  Pass
+                                </Button>
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                </>
+              ) : (
+                <div className="text-sm text-muted-foreground p-2 bg-muted/50 rounded">
+                  <p className="font-medium mb-1">Combat Active</p>
+                  <p className="text-xs">No initiative order available. Make sure characters are in the room before starting combat.</p>
                 </div>
-              </ScrollArea>
+              )}
               
               {isHost && !gameEnded && (
                 <div className="flex gap-2 mt-2">
@@ -1207,6 +1217,7 @@ export default function RoomPage() {
                     className="flex-1"
                     onClick={nextTurn}
                     data-testid="button-next-turn"
+                    disabled={!combatState.initiatives || combatState.initiatives.length === 0}
                   >
                     <SkipForward className="h-4 w-4 mr-1" />
                     Next
