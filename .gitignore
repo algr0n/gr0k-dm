@@ -28,3 +28,6 @@ vite.config.ts.*
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Test scripts
+test-npc-stats.ts
