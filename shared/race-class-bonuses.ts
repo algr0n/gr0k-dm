@@ -134,6 +134,31 @@ export function getRaceBonusDescription(race: string, gameSystem: string): strin
   return "";
 }
 
+export interface HitDiceInfo { diceType: string; current: number; max: number }
+
+export function parseHitDiceString(hitDice?: string | null, level?: number, className?: string): HitDiceInfo[] {
+  // Expected formats: "3d10" or undefined/null. If undefined and we have class+level, synthesize from class hit die.
+  if (hitDice && typeof hitDice === 'string') {
+    const m = /^\s*(\d+)d(\d+)\s*$/i.exec(hitDice);
+    if (m) {
+      const count = parseInt(m[1], 10);
+      const sides = parseInt(m[2], 10);
+      return [{ diceType: `d${sides}`, current: count, max: count }];
+    }
+  }
+
+  // Fallback: derive from class and level
+  if (!hitDice && className && level && level >= 1) {
+    const def = DND_CLASS_HP_BONUSES[className];
+    if (def) {
+      return [{ diceType: `d${def.hpPerLevel * 2}`, current: level, max: level }];
+    }
+  }
+
+  // No hit dice info available
+  return [];
+}
+
 export function getClassBonusDescription(characterClass: string, gameSystem: string): string {
   if (gameSystem === "dnd") {
     const hpInfo = DND_CLASS_HP_BONUSES[characterClass];

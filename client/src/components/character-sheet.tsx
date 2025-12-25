@@ -10,6 +10,8 @@ import {
   getProficiencyBonus, getAbilityModifier, classSkillFeatures,
   raceDefinitions, classDefinitions, type DndClass, type DndRace, type DndSkill
 } from "@shared/schema";
+import { ResourcesPanel } from "./character-sheet/ResourcesPanel";
+import { parseHitDiceString, type HitDiceInfo } from "@shared/race-class-bonuses";
 
 // Import new modular components
 import { CharacterSummaryBar } from "./character-sheet/CharacterSummaryBar";
@@ -214,6 +216,14 @@ export function CharacterSheet({ character, inventory = [], open, onOpenChange }
               proficiencyBonus={profBonus}
               hasJackOfAllTrades={hasJackOfAllTrades}
               hasReliableTalent={hasReliableTalent}
+            />
+
+            <Separator />
+
+            {/* Resources (Hit Dice, Death Saves) */}
+            <ResourcesPanel
+              hitDice={parseHitDiceString(character.hitDice || null, character.level || 1, character.class || undefined)}
+              deathSaves={{ successes: 0, failures: 0 }}
             />
 
             <Separator />

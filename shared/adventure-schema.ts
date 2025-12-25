@@ -153,6 +153,58 @@ export const insertAdventureEncounterSchema = createInsertSchema(adventureEncoun
 });
 
 // =============================================================================
+// Combat Encounters (persisted per location)
+// =============================================================================
+export const combatEncounters = sqliteTable("combat_encounters", {
+  id: text("id").primaryKey().default(generateUUID()),
+  adventureId: text("adventure_id").references(() => adventures.id, { onDelete: "set null" }),
+  locationId: text("location_id").references(() => adventureLocations.id, { onDelete: "set null" }),
+  roomId: text("room_id"),
+  name: text("name").notNull(),
+  seed: text("seed"),
+  generatedBy: text("generated_by"), // 'AI' or 'DM'
+  metadata: text("metadata", { mode: 'json' }).$type<Record<string, any>>().default(emptyJsonArray()),
+  version: integer("version").notNull().default(1),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(currentTimestamp()),
+}, (table) => [
+  index("idx_combat_encounters_location").on(table.locationId),
+  index("idx_combat_encounters_room").on(table.roomId),
+]);
+
+export type CombatEncounter = typeof combatEncounters.$inferSelect;
+export type InsertCombatEncounter = typeof combatEncounters.$inferInsert;
+export const insertCombatEncounterSchema = createInsertSchema(combatEncounters).omit({ id: true, createdAt: true });
+
+export const combatEnvironmentFeatures = sqliteTable("combat_environment_features", {
+  id: text("id").primaryKey().default(generateUUID()),
+  encounterId: text("encounter_id").notNull().references(() => combatEncounters.id, { onDelete: "cascade" }),
+  type: text("type").notNull(),
+  positionX: integer("position_x").notNull(),
+  positionY: integer("position_y").notNull(),
+  radius: integer("radius").notNull().default(1),
+  properties: text("properties", { mode: 'json' }).$type<Record<string, any>>().default(emptyJsonArray()),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [index("idx_features_encounter").on(table.encounterId)]);
+
+export type CombatEnvironmentFeature = typeof combatEnvironmentFeatures.$inferSelect;
+export const insertCombatEnvironmentFeatureSchema = createInsertSchema(combatEnvironmentFeatures).omit({ id: true, createdAt: true });
+
+export const combatSpawns = sqliteTable("combat_spawns", {
+  id: text("id").primaryKey().default(generateUUID()),
+  encounterId: text("encounter_id").notNull().references(() => combatEncounters.id, { onDelete: "cascade" }),
+  monsterName: text("monster_name").notNull(),
+  count: integer("count").notNull().default(1),
+  positionX: integer("position_x"),
+  positionY: integer("position_y"),
+  metadata: text("metadata", { mode: 'json' }).$type<Record<string, any>>().default(emptyJsonArray()),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [index("idx_spawns_encounter").on(table.encounterId)]);
+
+export type CombatSpawn = typeof combatSpawns.$inferSelect;
+export const insertCombatSpawnSchema = createInsertSchema(combatSpawns).omit({ id: true, createdAt: true });
+
+// =============================================================================
 // Adventure NPCs Table - Named NPCs with personality and quest connections
 // =============================================================================
 

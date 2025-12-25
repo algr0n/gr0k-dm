@@ -3,9 +3,21 @@ import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
-import { storage } from "./storage";
+import * as storageModule from './storage';
+
+// Allow using a mock storage implementation when running integration tests locally.
+// Set environment variable `USE_MOCK_STORAGE=1` to load `./storage.mock` if present.
+let storage: any = (storageModule as any).storage ?? storageModule;
+
+if (process.env.USE_MOCK_STORAGE === '1') {
+  console.log('[Routes] Mock storage mode enabled');
+  // Mock storage will be loaded dynamically when needed
+  // This allows tests to import this file without side effects
+}
 import { db } from "./db";
+import { client as libsqlClient } from "./db";
 import { parseDiceExpression } from "./dice";
+import { calculateDndMaxHp, applyDndRaceBonuses, parseHitDiceString, type HitDiceInfo } from "@shared/race-class-bonuses";
 import {
   openai,
   generateDMResponse,
@@ -18,6 +30,7 @@ import {
   type AdventureContext,
   getTokenUsage,
 } from "./grok";
+import { rollInitiativesForCombat, createCombatState, resolveAttack, addHold, processTrigger, advanceTurn, type CombatState as FullCombatState } from "./combat";
 import {
   insertRoomSchema,
   insertSavedCharacterSchema,
@@ -33,8 +46,15 @@ import {
   classDefinitions,
   getAbilityModifier,
   calculateLevelUpHP,
+  getMaxSpellSlots,
+  isSpellcaster,
+  getMaxCantripsKnown,
+  getMaxSpellsKnown,
+  classSkillFeatures,
+  subclassSkillFeatures,
   type DndClass,
 } from "@shared/schema";
+import { getMonsterByName } from "./db/bestiary";
 import {
   adventures,
   adventureChapters,
@@ -178,7 +198,7 @@ async function fetchStoryContext(
     
     // Get quest details and group objectives
     const { adventureQuests } = await import('@shared/adventure-schema');
-    const questIds = [...new Set(objectives.map((o: any) => o.questId))];
+    const questIds = [...new Set(objectives.map((o: any) => o.questId))] as string[];
     
     if (questIds.length > 0) {
       const quests = await db
@@ -268,6 +288,8 @@ interface CombatState {
 }
 
 const roomCombatState = new Map<string, CombatState>();
+// Full combat state with richer per-combatant data (used by new action endpoints)
+const roomFullCombatState = new Map<string, any>();
 
 // Track dropped items per room (items on the ground that players can pick up)
 interface DroppedItem {
@@ -290,6 +312,8 @@ interface ParsedGameAction {
     | "item_remove"
     | "gold_change"
     | "currency_change"
+    | "xp_award"
+    | "monster_defeated"
     | "combat_start"
     | "combat_end"
     | "death_save"
@@ -327,6 +351,11 @@ interface ParsedGameAction {
   questRewards?: Record<string, any>;
   questUrgency?: string;
   questId?: string; // For quest updates
+  // XP award
+  xpAmount?: number;
+  // Monster defeat
+  monsterName?: string;
+  participants?: string; // comma-separated participant names
 }
 
 function parseDMResponseTags(response: string): ParsedGameAction[] {
@@ -399,6 +428,31 @@ function parseDMResponseTags(response: string): ParsedGameAction[] {
       playerName,
       currency: converted,
     });
+  }
+
+  // Parse XP awards: [XP: PlayerName | Amount] or [XP: all | Amount]
+  const xpPattern = /\[XP:\s*([^|]+?)\s*\|\s*(\d+)\s*\]/gi;
+  while ((match = xpPattern.exec(response)) !== null) {
+    actions.push({
+      type: "xp_award",
+      playerName: match[1].trim(),
+      xpAmount: parseInt(match[2], 10),
+    });
+  }
+
+  // Parse monster defeated tags:
+  // [MONSTER_DEFEATED: Name] OR
+  // [MONSTER_DEFEATED: Name | XP: 250] OR
+  // [MONSTER_DEFEATED: Name | participants: Alice,Bob] OR
+  // [MONSTER_DEFEATED: Name | XP: 250 | participants: Alice,Bob]
+  const monsterDefeatPattern = /\[MONSTER_DEFEATED:\s*([^|\]]+?)\s*(?:\|\s*XP:\s*(\d+)\s*)?(?:\|\s*participants:\s*([^\]]+?)\s*)?\]/gi;
+  while ((match = monsterDefeatPattern.exec(response)) !== null) {
+    actions.push({
+      type: "monster_defeated",
+      monsterName: match[1].trim(),
+      xpAmount: match[2] ? parseInt(match[2], 10) : undefined,
+      participants: match[3] ? match[3].trim() : undefined,
+    } as ParsedGameAction);
   }
 
   // Parse combat state changes
@@ -486,7 +540,7 @@ function parseDMResponseTags(response: string): ParsedGameAction[] {
   // [QUEST: Title | QuestGiver | Status | {"description":"...","objectives":[...],"rewards":{...},"urgency":"high"}]
   // Minimum: [QUEST: Title]
   // More robust pattern that handles nested brackets and complex JSON
-  const questPattern = /\[QUEST:\s*([^|\]]+?)\s*(?:\|\s*([^|\]]+?))?\s*(?:\|\s*([^|\]]+?))?\s*(?:\|\s*(\{.+?\}))?\s*\]/gis;
+  const questPattern = /\[QUEST:\s*([^|\]]+?)\s*(?:\|\s*([^|\]]+?))?\s*(?:\|\s*([^|\]]+?))?\s*(?:\|\s*(\{[\s\S]+?\}))?\s*\]/gi;
   while ((match = questPattern.exec(response)) !== null) {
     console.log('[Quest Parsing] Found QUEST tag:', match[0].substring(0, 100) + '...');
     const questData: ParsedGameAction = {
@@ -817,6 +871,145 @@ async function parseNaturalLanguageItems(
   return actions;
 }
 
+// Helper: award XP to a character (no broadcasting here). Returns same result object.
+async function awardXpToCharacter(characterId: string, xpAmount: number, roomCode?: string) {
+  // Award XP helper entry log (kept minimal for test visibility)
+  const existing = await storage.getSavedCharacter(characterId);
+  if (!existing) {
+    throw new Error("Character not found");
+  }
+
+  const oldXp = existing.xp || 0;
+  const newXp = oldXp + xpAmount;
+  const oldLevel = existing.level || 1;
+  const newLevel = getLevelFromXP(newXp);
+  const leveledUp = newLevel > oldLevel;
+
+  let updates: any = { xp: newXp };
+
+  let levelsGained = 0;
+  let totalHpGain = 0;
+
+  if (leveledUp) {
+    levelsGained = newLevel - oldLevel;
+    updates.level = newLevel;
+
+    if (existing.class && classDefinitions[existing.class as DndClass]) {
+      const conMod = existing.stats?.constitution ? getAbilityModifier(existing.stats.constitution as number) : 0;
+      let hpGain = 0;
+      for (let lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
+        hpGain += calculateLevelUpHP(existing.class as DndClass, conMod);
+      }
+      totalHpGain = hpGain;
+      updates.maxHp = (existing.maxHp || 10) + hpGain;
+      updates.currentHp = Math.min((updates.currentHp ?? existing.currentHp) + hpGain, updates.maxHp);
+
+      // Update hit dice to reflect new total (e.g., "3d10")
+      try {
+        const classDef = classDefinitions[existing.class as DndClass];
+        if (classDef && classDef.hitDie) {
+          updates.hitDice = `${newLevel}d${classDef.hitDie}`;
+        }
+      } catch (err) {
+        console.error('Failed to set hitDice on level up:', err);
+      }
+    }
+
+    if (existing.class && isSpellcaster(existing.class as string)) {
+      try {
+        const newMaxSlots = getMaxSpellSlots(existing.class as string, newLevel);
+        updates.spellSlots = { max: newMaxSlots, current: newMaxSlots };
+      } catch (err) {
+        console.error("Failed to compute spell slots on level up:", err);
+      }
+    }
+
+    try {
+      const existingChoices = (existing.levelChoices as Record<string, unknown>[]) || [];
+      const newChoices: Record<string, unknown>[] = [];
+      const ASI_LEVELS = [4, 8, 12, 16, 19];
+      const FIGHTER_EXTRA_ASI = [6, 14];
+
+      // ASI/Feat choices
+      for (let lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
+        if (ASI_LEVELS.includes(lvl)) newChoices.push({ level: lvl, feature: 'ASI', applied: false });
+        if ((existing.class === 'Fighter' || existing.class === 'fighter') && FIGHTER_EXTRA_ASI.includes(lvl)) {
+          newChoices.push({ level: lvl, feature: 'Fighter ASI', applied: false });
+        }
+      }
+
+      // Class-level skill features (e.g., Rogue/Bard expertise)
+      const classFeatures = classSkillFeatures[existing.class as DndClass] || [];
+      for (const feat of classFeatures) {
+        if (feat.level > oldLevel && feat.level <= newLevel) {
+          newChoices.push({ level: feat.level, feature: feat.name, applied: false, type: 'class_feature' });
+        }
+      }
+
+      // Subclass-level skill features (e.g., Cleric Domain, Scout Ranger)
+      const subclassFeatures = subclassSkillFeatures.filter(sf => sf.parentClass === (existing.class as DndClass));
+      for (const sf of subclassFeatures) {
+        if (sf.level > oldLevel && sf.level <= newLevel) {
+          newChoices.push({ level: sf.level, feature: sf.name, applied: false, type: 'subclass_feature' });
+        }
+      }
+
+      // Spell-related choices: cantrips and spells known for "known" caster classes
+      if (existing.class) {
+        const normalizedClass = (existing.class as string).toLowerCase();
+        for (let lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
+          // Cantrips
+          try {
+            const prevCantrips = getMaxCantripsKnown(normalizedClass, lvl - 1);
+            const newCantrips = getMaxCantripsKnown(normalizedClass, lvl);
+            if (newCantrips > prevCantrips) {
+              newChoices.push({ level: lvl, feature: 'Cantrips', count: newCantrips - prevCantrips, applied: false });
+            }
+          } catch (err) {
+            // ignore if not applicable
+          }
+
+          // Spells known (for 'known' classes)
+          try {
+            const prevSpellsKnown = getMaxSpellsKnown(normalizedClass, lvl - 1) ?? 0;
+            const newSpellsKnown = getMaxSpellsKnown(normalizedClass, lvl) ?? 0;
+            if (newSpellsKnown > prevSpellsKnown) {
+              newChoices.push({ level: lvl, feature: 'Spells Known', count: newSpellsKnown - prevSpellsKnown, applied: false });
+            }
+          } catch (err) {
+            // ignore
+          }
+        }
+      }
+
+      if (newChoices.length > 0) updates.levelChoices = [...existingChoices, ...newChoices];
+    } catch (err) {
+      console.error('Failed to populate levelChoices on level up:', err);
+    }
+  }
+
+  const updated = await storage.updateSavedCharacter(characterId, updates);
+
+  return {
+    character: updated,
+    xpAwarded: xpAmount,
+    leveledUp,
+    previousLevel: oldLevel,
+    levelsGained,
+    totalHpGain,
+  };
+}
+
+// Export parsing and action helpers for integration testing and tooling
+export { parseDMResponseTags, executeGameActions, awardXpToCharacter };
+
+// Test helper to access internal storage instance used by routes
+export function _test_getInternalStorage() {
+  return storage;
+}
+
+
+
 async function executeGameActions(
   actions: ParsedGameAction[],
   roomCode: string,
@@ -855,18 +1048,19 @@ async function executeGameActions(
   if (!room) return;
 
   const players = await storage.getPlayersByRoom(room.id);
+  // Debug: room and participants (kept minimal)
 
   for (const action of actions) {
     try {
       // Find character by player name (case insensitive match)
       const findCharacter = (playerName: string) => {
         // Try to match by player name first
-        const player = players.find((p) => p.name.toLowerCase() === playerName.toLowerCase());
+        const player = players.find((p: any) => p.name.toLowerCase() === playerName.toLowerCase());
         if (player) {
-          return characters.find((c) => c.userId === player.userId);
+          return characters.find((c: any) => c.userId === player.userId);
         }
         // Fallback: match by character name
-        return characters.find((c) => c.characterName.toLowerCase() === playerName.toLowerCase());
+        return characters.find((c: any) => c.characterName.toLowerCase() === playerName.toLowerCase());
       };
 
       switch (action.type) {
@@ -957,7 +1151,7 @@ async function executeGameActions(
           const char = findCharacter(action.playerName);
           if (char) {
             const effects = await storage.getCharacterStatusEffects(char.id);
-            const effect = effects.find((e) => e.name.toLowerCase() === action.statusName!.toLowerCase());
+            const effect = effects.find((e: any) => e.name.toLowerCase() === action.statusName!.toLowerCase());
             if (effect) {
               await storage.removeStatusEffect(effect.id);
               broadcastFn(roomCode, {
@@ -1022,6 +1216,123 @@ async function executeGameActions(
             });
             
             console.log(`[DM Action] Updated currency for ${action.playerName}: +${action.currency.cp}cp +${action.currency.sp}sp +${action.currency.gp}gp (total: ${convertedCurrency.cp}cp ${convertedCurrency.sp}sp ${convertedCurrency.gp}gp)`);
+          }
+          break;
+        }
+
+        case "xp_award": {
+          console.log('[DM Action] xp_award received:', action);
+          if (!action.xpAmount) break;
+          // Award to all characters in room
+            if (action.playerName && action.playerName.toLowerCase() === 'all') {
+            for (const c of characters) {
+              try {
+                const result = await awardXpToCharacter(c.id, action.xpAmount, roomCode);
+                console.log(`[DM Action] Awarded ${action.xpAmount} XP to ${c.characterName} (leveledUp=${result.leveledUp})`);
+                const newLevel = result?.character?.level;
+                broadcastFn(roomCode, { type: 'character_update', characterId: c.id, updates: { xp: (c.xp || 0) + action.xpAmount, ...(newLevel ? { level: newLevel } : {}) } });
+                if (result?.leveledUp) {
+                  broadcastFn(roomCode, { type: 'level_up', characterId: c.id, previousLevel: result.previousLevel, newLevel, levelsGained: result.levelsGained, totalHpGain: result.totalHpGain, spellSlots: result?.character?.spellSlots, newLevelChoices: result?.character?.levelChoices });
+                }
+              } catch (err) {
+                console.error(`[DM Action] Failed to award XP to ${c.characterName}:`, err);
+              }
+            }
+          } else if (action.playerName) {
+            const char = findCharacter(action.playerName);
+            if (char) {
+              try {
+                const result = await awardXpToCharacter(char.id, action.xpAmount, roomCode);
+                console.log(`[DM Action] Awarded ${action.xpAmount} XP to ${action.playerName} (leveledUp=${result.leveledUp})`);
+                const newLevel = result?.character?.level;
+                broadcastFn(roomCode, { type: 'character_update', characterId: char.id, updates: { xp: (char.xp || 0) + action.xpAmount, ...(newLevel ? { level: newLevel } : {}) } });
+                if (result?.leveledUp) {
+                  broadcastFn(roomCode, { type: 'level_up', characterId: char.id, previousLevel: result.previousLevel, newLevel, levelsGained: result.levelsGained, totalHpGain: result.totalHpGain, spellSlots: result?.character?.spellSlots, newLevelChoices: result?.character?.levelChoices });
+                }
+              } catch (err) {
+                console.error(`[DM Action] Failed to award XP to ${action.playerName}:`, err);
+              }
+            }
+          }
+          break;
+        }
+
+        case "monster_defeated": {
+          if (!action.monsterName) break;
+          try {
+            // Determine total XP: explicit or from bestiary
+            let xpTotal: number | undefined = action.xpAmount;
+            if (!xpTotal) {
+              try {
+                const monster = await getMonsterByName(libsqlClient, action.monsterName);
+                xpTotal = monster?.xp ?? undefined;
+              } catch (err) {
+                console.error('[DM Action] Failed to lookup monster XP:', err);
+              }
+            }
+
+            if (!xpTotal || xpTotal <= 0) {
+              console.log(`[DM Action] No XP available for monster "${action.monsterName}", skipping XP distribution`);
+              break;
+            }
+
+            // Determine participants: explicit list, combat participants, or all characters in room
+            let participantChars: any[] = [];
+            if (action.participants) {
+              const names = action.participants.split(',').map(s => s.trim()).filter(Boolean);
+              for (const n of names) {
+                let c = characters.find((ch: any) => (ch.characterName || '').toLowerCase() === n.toLowerCase());
+                if (!c) {
+                  const playerMatch = players.find((p: any) => (p.name || '').toLowerCase() === n.toLowerCase());
+                  if (playerMatch) {
+                    c = characters.find((ch: any) => ch.userId === playerMatch.userId);
+                  }
+                }
+                if (c) participantChars.push(c);
+              }
+            }
+
+            // If none found via explicit participants, use combat state initiatives
+            if (participantChars.length === 0) {
+              const combat = roomCombatState.get(roomCode);
+              if (combat && combat.initiatives && combat.initiatives.length > 0) {
+                // Use unique character names from initiatives
+                const names = [...new Set(combat.initiatives.map(i => i.characterName))].filter(Boolean) as string[];
+                for (const n of names) {
+                  const c = characters.find((ch: any) => (ch.characterName || '').toLowerCase() === n.toLowerCase());
+                  if (c) participantChars.push(c);
+                }
+              }
+            }
+
+            // Fallback: all characters in the room
+            if (participantChars.length === 0) {
+              participantChars = [...characters];
+            }
+
+            if (participantChars.length === 0) break;
+
+            // Split XP evenly among participants (integer division), distribute remainder to first participants
+            const per = Math.floor(xpTotal / participantChars.length);
+            let remainder = xpTotal - per * participantChars.length;
+
+            for (const c of participantChars) {
+              const amount = per + (remainder > 0 ? 1 : 0);
+              if (remainder > 0) remainder--;
+              try {
+                const result = await awardXpToCharacter(c.id, amount, roomCode);
+                console.log(`[DM Action] Awarded ${amount} XP to ${c.characterName} for defeating ${action.monsterName} (leveledUp=${result.leveledUp})`);
+                const newLevel = result?.character?.level;
+                broadcastFn(roomCode, { type: 'character_update', characterId: c.id, updates: { xp: (c.xp || 0) + amount, ...(newLevel ? { level: newLevel } : {}) } });
+                if (result?.leveledUp) {
+                  broadcastFn(roomCode, { type: 'level_up', characterId: c.id, previousLevel: result.previousLevel, newLevel, levelsGained: result.levelsGained, totalHpGain: result.totalHpGain, spellSlots: result?.character?.spellSlots, newLevelChoices: result?.character?.levelChoices });
+                }
+              } catch (err) {
+                console.error(`[DM Action] Failed to award XP to ${c.characterName}:`, err);
+              }
+            }
+          } catch (err) {
+            console.error('[DM Action] Error processing monster_defeated:', err);
           }
           break;
         }
@@ -1173,7 +1484,7 @@ async function executeGameActions(
             if (item) {
               // Check if item already exists in inventory to prevent duplicates
               const inventory = await storage.getSavedInventoryWithDetails(char.id);
-              const existingInvItem = inventory.find(i => i.itemId === item.id);
+              const existingInvItem = inventory.find((i: any) => i.itemId === item.id);
               
               let finalQuantity: number;
               if (existingInvItem) {
@@ -1212,7 +1523,7 @@ async function executeGameActions(
           if (char) {
             // Get character's inventory and find the item
             const inventory = await storage.getSavedInventoryWithDetails(char.id);
-            const invItem = inventory.find((i) => i.item.name.toLowerCase() === action.itemName!.toLowerCase());
+            const invItem = inventory.find((i: any) => i.item.name.toLowerCase() === action.itemName!.toLowerCase());
             if (invItem) {
               const removeQty = action.quantity || 1;
               if (invItem.quantity <= removeQty) {
@@ -1347,7 +1658,7 @@ async function executeGameActions(
             if (action.questGiver) {
               const npcs = await storage.getDynamicNpcsByRoom(room.id);
               const questGiverNpc = npcs.find(
-                npc => npc.name.toLowerCase() === action.questGiver!.toLowerCase()
+                (npc: any) => npc.name.toLowerCase() === action.questGiver!.toLowerCase()
               );
               if (questGiverNpc) {
                 dynamicQuestGiverId = questGiverNpc.id;
@@ -1409,7 +1720,7 @@ async function executeGameActions(
             // Try to find quest by ID or by title
             const quests = await storage.getQuestsByRoom(room.id);
             const quest = quests.find(
-              q => q.id === action.questId || q.name.toLowerCase() === action.questId!.toLowerCase()
+              (q: any) => q.id === action.questId || q.name.toLowerCase() === action.questId!.toLowerCase()
             );
 
             if (quest) {
@@ -1440,13 +1751,14 @@ async function executeGameActions(
                     const uniqueItems = [...new Set(quest.rewards.items)];
                     for (const itemIdentifier of uniqueItems) {
                       try {
-                        let item = await storage.getItem(itemIdentifier);
-                        if (!item) {
-                          item = await storage.getItemByName(itemIdentifier);
-                        }
+                            const idStr = String(itemIdentifier);
+                            let item = await storage.getItem(idStr);
+                            if (!item) {
+                              item = await storage.getItemByName(idStr);
+                            }
                         if (!item) {
                           console.log(`[Quest Reward] Pre-creating item "${itemIdentifier}"...`);
-                          item = await createItemFromReward(itemIdentifier, {
+                          item = await createItemFromReward(idStr, {
                             questDescription: quest.description,
                             gameSystem: room.gameSystem || 'dnd'
                           });
@@ -1460,7 +1772,7 @@ async function executeGameActions(
                   
                   // Process characters in parallel using Promise.allSettled for better performance
                   // Each character's rewards are independent, so failures won't affect others
-                  const rewardPromises = roomCharacters.map(async (char) => {
+                  const rewardPromises = roomCharacters.map(async (char: any) => {
                     try {
                       // Award gold
                       if (quest.rewards.gold && quest.rewards.gold > 0) {
@@ -1481,24 +1793,43 @@ async function executeGameActions(
                       }
 
                       // Award XP (use centralized helper to handle level-ups and broadcasts)
-                      if (quest.rewards.xp && quest.rewards.xp > 0) {
-                        try {
-                          const awardResult = await awardXpToCharacter(char.id, quest.rewards.xp, roomCode);
-                          console.log(`[Quest Reward] Gave ${quest.rewards.xp} xp to ${char.characterName} (leveledUp=${awardResult.leveledUp})`);
-                        } catch (xpErr) {
-                          console.error(`[Quest Reward] Failed to award XP to ${char.characterName}:`, xpErr);
-                        }
-                      }
+                                if (quest.rewards.xp && quest.rewards.xp > 0) {
+                                  try {
+                                    const awardResult = await awardXpToCharacter(char.id, quest.rewards.xp, roomCode);
+                                    console.log(`[Quest Reward] Gave ${quest.rewards.xp} xp to ${char.characterName} (leveledUp=${awardResult.leveledUp})`);
+                                    const newLevelQ = awardResult?.character?.level;
+                                    broadcastFn(roomCode, {
+                                      type: 'character_update',
+                                      characterId: char.id,
+                                      updates: { xp: (char.xp || 0) + quest.rewards.xp, ...(newLevelQ ? { level: newLevelQ } : {}) }
+                                    });
+                                    if (awardResult?.leveledUp) {
+                                      broadcastFn(roomCode, {
+                                        type: 'level_up',
+                                        characterId: char.id,
+                                        previousLevel: awardResult.previousLevel,
+                                        newLevel: newLevelQ,
+                                        levelsGained: awardResult.levelsGained,
+                                        totalHpGain: awardResult.totalHpGain,
+                                        spellSlots: awardResult?.character?.spellSlots,
+                                        newLevelChoices: awardResult?.character?.levelChoices,
+                                      });
+                                    }
+                                  } catch (xpErr) {
+                                    console.error(`[Quest Reward] Failed to award XP to ${char.characterName}:`, xpErr);
+                                  }
+                                }
 
                       // Award items (they should already exist from pre-creation)
                       if (quest.rewards.items && quest.rewards.items.length > 0) {
                         for (const itemIdentifier of quest.rewards.items) {
                           try {
                             // Items should exist from pre-creation, but double-check
-                            let item = await storage.getItem(itemIdentifier);
-                            if (!item) {
-                              item = await storage.getItemByName(itemIdentifier);
-                            }
+                              const idStr = String(itemIdentifier);
+                              let item = await storage.getItem(idStr);
+                              if (!item) {
+                                item = await storage.getItemByName(idStr);
+                              }
                             
                             if (!item) {
                               console.error(`[Quest Reward] Item "${itemIdentifier}" missing after pre-creation`);
@@ -1555,7 +1886,7 @@ async function executeGameActions(
                   eventType: 'quest_complete',
                   title: `Quest Completed: ${quest.name}`,
                   summary: `The quest "${quest.name}" has been completed!`,
-                  participants: characters.map(c => c.characterName),
+                  participants: characters.map((c: any) => c.characterName),
                   relatedQuestId: quest.id,
                   importance: 4,
                 });
@@ -1669,7 +2000,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
           if (room) {
             const players = await storage.getPlayersByRoom(room.id);
-            const isRoomMember = players.some((p) => p.userId === userId);
+            const isRoomMember = players.some((p: any) => p.userId === userId);
             if (!isRoomMember) {
               console.log("[WebSocket] User not a member of room:", roomId || roomCode, userId);
               socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
@@ -1695,14 +2026,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     // If roomId is provided, look up the room code
     if (roomId && !roomCode) {
-      storage.getRoom(roomId).then((room) => {
-        if (room) {
-          roomCode = room.code;
-          initializeConnection(roomCode);
+      storage.getRoom(roomId).then((room: any) => {
+        if (room && room.code) {
+          const code = room.code;
+          roomCode = code;
+          initializeConnection(code);
         } else {
           ws.close(1008, "Room not found");
         }
-      }).catch((error) => {
+      }).catch((error: any) => {
         console.error("[WebSocket] Error fetching room:", error);
         ws.close(1008, "Error fetching room");
       });
@@ -1769,6 +2101,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           ws.send(payload);
         }
       }
+
+      
     }
   }
 
@@ -1811,10 +2145,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     // Build character info with player names and inventory
     const characterInfos: CharacterInfo[] = await Promise.all(
-      characters.map(async (char) => {
+      characters.map(async (char: any) => {
         // Try to find player name from players list or user record
         let playerName = "Unknown Player";
-        const player = players.find((p) => p.userId === char.userId);
+        const player = players.find((p: any) => p.userId === char.userId);
         if (player) {
           playerName = player.name;
         } else if (char.userId) {
@@ -1826,7 +2160,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
         // Fetch character's inventory
         const inventory = await storage.getSavedInventoryWithDetails(char.id);
-        const inventoryItems = inventory.map((i) => {
+        const inventoryItems = inventory.map((i: any) => {
           const name = i.item?.name || "unknown item";
           return i.quantity > 1 ? `${name} x${i.quantity}` : name;
         });
@@ -1902,12 +2236,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // This avoids cross-applying items to all characters in multi-player scenarios
       if (batch.length === 1) {
         const msg = batch[0];
-        const player = players.find((p) => p.name === msg.playerName);
+        const player = players.find((p: any) => p.name === msg.playerName);
         if (player) {
-          const character = characters.find((c) => c.userId === player.userId);
+          const character = characters.find((c: any) => c.userId === player.userId);
           if (character) {
             const inventory = await storage.getSavedInventoryWithDetails(character.id);
-            const inventoryNames = inventory.map((i) => i.item?.name || "");
+            const inventoryNames = inventory.map((i: any) => i.item?.name || "");
             const nlActions = await parseNaturalLanguageItems(dmResponse, character.characterName, inventoryNames);
             if (nlActions.length > 0) {
               console.log(`[NL Detection] Found ${nlActions.length} natural language items/gold for ${character.characterName}`);
@@ -2103,7 +2437,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const userId = req.user!.id;
       const characters = await storage.getSavedCharactersByUser(userId);
-      res.json(characters);
+      // Enrich with parsed hit dice for the UI
+      const enriched = characters.map((c: any) => ({
+        ...c,
+        hitDiceParsed: parseHitDiceString(c.hitDice || null, c.level, c.class),
+      }));
+      res.json(enriched);
     } catch (error) {
       console.error("Error fetching saved characters:", error);
       res.status(500).json({ error: "Failed to fetch saved characters" });
@@ -2113,17 +2452,52 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/saved-characters", isAuthenticated, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const parsed = insertSavedCharacterSchema.parse({ ...req.body, userId });
-      const character = await storage.createSavedCharacter(parsed);
+      const parsedInput = insertSavedCharacterSchema.parse({ ...req.body, userId });
 
-      // Grant starting items to the saved character based on game system and class
-      await grantStartingItems(character.id, character.gameSystem, character.class);
+      // Ensure hitDice is set correctly on creation when a class is provided
+      const parsed = { ...parsedInput } as any;
+      try {
+      if (parsed.gameSystem === 'dnd') {
+        // Apply race ability score bonuses server-side if stats were provided
+        if (parsed.race && parsed.stats) {
+          try {
+            parsed.stats = applyDndRaceBonuses(parsed.stats, parsed.race);
+          } catch (err) {
+            console.error('Failed to apply race bonuses on character creation:', err);
+          }
+        }
 
-      res.json(character);
-    } catch (error) {
-      console.error("Error creating saved character:", error);
-      res.status(400).json({ error: "Invalid character data" });
+        // Ensure maxHp is consistent with class/level and constitution
+        try {
+          if ((!parsed.maxHp || parsed.maxHp === 0) && parsed.class) {
+            const conMod = parsed.stats?.constitution ? getAbilityModifier(parsed.stats.constitution) : 0;
+            parsed.maxHp = calculateDndMaxHp(parsed.class, parsed.level || 1, conMod);
+            parsed.currentHp = parsed.maxHp;
+          }
+        } catch (err) {
+          console.error('Failed to calculate initial maxHp on character creation:', err);
+        }
+
+        if ((!parsed.hitDice || parsed.hitDice === '') && parsed.class && classDefinitions[parsed.class as DndClass]) {
+          const classDef = classDefinitions[parsed.class as DndClass];
+          const lvl = parsed.level || 1;
+          parsed.hitDice = `${lvl}d${classDef.hitDie}`;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to set initial hitDice and stats on character creation:', err);
     }
+
+    const character = await storage.createSavedCharacter(parsed);
+
+    // Grant starting items to the saved character based on game system and class
+    await grantStartingItems(character.id, character.gameSystem, character.class);
+
+    res.json(character);
+  } catch (error) {
+    console.error("Error creating saved character:", error);
+    res.status(400).json({ error: "Invalid character data" });
+  }
   });
 
   app.get("/api/saved-characters/:id", isAuthenticated, async (req, res) => {
@@ -2134,7 +2508,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!character || character.userId !== userId) {
         return res.status(404).json({ error: "Character not found" });
       }
-      res.json(character);
+      const enriched = { ...character, hitDiceParsed: parseHitDiceString(character.hitDice || null, character.level, character.class) };
+      res.json(enriched);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch character" });
     }
@@ -2173,7 +2548,162 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
             updates.maxHp = (existing.maxHp || 10) + hpGain;
             updates.currentHp = Math.min((updates.currentHp ?? existing.currentHp) + hpGain, updates.maxHp);
+
+            // Update hit dice to reflect new total
+            try {
+              const classDef = classDefinitions[existing.class as DndClass];
+              if (classDef && classDef.hitDie) {
+                updates.hitDice = `${newLevel}d${classDef.hitDie}`;
+              }
+            } catch (err) {
+              console.error('Failed to set hitDice on level up:', err);
+            }
           }
+
+          // Spellcasters: update spell slots
+          if (existing.class && isSpellcaster(existing.class as string)) {
+            try {
+              const newMaxSlots = getMaxSpellSlots(existing.class as string, newLevel);
+              updates.spellSlots = { max: newMaxSlots, current: newMaxSlots };
+            } catch (err) {
+              console.error("Failed to compute spell slots on level up:", err);
+            }
+          }
+
+          // Populate level choices for ASI, class features, spells, etc.
+          try {
+            const existingChoices = (existing.levelChoices as Record<string, unknown>[]) || [];
+            const newChoices: Record<string, unknown>[] = [];
+            const ASI_LEVELS = [4, 8, 12, 16, 19];
+            const FIGHTER_EXTRA_ASI = [6, 14];
+
+            for (let lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
+              if (ASI_LEVELS.includes(lvl)) newChoices.push({ level: lvl, feature: 'ASI', applied: false });
+              if ((existing.class === 'Fighter' || existing.class === 'fighter') && FIGHTER_EXTRA_ASI.includes(lvl)) {
+                newChoices.push({ level: lvl, feature: 'Fighter ASI', applied: false });
+              }
+            }
+
+            const classFeatures = classSkillFeatures[existing.class as DndClass] || [];
+            for (const feat of classFeatures) {
+              if (feat.level > oldLevel && feat.level <= newLevel) {
+                newChoices.push({ level: feat.level, feature: feat.name, applied: false, type: 'class_feature' });
+              }
+            }
+
+            // Subclass-level skill features
+            const subclassFeatures = subclassSkillFeatures.filter(sf => sf.parentClass === (existing.class as DndClass));
+            for (const sf of subclassFeatures) {
+              if (sf.level > oldLevel && sf.level <= newLevel) {
+                newChoices.push({ level: sf.level, feature: sf.name, applied: false, type: 'subclass_feature' });
+              }
+            }
+
+            // Spell-related choices
+            const normalizedClass = (existing.class as string).toLowerCase();
+            for (let lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
+              try {
+                const prevCantrips = getMaxCantripsKnown(normalizedClass, lvl - 1);
+                const newCantrips = getMaxCantripsKnown(normalizedClass, lvl);
+                if (newCantrips > prevCantrips) {
+                  newChoices.push({ level: lvl, feature: 'Cantrips', count: newCantrips - prevCantrips, applied: false });
+                }
+              } catch (err) {
+                // ignore
+              }
+
+              try {
+                const prevSpellsKnown = getMaxSpellsKnown(normalizedClass, lvl - 1) ?? 0;
+                const newSpellsKnown = getMaxSpellsKnown(normalizedClass, lvl) ?? 0;
+                if (newSpellsKnown > prevSpellsKnown) {
+                  newChoices.push({ level: lvl, feature: 'Spells Known', count: newSpellsKnown - prevSpellsKnown, applied: false });
+                }
+              } catch (err) {
+                // ignore
+              }
+            }
+
+            if (newChoices.length > 0) updates.levelChoices = [...existingChoices, ...newChoices];
+          } catch (err) {
+            console.error('Failed to populate levelChoices on level up:', err);
+          }
+        }
+      }
+
+      // If a direct level bump was provided (not via XP), mirror level-up behavior
+      if (!leveledUp && updates.level !== undefined && updates.level > oldLevel) {
+        const directNewLevel = updates.level;
+        try {
+          if (existing.class && classDefinitions[existing.class as DndClass]) {
+            const conMod = existing.stats?.constitution ? getAbilityModifier(existing.stats.constitution as number) : 0;
+            let hpGain = 0;
+            for (let lvl = oldLevel + 1; lvl <= directNewLevel; lvl++) {
+              hpGain += calculateLevelUpHP(existing.class as DndClass, conMod);
+            }
+            updates.maxHp = (existing.maxHp || 10) + hpGain;
+            updates.currentHp = Math.min((updates.currentHp ?? existing.currentHp) + hpGain, updates.maxHp);
+
+            // Update hit dice
+            const classDef = classDefinitions[existing.class as DndClass];
+            if (classDef && classDef.hitDie) {
+              updates.hitDice = `${directNewLevel}d${classDef.hitDie}`;
+            }
+          }
+
+          if (existing.class && isSpellcaster(existing.class as string)) {
+            try {
+              const newMaxSlots = getMaxSpellSlots(existing.class as string, directNewLevel);
+              updates.spellSlots = { max: newMaxSlots, current: newMaxSlots };
+            } catch (err) {
+              console.error("Failed to compute spell slots on direct level change:", err);
+            }
+          }
+
+          // Populate level choice entries similarly to XP-based level up
+          const existingChoices = (existing.levelChoices as Record<string, unknown>[]) || [];
+          const newChoices: Record<string, unknown>[] = [];
+          const ASI_LEVELS = [4, 8, 12, 16, 19];
+          const FIGHTER_EXTRA_ASI = [6, 14];
+
+          for (let lvl = oldLevel + 1; lvl <= directNewLevel; lvl++) {
+            if (ASI_LEVELS.includes(lvl)) newChoices.push({ level: lvl, feature: 'ASI', applied: false });
+            if ((existing.class === 'Fighter' || existing.class === 'fighter') && FIGHTER_EXTRA_ASI.includes(lvl)) {
+              newChoices.push({ level: lvl, feature: 'Fighter ASI', applied: false });
+            }
+          }
+
+          const classFeatures = classSkillFeatures[existing.class as DndClass] || [];
+          for (const feat of classFeatures) {
+            if (feat.level > oldLevel && feat.level <= directNewLevel) {
+              newChoices.push({ level: feat.level, feature: feat.name, applied: false, type: 'class_feature' });
+            }
+          }
+
+          // Subclass-level features
+          const subclassFeatures = subclassSkillFeatures.filter(sf => sf.parentClass === (existing.class as DndClass));
+          for (const sf of subclassFeatures) {
+            if (sf.level > oldLevel && sf.level <= directNewLevel) {
+              newChoices.push({ level: sf.level, feature: sf.name, applied: false, type: 'subclass_feature' });
+            }
+          }
+
+          const normalizedClass = (existing.class as string).toLowerCase();
+          for (let lvl = oldLevel + 1; lvl <= directNewLevel; lvl++) {
+            try {
+              const prevCantrips = getMaxCantripsKnown(normalizedClass, lvl - 1);
+              const newCantrips = getMaxCantripsKnown(normalizedClass, lvl);
+              if (newCantrips > prevCantrips) newChoices.push({ level: lvl, feature: 'Cantrips', count: newCantrips - prevCantrips, applied: false });
+            } catch (err) {}
+            try {
+              const prevSpellsKnown = getMaxSpellsKnown(normalizedClass, lvl - 1) ?? 0;
+              const newSpellsKnown = getMaxSpellsKnown(normalizedClass, lvl) ?? 0;
+              if (newSpellsKnown > prevSpellsKnown) newChoices.push({ level: lvl, feature: 'Spells Known', count: newSpellsKnown - prevSpellsKnown, applied: false });
+            } catch (err) {}
+          }
+
+          if (newChoices.length > 0) updates.levelChoices = [...existingChoices, ...newChoices];
+        } catch (err) {
+          console.error('Failed to apply direct level change updates:', err);
         }
       }
 
@@ -2239,58 +2769,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // Helper: award XP to a character, handle level-ups, HP gains, DB update and broadcasts
-  async function awardXpToCharacter(characterId: string, xpAmount: number, roomCode?: string) {
-    const existing = await storage.getSavedCharacter(characterId);
-    if (!existing) throw new Error("Character not found");
-
-    const oldXp = existing.xp || 0;
-    const newXp = oldXp + xpAmount;
-    const oldLevel = existing.level || 1;
-    const newLevel = getLevelFromXP(newXp);
-    const leveledUp = newLevel > oldLevel;
-
-    let updates: any = { xp: newXp };
-
-    let levelsGained = 0;
-    let totalHpGain = 0;
-
-    if (leveledUp) {
-      levelsGained = newLevel - oldLevel;
-      updates.level = newLevel;
-
-      if (existing.class && classDefinitions[existing.class as DndClass]) {
-        const conMod = existing.stats?.constitution ? getAbilityModifier(existing.stats.constitution as number) : 0;
-        let hpGain = 0;
-        for (let lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
-          hpGain += calculateLevelUpHP(existing.class as DndClass, conMod);
-        }
-        totalHpGain = hpGain;
-        updates.maxHp = (existing.maxHp || 10) + hpGain;
-        updates.currentHp = Math.min((updates.currentHp ?? existing.currentHp) + hpGain, updates.maxHp);
-      }
-    }
-
-    const updated = await storage.updateSavedCharacter(characterId, updates);
-
-    // Broadcast update to clients in the room if roomCode provided
-    if (roomCode) {
-      broadcastToRoom(roomCode, {
-        type: 'character_update',
-        characterId: characterId,
-        updates,
-      });
-    }
-
-    return {
-      character: updated,
-      xpAwarded: xpAmount,
-      leveledUp,
-      previousLevel: oldLevel,
-      levelsGained,
-      totalHpGain,
-    };
-  }
+  
 
   app.delete("/api/saved-characters/:id", isAuthenticated, async (req, res) => {
     try {
@@ -2490,7 +2969,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ error: "Room is full" });
       }
 
-      const existingPlayer = existingPlayers.find((p) => p.userId === userId);
+      const existingPlayer = existingPlayers.find((p: any) => p.userId === userId);
       if (existingPlayer) {
         return res.status(400).json({ error: "You have already joined this room" });
       }
@@ -2579,7 +3058,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ error: "Room is full" });
       }
 
-      const existingPlayer = existingPlayers.find((p) => p.userId === userId);
+      const existingPlayer = existingPlayers.find((p: any) => p.userId === userId);
       if (existingPlayer) {
         return res.status(400).json({ error: "You have already joined this room" });
       }
@@ -2786,7 +3265,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Return unified format with status effects and player name
       const charactersWithData = await Promise.all(
-        characters.map(async (char) => {
+        characters.map(async (char: any) => {
           const statusEffects = await storage.getStatusEffectsByCharacter(char.id);
           // Look up player name from user
           let playerName = "Unknown Player";
@@ -2868,7 +3347,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Find the player record
       const players = await storage.getPlayersByRoom(room.id);
-      const player = players.find((p) => p.userId === userId);
+      const player = players.find((p: any) => p.userId === userId);
 
       if (!player) {
         return res.status(404).json({ error: "You are not in this room" });
@@ -2911,7 +3390,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Verify the user is the host by checking their player record's isHost flag
       const players = await storage.getPlayersByRoom(room.id);
-      const userPlayer = players.find((p) => p.userId === userId);
+      const userPlayer = players.find((p: any) => p.userId === userId);
 
       if (!userPlayer || !userPlayer.isHost) {
         return res.status(403).json({ error: "Only the host can end the room" });
@@ -2950,7 +3429,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const rooms = await storage.getPublicRooms(gameSystem as string | undefined);
       
       // Map rooms to include isPrivate and exclude passwordHash
-      const roomsWithPrivacy = rooms.map(room => {
+      const roomsWithPrivacy = rooms.map((room: any) => {
         const { passwordHash, ...roomWithoutHash } = room;
         return {
           ...roomWithoutHash,
@@ -3044,7 +3523,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Verify user is the host
       const allPlayers = await storage.getPlayersByRoom(room.id);
-      const userPlayer = allPlayers.find(p => p.userId === userId);
+      const userPlayer = allPlayers.find((p: any) => p.userId === userId);
 
       if (!userPlayer || !userPlayer.isHost) {
         return res.status(403).json({ error: "Only the host can delete the room" });
@@ -3135,43 +3614,48 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!room) return res.status(404).json({ error: "Room not found" });
 
       const players = await storage.getPlayersByRoom(room.id);
-      // Use savedCharacters table via roomCode for correct character data
       const characters = await storage.getCharactersByRoomCode(code);
 
-      const initiatives: InitiativeEntry[] = [];
-      for (const char of characters) {
-        // Match character via userId since savedCharacters uses userId, not playerId
-        const player = players.find((p) => p.userId === char.userId);
-        if (!player) continue;
-
-        // Simulate initiative roll: d20 + modifier
-        const roll = Math.floor(Math.random() * 20) + 1;
-        const total = roll + char.initiativeModifier;
-
-        initiatives.push({
-          playerId: player.id,
-          playerName: player.name,
-          characterName: char.characterName,
-          roll,
-          modifier: char.initiativeModifier,
-          total,
-        });
+      // Include dynamic NPCs (monsters) present in the room
+      let monsters: any[] = [];
+      try {
+        monsters = await storage.getDynamicNpcsByRoom(room.id) || [];
+      } catch (err) {
+        console.warn(`[Combat Start] Failed to load dynamic NPCs for room ${room.id}:`, err);
       }
 
-      // Sort by total descending
-      initiatives.sort((a, b) => b.total - a.total);
+      // Allow the request body to supply additional monsters (optional)
+      if (req.body?.monsters && Array.isArray(req.body.monsters)) {
+        monsters = monsters.concat(req.body.monsters);
+      }
+
+      const initiatives = rollInitiativesForCombat(characters, players, monsters);
+      const combatState = createCombatState(code, initiatives);
+
+      // Store the rich combat state separately for the new engine
+      roomFullCombatState.set(code, combatState as FullCombatState);
+
+      // Convert to legacy InitiativeEntry shape for roomCombatState (backwards-compat)
+      const initiativesForState = initiatives.map((e) => ({
+        playerId: e.metadata?.userId ?? e.id,
+        playerName: e.metadata?.playerName ?? (e.controller === 'player' ? e.name : 'DM'),
+        characterName: e.name,
+        roll: e.roll,
+        modifier: e.modifier,
+        total: e.total,
+      }));
 
       roomCombatState.set(code, {
-        isActive: true,
-        currentTurnIndex: 0,
-        initiatives,
+        isActive: combatState.isActive,
+        currentTurnIndex: combatState.currentTurnIndex,
+        initiatives: initiativesForState,
       });
 
       // Broadcast initiative order
       broadcastToRoom(code, {
         type: "system",
         content: "Combat begins! Initiative order:",
-        initiatives: initiatives.map((entry) => `${entry.characterName} (${entry.total})`),
+        initiatives: initiatives.map((entry) => `${entry.name} (${entry.total})`),
       });
 
       // Generate starting combat scene if needed
@@ -3219,6 +3703,327 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to process turn" });
+    }
+  });
+
+  // Structured combat actions (player or monster actions)
+  app.post("/api/rooms/:code/combat/action", async (req, res) => {
+    try {
+      const { code } = req.params;
+      const { action } = req.body;
+      if (!action) return res.status(400).json({ error: "Missing action" });
+
+      const state = roomFullCombatState.get(code);
+      if (!state || !state.isActive) return res.status(400).json({ error: "No active combat" });
+
+      const { actorId, type } = action;
+      const currentActor = state.initiatives[state.currentTurnIndex];
+      if (!currentActor) return res.status(400).json({ error: "Invalid combat state" });
+
+      // Validate it's actor's turn
+      if (currentActor.id !== actorId) {
+        return res.status(403).json({ error: "Not actor's turn" });
+      }
+
+      if (type === 'attack') {
+        const { targetId, attackBonus = 0, damageExpression = null } = action;
+        const target = state.initiatives.find((i: any) => i.id === targetId);
+        if (!target) return res.status(404).json({ error: "Target not found" });
+
+        const result = resolveAttack(null, attackBonus, target.ac ?? 10, damageExpression);
+
+        if (result.hit && result.damageTotal) {
+          target.currentHp = (target.currentHp ?? target.maxHp ?? 0) - result.damageTotal;
+        }
+
+        // Update threat for the actor (attacker gains threat)
+        updateThreat(state, actorId, Math.max(1, result.damageTotal || (result.hit ? 5 : 1)));
+
+        // Record action
+        state.actionHistory.push({ actorId, type: 'attack', targetId, result, timestamp: Date.now() });
+
+        // Broadcast structured result
+        broadcastToRoom(code, {
+          type: 'combat_result',
+          actorId,
+          targetId,
+          attackRoll: result.d20,
+          attackTotal: result.attackTotal,
+          hit: result.hit,
+          isCritical: result.isCritical,
+          damageRolls: result.damageRolls,
+          damageTotal: result.damageTotal,
+          targetHp: target.currentHp,
+        });
+
+        // If target dies, broadcast and take cares
+        if ((target.currentHp ?? 0) <= 0) {
+          broadcastToRoom(code, { type: 'combat_event', event: 'defeated', targetId, name: target.name });
+        }
+
+        // Advance turn
+        const prevActorId = currentActor.id;
+        advanceTurn(state);
+
+        // Process held triggers for prev actor
+        const inserted = processTrigger(state, prevActorId);
+        if (inserted.length > 0) {
+          broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
+        }
+
+        // Persist back
+        roomFullCombatState.set(code, state);
+        // Keep legacy short state in sync
+        const currentIdx = state.currentTurnIndex;
+        const legacyInitiatives = state.initiatives.map((e: any) => ({ playerId: e.id, playerName: e.name, characterName: e.name, roll: e.roll, modifier: e.modifier, total: e.total }));
+        roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives });
+
+        res.json({ success: true, result });
+        return;
+      }
+
+      if (type === 'pass') {
+        // Record pass
+        state.actionHistory.push({ actorId, type: 'pass', timestamp: Date.now() });
+        broadcastToRoom(code, { type: 'combat_event', event: 'pass', actorId });
+
+        const prevActorId = currentActor.id;
+        advanceTurn(state);
+        const inserted = processTrigger(state, prevActorId);
+        if (inserted.length > 0) {
+          broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
+        }
+
+        roomFullCombatState.set(code, state);
+        const currentIdx = state.currentTurnIndex;
+        const legacyInitiatives2 = state.initiatives.map((e: any) => ({ playerId: e.id, playerName: e.name, characterName: e.name, roll: e.roll, modifier: e.modifier, total: e.total }));
+        roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives2 });
+
+        res.json({ success: true });
+        return;
+      }
+
+      if (type === 'move') {
+        const moveResult = applyMoveAction(state, action);
+        // Broadcast move
+        broadcastToRoom(code, { type: 'combat_event', event: 'move', actorId, to: moveResult });
+
+        // Advance turn
+        const prevActorId = currentActor.id;
+        advanceTurn(state);
+        const inserted = processTrigger(state, prevActorId);
+        if (inserted.length > 0) broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
+
+        roomFullCombatState.set(code, state);
+        const currentIdx = state.currentTurnIndex;
+        const legacyInitiatives2 = state.initiatives.map((e: any) => ({ playerId: e.id, playerName: e.name, characterName: e.name, roll: e.roll, modifier: e.modifier, total: e.total }));
+        roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives2 });
+
+        res.json({ success: true, moveResult });
+        return;
+      }
+
+      return res.status(400).json({ error: 'Unsupported action type' });
+    } catch (error) {
+      console.error('Combat action error:', error);
+      res.status(500).json({ error: 'Failed to process combat action' });
+    }
+  });
+
+  // Hold (delay) an actor until a trigger or end of round
+  app.post('/api/rooms/:code/combat/hold', async (req, res) => {
+    try {
+      const { code } = req.params;
+      const { actorId, holdType, triggerActorId } = req.body;
+      if (!actorId || !holdType) return res.status(400).json({ error: 'Missing params' });
+
+      const state = roomFullCombatState.get(code);
+      if (!state || !state.isActive) return res.status(400).json({ error: 'No active combat' });
+
+      addHold(state, actorId, { type: holdType, triggerActorId });
+      roomFullCombatState.set(code, state);
+      broadcastToRoom(code, { type: 'combat_event', event: 'hold', actorId, holdType, triggerActorId });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Combat hold error:', error);
+      res.status(500).json({ error: 'Failed to set hold' });
+    }
+  });
+
+  // Set combat environment features for the room
+  app.post('/api/rooms/:code/combat/environment', async (req, res) => {
+    try {
+      const { code } = req.params;
+      const { features } = req.body;
+      if (!Array.isArray(features)) return res.status(400).json({ error: 'features must be an array' });
+
+      const state = roomFullCombatState.get(code);
+      if (!state) return res.status(404).json({ error: 'No active combat for room' });
+
+      // Validate minimal feature shape and set
+      state.environment = features.map((f: any) => ({ id: f.id || `env:${Math.random().toString(36).slice(2)}`, type: f.type, position: f.position, radius: f.radius || 1, properties: f.properties || {} }));
+
+      roomFullCombatState.set(code, state);
+      broadcastToRoom(code, { type: 'combat_event', event: 'environment_update', features: state.environment });
+
+      res.json({ success: true, environment: state.environment });
+    } catch (error) {
+      console.error('Set environment error:', error);
+      res.status(500).json({ error: 'Failed to set environment' });
+    }
+  });
+
+  // Pass: ends actor's turn without action
+  app.post('/api/rooms/:code/combat/pass', async (req, res) => {
+    try {
+      const { code } = req.params;
+      const { actorId } = req.body;
+      const state = roomFullCombatState.get(code);
+      if (!state || !state.isActive) return res.status(400).json({ error: 'No active combat' });
+
+      const currentActor = state.initiatives[state.currentTurnIndex];
+      if (!currentActor || currentActor.id !== actorId) return res.status(403).json({ error: "Not actor's turn" });
+
+      // Record pass
+      state.actionHistory.push({ actorId, type: 'pass', timestamp: Date.now() });
+      broadcastToRoom(code, { type: 'combat_event', event: 'pass', actorId });
+
+      const prevActorId = currentActor.id;
+      advanceTurn(state);
+      const inserted = processTrigger(state, prevActorId);
+      if (inserted.length > 0) {
+        broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
+      }
+
+      roomFullCombatState.set(code, state);
+      const currentIdx = state.currentTurnIndex;
+      const legacyInitiatives3 = state.initiatives.map((e: any) => ({ playerId: e.id, playerName: e.name, characterName: e.name, roll: e.roll, modifier: e.modifier, total: e.total }));
+      roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives3 });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Combat pass error:', error);
+      res.status(500).json({ error: 'Failed to pass' });
+    }
+  });
+
+  // AI Strategy endpoint: return deterministic monster decisions or use LLM for decision-only
+  app.post('/api/rooms/:code/combat/ai-strategy', async (req, res) => {
+    try {
+      const { code } = req.params;
+      const { maxActions = 1, useLLM = false } = req.body || {};
+      const state = roomFullCombatState.get(code);
+      if (!state || !state.isActive) return res.status(400).json({ error: 'No active combat' });
+
+      // If useLLM, call generateCombatDMTurn in decisionOnly mode
+      if (useLLM) {
+        const room = await storage.getRoomByCode(code);
+        if (!room) return res.status(404).json({ error: 'Room not found' });
+        const decisionText = await generateCombatDMTurn(openai, room, undefined, (db as any).$client, { decisionOnly: true, maxDecisions: maxActions });
+        // parse by lines
+        const lines = decisionText.split('\n').map((l: string) => l.trim()).filter((l: string) => l.length > 0);
+        return res.json({ success: true, decisions: lines });
+      }
+
+      // Deterministic server-side decisions
+      const decisions = decideMonsterActions(state, maxActions);
+      res.json({ success: true, decisions });
+    } catch (error) {
+      console.error('AI strategy error:', error);
+      res.status(500).json({ error: 'Failed to get AI strategy' });
+    }
+  });
+
+  // Start or load a persisted combat encounter for a location
+  app.post('/api/rooms/:code/combat/encounter/start', async (req, res) => {
+    try {
+      const { code } = req.params;
+      const { locationId, seed, allowRegenerate } = req.body || {};
+      if (!locationId) return res.status(400).json({ error: 'Missing locationId' });
+
+      // If an encounter exists for this location and regenerate not allowed, return it
+      const existing = await storage.getCombatEncounterByLocation(locationId);
+      if (existing && !allowRegenerate) {
+        const features = await storage.getEnvironmentFeaturesByEncounter(existing.id);
+        const spawns = await storage.getCombatSpawnsByEncounter(existing.id);
+        return res.json({ success: true, encounter: existing, features, spawns });
+      }
+
+      // Else generate a stage using the generator (LLM decision-only) and persist
+      const loc = await db.select().from(adventureLocations).where(eq(adventureLocations.id, locationId)).limit(1).then(r => r[0]);
+      const locationName = loc?.name || 'Unknown Location';
+      const stage = await generateCombatStage(openai, locationName, seed);
+
+      // Persist encounter
+      const encounter = await storage.createCombatEncounter({ locationId, name: `${locationName} - auto`, seed: seed || undefined, generatedBy: 'AI', metadata: { summary: stage.summary } });
+      const features = await storage.addEnvironmentFeatures(encounter.id, (stage.features || []).map((f: any) => ({ type: f.type, positionX: f.position.x, positionY: f.position.y, radius: f.radius || 1, properties: f.properties || {} })));
+      const spawns = await storage.addCombatSpawns(encounter.id, (stage.spawns || []).map((s: any) => ({ monsterName: s.monster, count: s.count || 1, positionX: s.position?.x, positionY: s.position?.y, metadata: s })));
+
+      res.json({ success: true, encounter, features, spawns });
+    } catch (error) {
+      console.error('Start encounter error:', error);
+      res.status(500).json({ error: 'Failed to start encounter' });
+    }
+  });
+
+  // Get persisted encounter for a location
+  app.get('/api/locations/:locationId/encounter', async (req, res) => {
+    try {
+      const { locationId } = req.params;
+      const existing = await storage.getCombatEncounterByLocation(locationId);
+      if (!existing) return res.json({ success: true, encounter: null });
+      const features = await storage.getEnvironmentFeaturesByEncounter(existing.id);
+      const spawns = await storage.getCombatSpawnsByEncounter(existing.id);
+      res.json({ success: true, encounter: existing, features, spawns });
+    } catch (error) {
+      console.error('Get encounter error:', error);
+      res.status(500).json({ error: 'Failed to get encounter' });
+    }
+  });
+
+  // Update encounter
+  app.put('/api/encounters/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body || {};
+      const updated = await storage.updateCombatEncounter(id, updates);
+      res.json({ success: true, updated });
+    } catch (error) {
+      console.error('Update encounter error:', error);
+      res.status(500).json({ error: 'Failed to update encounter' });
+    }
+  });
+
+  // Request LLM-assisted edits/suggestions for an existing encounter (decision-only)
+  app.post('/api/encounters/:id/generate-edit', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { prompt } = req.body || {};
+      const encounter = await storage.getCombatEncounterById(id);
+      if (!encounter) return res.status(404).json({ error: 'Encounter not found' });
+
+      const location = await db.select().from(adventureLocations).where(eq(adventureLocations.id, encounter.locationId)).limit(1).then(r => r[0]);
+      const locationName = location?.name || 'Unknown Location';
+
+      const editPrompt = `Edit the existing encounter at ${locationName}. Changes requested: ${prompt}. Return JSON in the same format as stage generator (features, spawns, summary).`;
+      const response = await openai.chat.completions.create({
+        model: 'grok-4-1-fast-reasoning',
+        messages: [{ role: 'system', content: 'You are an encounter editor. Return only JSON.' }, { role: 'user', content: editPrompt }],
+        max_tokens: 300,
+        temperature: 0.2,
+      });
+
+      const raw = response.choices[0]?.message?.content || '';
+      const jsonStart = raw.indexOf('{');
+      const json = jsonStart !== -1 ? raw.slice(jsonStart) : raw;
+      let parsed;
+      try { parsed = JSON.parse(json); } catch (err) { parsed = null; }
+
+      res.json({ success: true, suggestion: parsed });
+    } catch (error) {
+      console.error('Generate edit error:', error);
+      res.status(500).json({ error: 'Failed to generate edit' });
     }
   });
 
@@ -3295,7 +4100,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!room) return res.status(404).json({ error: 'Room not found' });
 
           const characters = await storage.getCharactersByRoomCode(code);
-      let char = characters.find(c => c.characterName === playerName);
+      let char = characters.find((c: any) => c.characterName === playerName);
       if (!char) {
         // Try matching by the player's username if no character name match
         const userRec = await db
@@ -3306,7 +4111,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
         if (userRec && userRec.length > 0) {
           const userId = userRec[0].id;
-          char = characters.find(c => c.userId === userId);
+          char = characters.find((c: any) => c.userId === userId);
         }
       }
 
@@ -3698,7 +4503,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       
       // Get character's inventory to verify item exists
       const inventory = await storage.getSavedInventoryWithDetails(characterId);
-      const invItem = inventory.find(i => i.id === itemId);
+      const invItem = inventory.find((i: any) => i.id === itemId);
       
       if (!invItem) {
         return res.status(404).json({ error: "Inventory item not found" });
@@ -3985,7 +4790,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Generate summary with AI
       const gameSystem = room.gameSystem || "dnd";
       const summaryPrompt = `Summarize the following game session in 3-5 sentences. Include key events, NPCs met, locations visited, and quests progressed:\n\n${
-        newMessages.slice(-100).map(m => `${m.playerName}: ${m.content}`).join('\n')
+        newMessages.slice(-100).map((m: any) => `${m.playerName}: ${m.content}`).join('\n')
       }`;
 
       const summaryResponse = await openai.chat.completions.create({
@@ -4002,7 +4807,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Extract key events from recent story events
       const recentEvents = await storage.getStoryEventsByRoom(roomId, { limit: 10 });
-      const keyEvents = recentEvents.slice(0, 5).map(e => e.title);
+      const keyEvents = recentEvents.slice(0, 5).map((e: any) => e.title);
 
       // Create session summary
       const sessionNumber = (lastSummary?.sessionNumber || 0) + 1;
@@ -4240,7 +5045,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const quests = await db
           .select()
           .from(adventureQuests)
-          .where(inArray(adventureQuests.id, questIds));
+          .where(inArray(adventureQuests.id, questIds as string[]));
         
         questsWithProgress = quests.map(quest => {
           const questObjectives = objectives.filter((o: any) => o.questId === quest.id);
