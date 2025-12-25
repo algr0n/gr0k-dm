@@ -778,15 +778,21 @@ async function parseNaturalLanguageItems(
   const existingItemNames = new Set(existingInventory.map((n) => n.toLowerCase()));
 
   // Detect currency mentions (copper, silver, gold)
-  const currencyMentions = detectCurrencyMentions(response);
-  if (currencyMentions.cp > 0 || currencyMentions.sp > 0 || currencyMentions.gp > 0) {
-    // Apply automatic currency conversion
-    const converted = convertCurrency(currencyMentions);
-    actions.push({
-      type: "currency_change",
-      playerName: characterName,
-      currency: converted,
-    });
+  // Skip currency auto-grants if this DM message contains a [QUEST:...] tag.
+  // Quest offers should not immediately award currency; rewards are granted on completion.
+  if (!/\[QUEST:/i.test(response)) {
+    const currencyMentions = detectCurrencyMentions(response);
+    if (currencyMentions.cp > 0 || currencyMentions.sp > 0 || currencyMentions.gp > 0) {
+      // Apply automatic currency conversion
+      const converted = convertCurrency(currencyMentions);
+      actions.push({
+        type: "currency_change",
+        playerName: characterName,
+        currency: converted,
+      });
+    }
+  } else {
+    console.log('[NL Detection] Skipping currency auto-grant because message contains QUEST tag');
   }
 
   // Detect item mentions - acquisition verbs allow stacking, descriptive only add new
@@ -808,6 +814,34 @@ async function executeGameActions(
   roomCode: string,
   broadcastFn: (roomCode: string, message: any) => void
 ): Promise<void> {
+  // Collapse multiple currency_change actions for the same player into a single consolidated action
+  const consolidatedActions: ParsedGameAction[] = [];
+  const currencyBuckets: Record<string, { cp: number; sp: number; gp: number }> = {};
+
+  for (const a of actions) {
+    if (a.type === 'currency_change' && a.playerName) {
+      const key = a.playerName.toLowerCase();
+      currencyBuckets[key] = currencyBuckets[key] || { cp: 0, sp: 0, gp: 0 };
+      currencyBuckets[key].cp += (a.currency?.cp || 0);
+      currencyBuckets[key].sp += (a.currency?.sp || 0);
+      currencyBuckets[key].gp += (a.currency?.gp || 0);
+    } else {
+      consolidatedActions.push(a);
+    }
+  }
+
+  // Push consolidated currency actions back into action list
+  for (const player of Object.keys(currencyBuckets)) {
+    consolidatedActions.push({
+      type: 'currency_change',
+      playerName: player,
+      currency: currencyBuckets[player],
+    } as ParsedGameAction);
+  }
+
+  // Replace actions with consolidatedActions so the rest of the logic processes deduped currency changes
+  actions = consolidatedActions;
+
   const characters = await storage.getCharactersByRoomCode(roomCode);
   const room = await storage.getRoomByCode(roomCode);
   if (!room) return;

@@ -877,6 +877,23 @@ export default function RoomPage() {
           queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "my-character"] });
           queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "room-characters"] });
           queryClient.invalidateQueries({ queryKey: ["/api/rooms", code] });
+
+        } else if (data.type === "quest_created") {
+          // A new dynamic quest was created by the DM; refresh quest lists
+          queryClient.invalidateQueries({ queryKey: [`/api/rooms/${code}/quests-with-progress`] });
+          queryClient.invalidateQueries({ queryKey: [`/api/rooms/${code}/quests`] });
+          toast({ title: "New quest", description: `${data.quest?.name} was added to the quest log.` });
+
+        } else if (data.type === "quest_updated") {
+          // Quest status changed; refresh quest lists
+          queryClient.invalidateQueries({ queryKey: [`/api/rooms/${code}/quests-with-progress`] });
+          queryClient.invalidateQueries({ queryKey: [`/api/rooms/${code}/quests`] });
+          if (data.status === "completed") {
+            toast({ title: "Quest completed", description: `Quest completed: ${data.questName || data.questId}` });
+          } else {
+            toast({ title: "Quest updated", description: `${data.questName || data.questId} is now ${data.status}` });
+          }
+
         } else if (data.type === "error") {
           toast({
             title: "Error",
