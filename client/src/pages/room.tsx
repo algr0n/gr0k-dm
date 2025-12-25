@@ -1128,7 +1128,7 @@ export default function RoomPage() {
                 <div className="space-y-1">
                   {combatState.initiatives.map((entry, idx) => {
                     const isCurrentTurn = idx === combatState.currentTurnIndex;
-                    const isMyCharacter = entry.characterName === myCharacter?.characterName;
+                    const isMyCharacter = entry.characterName === myCharacterData?.roomCharacter?.characterName;
                     const canControl = isHost || isMyCharacter;
                     
                     return (
