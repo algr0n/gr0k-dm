@@ -1427,7 +1427,9 @@ async function executeGameActions(
                   const roomCharacters = await storage.getCharactersByRoomCode(roomCode);
                   console.log(`[Quest Reward] Distributing rewards for quest "${quest.name}" to ${roomCharacters.length} character(s)`);
                   
-                  for (const char of roomCharacters) {
+                  // Process characters in parallel using Promise.allSettled for better performance
+                  // Each character's rewards are independent, so failures won't affect others
+                  const rewardPromises = roomCharacters.map(async (char) => {
                     try {
                       // Award gold
                       if (quest.rewards.gold && quest.rewards.gold > 0) {
@@ -1479,17 +1481,24 @@ async function executeGameActions(
                             console.log(`[Quest Reward] Gave ${item.name} to ${char.characterName}`);
                           } catch (itemErr) {
                             console.error(`[Quest Reward] Failed to award item "${itemIdentifier}" to ${char.characterName}:`, itemErr);
-                            // Continue with other items/characters
+                            // Continue with other items
                           }
                         }
                       }
                     } catch (charErr) {
                       console.error(`[Quest Reward] Failed to distribute rewards to ${char.characterName}:`, charErr);
-                      // Continue with other characters
+                      throw charErr; // Re-throw so Promise.allSettled captures it
                     }
-                  }
+                  });
 
-                  console.log(`[Quest Complete] Distributed rewards to ${roomCharacters.length} character(s)`);
+                  // Wait for all reward distributions to complete
+                  const results = await Promise.allSettled(rewardPromises);
+                  
+                  // Count successes and failures
+                  const successful = results.filter(r => r.status === 'fulfilled').length;
+                  const failed = results.filter(r => r.status === 'rejected').length;
+                  
+                  console.log(`[Quest Complete] Distributed rewards: ${successful} successful, ${failed} failed`);
                 }
 
                 // Create completion event

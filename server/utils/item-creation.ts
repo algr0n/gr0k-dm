@@ -1,14 +1,25 @@
-/**
- * AI-Powered Dynamic Item Creation Utility
- * 
- * This module provides functionality to create items dynamically using AI
- * when quest rewards or DM actions reference items that don't exist in the database.
- */
-
 import { openai } from "../grok";
 import { storage } from "../storage";
 import type { Item } from "@shared/schema";
 import { randomUUID } from "crypto";
+
+// Simple in-memory cache to avoid duplicate AI calls for the same item name
+// Key: lowercase item name, Value: item ID
+const itemCreationCache = new Map<string, string>();
+
+/**
+ * Generate a unique slug-based ID for an item
+ */
+function generateItemSlug(itemName: string, prefix: string = "ai"): string {
+  const slug = itemName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  
+  // Add random suffix to ensure uniqueness
+  const randomSuffix = randomUUID().slice(0, 6);
+  return slug ? `${prefix}-${slug}-${randomSuffix}` : `${prefix}-item-${randomUUID().slice(0, 8)}`;
+}
 
 /**
  * Create a new item in the database using AI to generate D&D 5e appropriate stats
@@ -24,6 +35,19 @@ export async function createItemFromReward(
     gameSystem?: string;
   }
 ): Promise<Item> {
+  // Check cache first to avoid duplicate AI calls
+  const cacheKey = itemName.toLowerCase().trim();
+  const cachedItemId = itemCreationCache.get(cacheKey);
+  
+  if (cachedItemId) {
+    const cachedItem = await storage.getItem(cachedItemId);
+    if (cachedItem) {
+      console.log(`[Item Creation] Using cached item "${cachedItem.name}" (${cachedItem.id})`);
+      return cachedItem;
+    }
+    // If item was deleted, remove from cache
+    itemCreationCache.delete(cacheKey);
+  }
   const gameSystem = context?.gameSystem || "dnd";
   const questContext = context?.questDescription || "General adventuring reward";
 
@@ -101,13 +125,7 @@ Be creative but balanced for D&D 5e. Return ONLY the JSON, no markdown, no code 
     }
 
     // Generate a unique ID for the item
-    const slug = itemName
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "");
-    
-    // Add random suffix to ensure uniqueness
-    const itemId = slug ? `ai-${slug}-${randomUUID().slice(0, 6)}` : `ai-item-${randomUUID().slice(0, 8)}`;
+    const itemId = generateItemSlug(itemName, "ai");
 
     // Create the item in the database
     const item = await storage.createItem({
@@ -125,6 +143,10 @@ Be creative but balanced for D&D 5e. Return ONLY the JSON, no markdown, no code 
     });
 
     console.log(`[Item Creation] Successfully created item "${item.name}" (${item.id}) with AI-generated stats`);
+    
+    // Cache the item to avoid duplicate AI calls
+    itemCreationCache.set(cacheKey, item.id);
+    
     return item;
 
   } catch (error) {
@@ -133,11 +155,7 @@ Be creative but balanced for D&D 5e. Return ONLY the JSON, no markdown, no code 
     // Fallback: Create a basic generic item
     console.log(`[Item Creation] Creating fallback item for "${itemName}"`);
     
-    const slug = itemName
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "");
-    const itemId = slug ? `fallback-${slug}-${randomUUID().slice(0, 6)}` : `fallback-${randomUUID().slice(0, 8)}`;
+    const itemId = generateItemSlug(itemName, "fallback");
 
     const fallbackItem = await storage.createItem({
       id: itemId,
@@ -154,6 +172,10 @@ Be creative but balanced for D&D 5e. Return ONLY the JSON, no markdown, no code 
     });
 
     console.log(`[Item Creation] Created fallback item "${fallbackItem.name}" (${fallbackItem.id})`);
+    
+    // Cache the fallback item too
+    itemCreationCache.set(cacheKey, fallbackItem.id);
+    
     return fallbackItem;
   }
 }
