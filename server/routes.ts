@@ -1427,6 +1427,30 @@ async function executeGameActions(
                   const roomCharacters = await storage.getCharactersByRoomCode(roomCode);
                   console.log(`[Quest Reward] Distributing rewards for quest "${quest.name}" to ${roomCharacters.length} character(s)`);
                   
+                  // Pre-create all unique items first to avoid race conditions
+                  // This ensures items exist before distributing to multiple characters
+                  if (quest.rewards.items && quest.rewards.items.length > 0) {
+                    const uniqueItems = [...new Set(quest.rewards.items)];
+                    for (const itemIdentifier of uniqueItems) {
+                      try {
+                        let item = await storage.getItem(itemIdentifier);
+                        if (!item) {
+                          item = await storage.getItemByName(itemIdentifier);
+                        }
+                        if (!item) {
+                          console.log(`[Quest Reward] Pre-creating item "${itemIdentifier}"...`);
+                          item = await createItemFromReward(itemIdentifier, {
+                            questDescription: quest.description,
+                            gameSystem: room.gameSystem || 'dnd'
+                          });
+                          console.log(`[Quest Reward] Pre-created item: ${item.name} (${item.id})`);
+                        }
+                      } catch (itemErr) {
+                        console.error(`[Quest Reward] Failed to pre-create item "${itemIdentifier}":`, itemErr);
+                      }
+                    }
+                  }
+                  
                   // Process characters in parallel using Promise.allSettled for better performance
                   // Each character's rewards are independent, so failures won't affect others
                   const rewardPromises = roomCharacters.map(async (char) => {
@@ -1452,24 +1476,19 @@ async function executeGameActions(
                         console.log(`[Quest Reward] Gave ${quest.rewards.xp} xp to ${char.characterName}`);
                       }
 
-                      // Award items
+                      // Award items (they should already exist from pre-creation)
                       if (quest.rewards.items && quest.rewards.items.length > 0) {
                         for (const itemIdentifier of quest.rewards.items) {
                           try {
-                            // Try to find existing item by ID or name
+                            // Items should exist from pre-creation, but double-check
                             let item = await storage.getItem(itemIdentifier);
                             if (!item) {
                               item = await storage.getItemByName(itemIdentifier);
                             }
                             
-                            // If item doesn't exist, create it dynamically using AI
                             if (!item) {
-                              console.log(`[Quest Reward] Item "${itemIdentifier}" not found, creating dynamically...`);
-                              item = await createItemFromReward(itemIdentifier, {
-                                questDescription: quest.description,
-                                gameSystem: room.gameSystem || 'dnd'
-                              });
-                              console.log(`[Quest Reward] Created new item: ${item.name} (${item.id})`);
+                              console.error(`[Quest Reward] Item "${itemIdentifier}" missing after pre-creation`);
+                              continue;
                             }
 
                             // Add to character inventory
@@ -1494,9 +1513,15 @@ async function executeGameActions(
                   // Wait for all reward distributions to complete
                   const results = await Promise.allSettled(rewardPromises);
                   
-                  // Count successes and failures
-                  const successful = results.filter(r => r.status === 'fulfilled').length;
-                  const failed = results.filter(r => r.status === 'rejected').length;
+                  // Count successes and failures in a single pass
+                  const { successful, failed } = results.reduce(
+                    (acc, r) => {
+                      if (r.status === 'fulfilled') acc.successful++;
+                      else acc.failed++;
+                      return acc;
+                    },
+                    { successful: 0, failed: 0 }
+                  );
                   
                   console.log(`[Quest Complete] Distributed rewards: ${successful} successful, ${failed} failed`);
                 }
