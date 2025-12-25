@@ -46,6 +46,7 @@ import {
 import { eq, sql, desc, inArray } from "drizzle-orm";
 import { setupAuth, isAuthenticated, getSession } from "./auth";
 import passport from "passport";
+import { createItemFromReward } from "./utils/item-creation";
 
 // ============================================================================
 // Adventure Context Helper
@@ -1041,108 +1042,123 @@ async function executeGameActions(
                 }
               }
 
-              // Create a slug from the normalized name, fallback to UUID if empty
-              const slug = normalizedName
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, "-")
-                .replace(/^-|-$/g, "");
-              const itemId = slug ? `custom-${slug}` : `custom-${randomUUID().slice(0, 8)}`;
-
-              // Check if this custom item already exists (in case of race condition or prior creation)
-              item = await storage.getItem(itemId);
-
-              if (!item) {
+              // If no custom properties provided, use AI-powered item creation
+              if (!action.customProperties || Object.keys(customProps).length === 0) {
                 try {
-                  // Build item properties with AI-generated stats or defaults
-                  const itemProperties: any = {};
-                  
-                  // Weapon damage mapping for common weapon types
-                  const weaponDamageMap: Record<string, string> = {
-                    'dagger': '1d4',
-                    'dart': '1d4',
-                    'shortsword': '1d6',
-                    'scimitar': '1d6',
-                    'spear': '1d6',
-                    'trident': '1d6',
-                    'mace': '1d6',
-                    'club': '1d6',
-                    'staff': '1d6',
-                    'quarterstaff': '1d6',
-                    'handaxe': '1d6',
-                    'light hammer': '1d6',
-                    'longsword': '1d8',
-                    'battleaxe': '1d8',
-                    'warhammer': '1d8',
-                    'greatsword': '2d6',
-                    'greataxe': '2d6',
-                    'maul': '2d6',
-                    'pike': '2d6',
-                  };
-                  
-                  // Determine default damage for weapons based on type
-                  const getDefaultDamage = (category: string, type: string): string | null => {
-                    if (category !== "weapon") return null;
-                    const lowerType = type.toLowerCase();
+                  console.log(`[Item Add] Item "${normalizedName}" not found, creating with AI...`);
+                  item = await createItemFromReward(normalizedName, {
+                    gameSystem: room?.gameSystem || 'dnd'
+                  });
+                  console.log(`[Item Add] Created AI-powered item: ${item.name} (${item.id})`);
+                } catch (aiError) {
+                  console.error(`[Item Add] Failed to create AI-powered item "${normalizedName}":`, aiError);
+                  break;
+                }
+              } else {
+                // Use manual item creation with custom properties
+                // Create a slug from the normalized name, fallback to UUID if empty
+                const slug = normalizedName
+                  .toLowerCase()
+                  .replace(/[^a-z0-9]+/g, "-")
+                  .replace(/^-|-$/g, "");
+                const itemId = slug ? `custom-${slug}` : `custom-${randomUUID().slice(0, 8)}`;
+
+                // Check if this custom item already exists (in case of race condition or prior creation)
+                item = await storage.getItem(itemId);
+
+                if (!item) {
+                  try {
+                    // Build item properties with AI-generated stats or defaults
+                    const itemProperties: any = {};
                     
-                    // Check for exact or partial match in weapon damage map
-                    for (const [weaponType, damage] of Object.entries(weaponDamageMap)) {
-                      if (lowerType.includes(weaponType)) {
-                        return damage;
+                    // Weapon damage mapping for common weapon types
+                    const weaponDamageMap: Record<string, string> = {
+                      'dagger': '1d4',
+                      'dart': '1d4',
+                      'shortsword': '1d6',
+                      'scimitar': '1d6',
+                      'spear': '1d6',
+                      'trident': '1d6',
+                      'mace': '1d6',
+                      'club': '1d6',
+                      'staff': '1d6',
+                      'quarterstaff': '1d6',
+                      'handaxe': '1d6',
+                      'light hammer': '1d6',
+                      'longsword': '1d8',
+                      'battleaxe': '1d8',
+                      'warhammer': '1d8',
+                      'greatsword': '2d6',
+                      'greataxe': '2d6',
+                      'maul': '2d6',
+                      'pike': '2d6',
+                    };
+                    
+                    // Determine default damage for weapons based on type
+                    const getDefaultDamage = (category: string, type: string): string | null => {
+                      if (category !== "weapon") return null;
+                      const lowerType = type.toLowerCase();
+                      
+                      // Check for exact or partial match in weapon damage map
+                      for (const [weaponType, damage] of Object.entries(weaponDamageMap)) {
+                        if (lowerType.includes(weaponType)) {
+                          return damage;
+                        }
+                      }
+                      
+                      return "1d6"; // Default weapon damage
+                    };
+                    
+                    // Add damage properties if provided, or set defaults for weapons
+                    if (customProps.damage) {
+                      itemProperties.damage = {
+                        damage_dice: customProps.damage,
+                        damage_type: { name: customProps.damageType || "slashing" }
+                      };
+                    } else if (customProps.category === "weapon") {
+                      const defaultDamage = getDefaultDamage(customProps.category, customProps.type || normalizedName);
+                      if (defaultDamage) {
+                        itemProperties.damage = {
+                          damage_dice: defaultDamage,
+                          damage_type: { name: customProps.damageType || "slashing" }
+                        };
                       }
                     }
                     
-                    return "1d6"; // Default weapon damage
-                  };
-                  
-                  // Add damage properties if provided, or set defaults for weapons
-                  if (customProps.damage) {
-                    itemProperties.damage = {
-                      damage_dice: customProps.damage,
-                      damage_type: { name: customProps.damageType || "slashing" }
-                    };
-                  } else if (customProps.category === "weapon") {
-                    const defaultDamage = getDefaultDamage(customProps.category, customProps.type || normalizedName);
-                    if (defaultDamage) {
-                      itemProperties.damage = {
-                        damage_dice: defaultDamage,
-                        damage_type: { name: customProps.damageType || "slashing" }
+                    // Add armor class if provided
+                    if (customProps.armorClass !== undefined) {
+                      itemProperties.armor_class = {
+                        base: customProps.armorClass,
+                        dex_bonus: customProps.dexBonus || false,
+                        max_bonus: customProps.maxBonus
                       };
                     }
-                  }
-                  
-                  // Add armor class if provided
-                  if (customProps.armorClass !== undefined) {
-                    itemProperties.armor_class = {
-                      base: customProps.armorClass,
-                      dex_bonus: customProps.dexBonus || false,
-                      max_bonus: customProps.maxBonus
-                    };
-                  }
-                  
-                  // Add any other custom properties
-                  Object.assign(itemProperties, customProps.properties || {});
+                    
+                    // Add any other custom properties
+                    Object.assign(itemProperties, customProps.properties || {});
 
-                  // Set sensible defaults for weight and cost
-                  const defaultWeight = customProps.weight ?? 0.1;
-                  const defaultCost = customProps.cost ?? 1;
+                    // Set sensible defaults for weight and cost
+                    const defaultWeight = customProps.weight ?? 0.1;
+                    const defaultCost = customProps.cost ?? 1;
 
-                  item = await storage.createItem({
-                    id: itemId,
-                    name: normalizedName,
-                    category: customProps.category || "other",
-                    type: customProps.type || "Custom Item",
-                    description: customProps.description || `A custom item created by the Dungeon Master: ${normalizedName}`,
-                    rarity: customProps.rarity || "uncommon",
-                    cost: defaultCost,
-                    weight: defaultWeight,
-                    properties: itemProperties,
-                    requiresAttunement: customProps.requiresAttunement || false,
-                    gameSystem: room?.gameSystem || "dnd",
-                  });
-                  console.log(`[DM Action] Created custom item "${normalizedName}" in database with full stats`);
-                } catch (createError) {
-                  console.error(`[DM Action] Failed to create custom item "${normalizedName}":`, createError);
-                  break;
+                    item = await storage.createItem({
+                      id: itemId,
+                      name: normalizedName,
+                      category: customProps.category || "other",
+                      type: customProps.type || "Custom Item",
+                      description: customProps.description || `A custom item created by the Dungeon Master: ${normalizedName}`,
+                      rarity: customProps.rarity || "uncommon",
+                      cost: defaultCost,
+                      weight: defaultWeight,
+                      properties: itemProperties,
+                      requiresAttunement: customProps.requiresAttunement || false,
+                      gameSystem: room?.gameSystem || "dnd",
+                    });
+                    console.log(`[DM Action] Created custom item "${normalizedName}" in database with full stats`);
+                  } catch (createError) {
+                    console.error(`[DM Action] Failed to create custom item "${normalizedName}":`, createError);
+                    break;
+                  }
                 }
               }
             }
@@ -1394,7 +1410,7 @@ async function executeGameActions(
                 status: action.questStatus as 'active' | 'in_progress' | 'completed' | 'failed'
               });
 
-              // If completed, update all objectives
+              // If completed, update all objectives and distribute rewards
               if (action.questStatus === 'completed') {
                 const objectives = await storage.getQuestObjectives(quest.id);
                 for (const obj of objectives) {
@@ -1404,6 +1420,110 @@ async function executeGameActions(
                       completedAt: new Date(),
                     });
                   }
+                }
+
+                // Distribute quest rewards to all characters in the room
+                if (quest.rewards) {
+                  const roomCharacters = await storage.getCharactersByRoomCode(roomCode);
+                  console.log(`[Quest Reward] Distributing rewards for quest "${quest.name}" to ${roomCharacters.length} character(s)`);
+                  
+                  // Pre-create all unique items first to avoid race conditions
+                  // This ensures items exist before distributing to multiple characters
+                  if (quest.rewards.items && quest.rewards.items.length > 0) {
+                    const uniqueItems = [...new Set(quest.rewards.items)];
+                    for (const itemIdentifier of uniqueItems) {
+                      try {
+                        let item = await storage.getItem(itemIdentifier);
+                        if (!item) {
+                          item = await storage.getItemByName(itemIdentifier);
+                        }
+                        if (!item) {
+                          console.log(`[Quest Reward] Pre-creating item "${itemIdentifier}"...`);
+                          item = await createItemFromReward(itemIdentifier, {
+                            questDescription: quest.description,
+                            gameSystem: room.gameSystem || 'dnd'
+                          });
+                          console.log(`[Quest Reward] Pre-created item: ${item.name} (${item.id})`);
+                        }
+                      } catch (itemErr) {
+                        console.error(`[Quest Reward] Failed to pre-create item "${itemIdentifier}":`, itemErr);
+                      }
+                    }
+                  }
+                  
+                  // Process characters in parallel using Promise.allSettled for better performance
+                  // Each character's rewards are independent, so failures won't affect others
+                  const rewardPromises = roomCharacters.map(async (char) => {
+                    try {
+                      // Award gold
+                      if (quest.rewards.gold && quest.rewards.gold > 0) {
+                        const currentCurrency = char.currency || { cp: 0, sp: 0, gp: 0 };
+                        await storage.updateSavedCharacter(char.id, {
+                          currency: {
+                            ...currentCurrency,
+                            gp: currentCurrency.gp + quest.rewards.gold
+                          }
+                        });
+                        console.log(`[Quest Reward] Gave ${quest.rewards.gold} gp to ${char.characterName}`);
+                      }
+
+                      // Award XP
+                      if (quest.rewards.xp && quest.rewards.xp > 0) {
+                        const currentXp = char.xp || 0;
+                        await storage.updateSavedCharacter(char.id, {
+                          xp: currentXp + quest.rewards.xp
+                        });
+                        console.log(`[Quest Reward] Gave ${quest.rewards.xp} xp to ${char.characterName}`);
+                      }
+
+                      // Award items (they should already exist from pre-creation)
+                      if (quest.rewards.items && quest.rewards.items.length > 0) {
+                        for (const itemIdentifier of quest.rewards.items) {
+                          try {
+                            // Items should exist from pre-creation, but double-check
+                            let item = await storage.getItem(itemIdentifier);
+                            if (!item) {
+                              item = await storage.getItemByName(itemIdentifier);
+                            }
+                            
+                            if (!item) {
+                              console.error(`[Quest Reward] Item "${itemIdentifier}" missing after pre-creation`);
+                              continue;
+                            }
+
+                            // Add to character inventory
+                            await storage.addToSavedInventory({
+                              characterId: char.id,
+                              itemId: item.id,
+                              quantity: 1
+                            });
+                            console.log(`[Quest Reward] Gave ${item.name} to ${char.characterName}`);
+                          } catch (itemErr) {
+                            console.error(`[Quest Reward] Failed to award item "${itemIdentifier}" to ${char.characterName}:`, itemErr);
+                            // Continue with other items
+                          }
+                        }
+                      }
+                    } catch (charErr) {
+                      console.error(`[Quest Reward] Failed to distribute rewards to ${char.characterName}:`, charErr);
+                      throw charErr; // Re-throw so Promise.allSettled captures it
+                    }
+                  });
+
+                  // Wait for all reward distributions to complete
+                  const results = await Promise.allSettled(rewardPromises);
+                  
+                  // Count successes and failures in a single pass
+                  const { successful, failed } = results.reduce(
+                    (acc, r) => {
+                      if (r.status === 'fulfilled') acc.successful++;
+                      else acc.failed++;
+                      return acc;
+                    },
+                    { successful: 0, failed: 0 }
+                  );
+                  
+                  console.log(`[Quest Complete] Distributed rewards: ${successful} successful, ${failed} failed`);
                 }
 
                 // Create completion event
