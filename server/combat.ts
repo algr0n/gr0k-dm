@@ -326,15 +326,15 @@ export function decideMonsterActions(state: any, maxActions = 1) {
     const hasRanged = !!monster.metadata?.hasRangedAttack;
 
     // Compute players in melee/reach
-    const playersInMelee = players.filter(p => distance(monster, p) <= meleeReach);
-    const playersInRanged = players.filter(p => hasRanged && distance(monster, p) <= rangedRange);
+    const playersInMelee = players.filter((p: any) => distance(monster, p) <= meleeReach);
+    const playersInRanged = players.filter((p: any) => hasRanged && distance(monster, p) <= rangedRange);
 
     let chosenTarget: any = null;
     let action: any = null;
 
     // If we don't have positional data, fallback to previous lowest-HP behavior
-    const distances = players.map(p => distance(monster, p));
-    const hasFiniteDistance = distances.some(d => Number.isFinite(d));
+    const distances = players.map((p: any) => distance(monster, p));
+    const hasFiniteDistance = distances.some((d: number) => Number.isFinite(d));
     if (!hasFiniteDistance) {
       // fallback: pick lowest HP
       players.sort((a: any, b: any) => (a.currentHp ?? 0) - (b.currentHp ?? 0));
@@ -446,7 +446,13 @@ export function applyMoveAction(state: any, action: any) {
   // Check terrain along straight line (simple check: if destination is inside difficult terrain, multiply cost)
   const env = state.environment ?? [];
   for (const f of env) {
-    if (f.type === 'difficult' && pointInFeature(action.to, f)) {
+    // Check if point is within feature (simple circular check)
+    const dx = action.to.x - f.position.x;
+    const dy = action.to.y - f.position.y;
+    const distSquared = dx * dx + dy * dy;
+    const inFeature = distSquared <= f.radius * f.radius;
+    
+    if (f.type === 'difficult' && inFeature) {
       moveAllowed = moveAllowed / (f.properties?.movementCostMultiplier ?? 2);
     }
   }
