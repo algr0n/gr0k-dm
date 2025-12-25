@@ -30,7 +30,7 @@ import {
   type AdventureContext,
   getTokenUsage,
 } from "./grok";
-import { rollInitiativesForCombat, createCombatState, resolveAttack, addHold, processTrigger, advanceTurn, type CombatState as FullCombatState } from "./combat";
+import { rollInitiativesForCombat, createCombatState, resolveAttack, addHold, processTrigger, advanceTurn, updateThreat, applyMoveAction, decideMonsterActions, type CombatState as FullCombatState } from "./combat";
 import {
   insertRoomSchema,
   insertSavedCharacterSchema,
@@ -2020,7 +2020,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // In-memory suggestion store for NL->Action confirm flow
-  const suggestionStore: Map<string, { roomCode: string; userId: string; playerName: string; action: any; originalText: string; createdAt: number }> = new Map()
+  const suggestionStore: Map<string, { roomCode: string; userId: string | undefined; playerName: string; action: any; originalText: string; createdAt: number }> = new Map()
   const SUGGESTION_THRESHOLD = 0.6
   const AUTO_ACCEPT_THRESHOLD = 0.8
 
@@ -5236,3 +5236,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   return httpServer;
 }
+function generateCombatStage(openai: any, locationName: string, seed: any): Promise<{ summary: string; features: any[]; spawns: any[] }> {
+  // Placeholder implementation - returns a basic combat stage
+  // TODO: Implement actual LLM-based combat stage generation
+  return Promise.resolve({
+    summary: `Combat encounter at ${locationName}`,
+    features: [],
+    spawns: []
+  });
+}
+
