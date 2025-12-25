@@ -161,6 +161,7 @@ import { randomUUID } from "crypto";
 import { 
   rooms, players, diceRolls, items, spells,
   savedCharacters, characterInventoryItems, characterStatusEffects, users,
+  combatEncounters, combatEnvironmentFeatures, combatSpawns,
 } from "@shared/schema";
 import {
   questObjectiveProgress,

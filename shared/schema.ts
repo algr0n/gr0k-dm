@@ -1646,6 +1646,107 @@ export function getSkillBonus(
 }
 
 // =============================================================================
+// Advanced Combat System Tables
+// =============================================================================
+
+// Combat Encounters - persistent combat scenarios
+export const combatEncounters = sqliteTable("combat_encounters", {
+  id: text("id").primaryKey().default(generateUUID()),
+  roomId: text("room_id").references(() => rooms.id, { onDelete: "cascade" }),
+  locationId: text("location_id"), // Reference to dynamic_locations if needed
+  name: text("name").notNull(),
+  seed: text("seed"), // Random seed for reproducible generation
+  generatedBy: text("generated_by"), // "ai" | "manual" | "template"
+  metadata: text("metadata", { mode: 'json' }).$type<Record<string, unknown>>(),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [
+  index("idx_combat_encounters_room").on(table.roomId),
+  index("idx_combat_encounters_location").on(table.locationId),
+]);
+
+export type CombatEncounter = typeof combatEncounters.$inferSelect;
+export type InsertCombatEncounter = typeof combatEncounters.$inferInsert;
+
+// Environment Features - terrain, cover, hazards for combat
+export const combatEnvironmentFeatures = sqliteTable("combat_environment_features", {
+  id: text("id").primaryKey().default(generateUUID()),
+  encounterId: text("encounter_id").notNull().references(() => combatEncounters.id, { onDelete: "cascade" }),
+  type: text("type").notNull(), // "cover" | "difficult" | "high_ground" | "hazard"
+  positionX: integer("position_x").notNull().default(0),
+  positionY: integer("position_y").notNull().default(0),
+  radius: integer("radius").notNull().default(5),
+  properties: text("properties", { mode: 'json' }).$type<{
+    coverBonus?: number;
+    concealment?: number;
+    movementCostMultiplier?: number;
+    damage?: string;
+  }>(),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [
+  index("idx_combat_env_features_encounter").on(table.encounterId),
+]);
+
+export type CombatEnvironmentFeature = typeof combatEnvironmentFeatures.$inferSelect;
+export type InsertCombatEnvironmentFeature = typeof combatEnvironmentFeatures.$inferInsert;
+
+// Combat Spawns - monster/NPC spawn points for encounters
+export const combatSpawns = sqliteTable("combat_spawns", {
+  id: text("id").primaryKey().default(generateUUID()),
+  encounterId: text("encounter_id").notNull().references(() => combatEncounters.id, { onDelete: "cascade" }),
+  monsterName: text("monster_name").notNull(),
+  count: integer("count").notNull().default(1),
+  positionX: integer("position_x"),
+  positionY: integer("position_y"),
+  behavior: text("behavior"), // "aggressive" | "defensive" | "patrol" | "ambush"
+  metadata: text("metadata", { mode: 'json' }).$type<Record<string, unknown>>(),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [
+  index("idx_combat_spawns_encounter").on(table.encounterId),
+]);
+
+export type CombatSpawn = typeof combatSpawns.$inferSelect;
+export type InsertCombatSpawn = typeof combatSpawns.$inferInsert;
+
+// Dynamic NPCs - AI-generated NPCs and monsters for rooms
+export const dynamicNpcs = sqliteTable("dynamic_npcs", {
+  id: text("id").primaryKey().default(generateUUID()),
+  roomId: text("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  role: text("role"), // "enemy" | "ally" | "neutral" | "questgiver"
+  description: text("description"),
+  personality: text("personality"),
+  statsBlock: text("stats_block"), // JSON string of monster stats
+  isQuestGiver: integer("is_quest_giver", { mode: 'boolean' }).default(false),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [
+  index("idx_dynamic_npcs_room").on(table.roomId),
+  index("idx_dynamic_npcs_role").on(table.role),
+  index("idx_dynamic_npcs_quest_giver").on(table.isQuestGiver),
+]);
+
+export type DynamicNpc = typeof dynamicNpcs.$inferSelect;
+export type InsertDynamicNpc = typeof dynamicNpcs.$inferInsert;
+
+// Dynamic Locations - AI-generated locations for rooms
+export const dynamicLocations = sqliteTable("dynamic_locations", {
+  id: text("id").primaryKey().default(generateUUID()),
+  roomId: text("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  type: text("type").notNull().default("other"), // "dungeon" | "town" | "wilderness" | "building" | "other"
+  description: text("description"),
+  boxedText: text("boxed_text"), // Read-aloud text for DM
+  features: text("features", { mode: 'json' }).$type<string[]>().default(sql`'[]'`),
+  connections: text("connections", { mode: 'json' }).$type<string[]>().default(sql`'[]'`),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [
+  index("idx_dynamic_locations_room").on(table.roomId),
+  index("idx_dynamic_locations_type").on(table.type),
+]);
+
+export type DynamicLocation = typeof dynamicLocations.$inferSelect;
+export type InsertDynamicLocation = typeof dynamicLocations.$inferInsert;
+
+// =============================================================================
 // Adventure Module Schema Exports
 // =============================================================================
 
