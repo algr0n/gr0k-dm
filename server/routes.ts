@@ -1114,6 +1114,9 @@ async function executeGameActions(
                 roll: e.roll,
                 modifier: e.modifier,
                 total: e.total,
+                currentHp: e.currentHp,
+                maxHp: e.maxHp,
+                ac: e.ac,
               }));
 
               combatState.initiatives = initiativesForState;
@@ -2173,6 +2176,68 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             const combatState = roomCombatState.get(code);
             if (combatState) {
               ws.send(JSON.stringify({ type: "combat_update", combat: combatState }));
+            }
+          } else if (message.type === "hold_turn") {
+            // Handle hold turn request via WebSocket
+            try {
+              const { actorId, holdType, triggerActorId } = message;
+              const state = roomFullCombatState.get(code);
+              if (state && state.isActive) {
+                addHold(state, actorId, { type: holdType || 'end', triggerActorId });
+                roomFullCombatState.set(code, state);
+                broadcastToRoom(code, { type: 'combat_event', event: 'hold', actorId, holdType, triggerActorId });
+                // Also update legacy state
+                const currentIdx = state.currentTurnIndex;
+                const legacyInitiatives = state.initiatives.map((e: any) => ({ 
+                  playerId: e.id, 
+                  playerName: e.metadata?.playerName ?? e.name, 
+                  characterName: e.name, 
+                  roll: e.roll, 
+                  modifier: e.modifier, 
+                  total: e.total 
+                }));
+                roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives });
+                broadcastToRoom(code, { type: "combat_update", combat: roomCombatState.get(code) });
+              }
+            } catch (err) {
+              console.error('[WebSocket] Hold turn error:', err);
+            }
+          } else if (message.type === "pass_turn") {
+            // Handle pass turn request via WebSocket
+            try {
+              const { actorId } = message;
+              const state = roomFullCombatState.get(code);
+              if (state && state.isActive) {
+                const currentActor = state.initiatives[state.currentTurnIndex];
+                if (currentActor && currentActor.id === actorId) {
+                  // Record pass
+                  state.actionHistory.push({ actorId, type: 'pass', timestamp: Date.now() });
+                  broadcastToRoom(code, { type: 'combat_event', event: 'pass', actorId });
+                  
+                  const prevActorId = currentActor.id;
+                  advanceTurn(state);
+                  const inserted = processTrigger(state, prevActorId);
+                  if (inserted.length > 0) {
+                    broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
+                  }
+                  
+                  roomFullCombatState.set(code, state);
+                  // Update legacy state
+                  const currentIdx = state.currentTurnIndex;
+                  const legacyInitiatives = state.initiatives.map((e: any) => ({ 
+                    playerId: e.id, 
+                    playerName: e.metadata?.playerName ?? e.name, 
+                    characterName: e.name, 
+                    roll: e.roll, 
+                    modifier: e.modifier, 
+                    total: e.total 
+                  }));
+                  roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives });
+                  broadcastToRoom(code, { type: "combat_update", combat: roomCombatState.get(code) });
+                }
+              }
+            } catch (err) {
+              console.error('[WebSocket] Pass turn error:', err);
             }
           }
         } catch (error) {

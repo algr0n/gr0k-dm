@@ -35,6 +35,9 @@ interface InitiativeEntry {
   roll: number;
   modifier: number;
   total: number;
+  currentHp?: number;
+  maxHp?: number;
+  ac?: number;
 }
 
 interface CombatState {
@@ -1121,25 +1124,78 @@ export default function RoomPage() {
           
           {combatState?.isActive ? (
             <div className="space-y-2">
-              <ScrollArea className="h-32">
+              <ScrollArea className="h-48">
                 <div className="space-y-1">
-                  {combatState.initiatives.map((entry, idx) => (
-                    <div
-                      key={entry.playerId}
-                      className={cn(
-                        "flex items-center justify-between text-sm px-2 py-1 rounded",
-                        idx === combatState.currentTurnIndex && "bg-primary/20 font-medium"
-                      )}
-                      data-testid={`initiative-${entry.playerId}`}
-                    >
-                      <span className="truncate flex-1">
-                        {idx + 1}. {entry.characterName}
-                      </span>
-                      <Badge variant="outline" className="ml-2">
-                        {entry.total}
-                      </Badge>
-                    </div>
-                  ))}
+                  {combatState.initiatives.map((entry, idx) => {
+                    const isCurrentTurn = idx === combatState.currentTurnIndex;
+                    const isMyCharacter = entry.characterName === myCharacter?.characterName;
+                    const canControl = isHost || isMyCharacter;
+                    
+                    return (
+                      <div
+                        key={entry.playerId}
+                        className={cn(
+                          "flex flex-col text-sm px-2 py-1.5 rounded gap-1",
+                          isCurrentTurn && "bg-primary/20 font-medium border-l-2 border-primary"
+                        )}
+                        data-testid={`initiative-${entry.playerId}`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate flex-1">
+                            {idx + 1}. {entry.characterName}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {entry.currentHp !== undefined && entry.maxHp !== undefined && (
+                              <span className="text-xs text-muted-foreground font-mono">
+                                {entry.currentHp}/{entry.maxHp} HP
+                              </span>
+                            )}
+                            <Badge variant="outline" className="text-xs">
+                              {entry.total}
+                            </Badge>
+                          </div>
+                        </div>
+                        
+                        {isCurrentTurn && canControl && !gameEnded && (
+                          <div className="flex gap-1.5 mt-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-6 text-xs flex-1"
+                              onClick={() => {
+                                if (wsRef.current?.readyState === WebSocket.OPEN) {
+                                  wsRef.current.send(JSON.stringify({
+                                    type: "hold_turn",
+                                    actorId: entry.playerId,
+                                    holdType: "end"
+                                  }));
+                                }
+                              }}
+                              data-testid={`button-hold-${entry.playerId}`}
+                            >
+                              Hold
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-6 text-xs flex-1"
+                              onClick={() => {
+                                if (wsRef.current?.readyState === WebSocket.OPEN) {
+                                  wsRef.current.send(JSON.stringify({
+                                    type: "pass_turn",
+                                    actorId: entry.playerId
+                                  }));
+                                }
+                              }}
+                              data-testid={`button-pass-${entry.playerId}`}
+                            >
+                              Pass
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </ScrollArea>
               
