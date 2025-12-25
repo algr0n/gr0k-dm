@@ -13,13 +13,19 @@ export async function generateCombatDMTurn(
   openaiClient: OpenAI,
   room: Room,
   partyCharacters?: CharacterInfo[],
-  client?: Client
+  client?: Client,
+  options?: { decisionOnly?: boolean; maxDecisions?: number }
 ): Promise<string> {
   const gameSystem = room.gameSystem || "dnd";
 
   const builder = new ContextBuilder();
   builder.addSystemPrompt(gameSystem);
-  builder.addCombatContext(`\n\nCOMBAT TURN: It's now the enemies' turn in initiative order. Describe what the enemies do - their attacks, movements, abilities. Roll dice for enemy attacks and describe the results. Be brief but dramatic. Target specific player characters by name if known.`);
+
+  if (options?.decisionOnly) {
+    builder.addCombatContext(`\n\nDECISION MODE: Provide a short, one-line decision for each enemy in initiative order (max ${options.maxDecisions ?? 3}). For each enemy, return: MonsterName -> action (e.g., 'Goblin -> Attack Alice with Scimitar'). Do NOT roll dice or resolve damage. Keep responses short and machine-parseable.`);
+  } else {
+    builder.addCombatContext(`\n\nCOMBAT TURN: It's now the enemies' turn in initiative order. Describe what the enemies do - their attacks, movements, abilities. Roll dice for enemy attacks and describe the results. Be brief but dramatic. Target specific player characters by name if known.`);
+  }
 
   if (room.currentScene) {
     builder.addScene(room.currentScene);
@@ -75,24 +81,22 @@ export async function generateCombatDMTurn(
     console.log(`[Combat Cache Stats] Room: ${room.id}, Cached: ${stats.size}/${stats.maxSize}, Utilization: ${stats.utilization}%`);
   }
 
-  builder.addUserMessage(`[COMBAT - ENEMY TURN] The enemies act now. Describe their actions, roll their attacks, and narrate the results. Keep it brief and dramatic.`);
-
   const messages = builder.build();
 
   try {
     const response = await openaiClient.chat.completions.create({
       model: "grok-4-1-fast-reasoning",
       messages,
-      max_tokens: 600,
-      temperature: 0.8,
+      max_tokens: options?.decisionOnly ? 150 : 600,
+      temperature: options?.decisionOnly ? 0.2 : 0.8,
     });
 
     tokenTracker.track(room.id, response.usage);
     console.log(`[Combat DM Turn] Generated enemy actions for room ${room.id}`);
-    return response.choices[0]?.message?.content || "The enemies prepare their next move...";
+    return response.choices[0]?.message?.content || (options?.decisionOnly ? "" : "The enemies prepare their next move...");
   } catch (error) {
     console.error("Combat DM turn error:", error);
-    return "The enemies ready themselves for their next attack...";
+    return options?.decisionOnly ? "" : "The enemies ready themselves for their next attack...";
   }
 }
 

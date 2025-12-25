@@ -3,11 +3,13 @@
 
 import OpenAI from "openai";
 
-// Initialize OpenAI client for xAI Grok API
-export const openai = new OpenAI({ 
-  baseURL: "https://api.x.ai/v1", 
-  apiKey: process.env.XAI_API_KEY 
-});
+// Initialize OpenAI client for xAI Grok API lazily/safely.
+// In browser-like test environments (jsdom) the OpenAI client refuses to initialize —
+// so only create the client when running in Node and when an API key is available.
+export const openai: any = (typeof window === 'undefined' && process.env.XAI_API_KEY)
+  ? new OpenAI({ baseURL: "https://api.x.ai/v1", apiKey: process.env.XAI_API_KEY })
+  : null; // tests can stub/mock this as needed
+
 
 // Re-export generators
 export {

@@ -1,0 +1,12 @@
+{
+  "id": "enc-1",
+  "mapMeta": {"width": 12, "height": 8, "gridSize": 40},
+  "tokens": [
+    { "id": "p1", "x": 3, "y": 4, "metadata": { "name": "Alice", "hp": 10 } },
+    { "id": "p2", "x": 5, "y": 4, "metadata": { "name": "Bob", "hp": 3 } },
+    { "id": "m1", "x": 8, "y": 4, "metadata": { "name": "Goblin", "hp": 7 } }
+  ],
+  "features": [ { "id": "f1", "type": "cover", "x": 6, "y": 4, "radius": 1, "properties": { "coverBonus": 2 } } ],
+  "initiativeOrder": [ { "actorId": "p1", "name": "Alice", "initiative": 18, "controller": "player", "currentHp": 10, "maxHp": 10 }, { "actorId": "m1", "name": "Goblin", "initiative": 15, "controller": "monster", "currentHp": 7, "maxHp": 7 }, { "actorId": "p2", "name": "Bob", "initiative": 12, "controller": "player", "currentHp": 3, "maxHp": 10 } ],
+  "tokensById": {"p1": {}, "p2": {}, "m1": {} }
+}

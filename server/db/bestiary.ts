@@ -25,6 +25,7 @@ export interface MonsterStats {
   skills: string | null;
   senses: string | null;
   languages: string | null;
+  xp?: number;
 }
 
 export interface MonsterDetail extends MonsterStats {
@@ -136,6 +137,7 @@ export async function getMonsterByName(
       cha: monster.cha,
       challenge_rating: monster.challenge_rating,
       cr_decimal: monster.cr_decimal,
+      xp: monster.xp,
       hit_points: monster.hit_points,
       speed: monster.speed,
       alignment: monster.alignment,

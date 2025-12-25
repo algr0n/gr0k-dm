@@ -705,6 +705,57 @@ class DatabaseStorage implements Storage {
     return await db.select().from(dynamicNpcs).where(eq(dynamicNpcs.roomId, roomId)).orderBy(dynamicNpcs.createdAt);
   }
 
+  // =====================
+  // Combat encounter persistence
+  // =====================
+  async createCombatEncounter(encounter: { locationId?: string; roomId?: string; name: string; seed?: string; generatedBy?: string; metadata?: any }): Promise<any> {
+    const id = randomUUID();
+    const [created] = await db.insert(combatEncounters).values({ ...encounter, id }).returning();
+    return created;
+  }
+
+  async getCombatEncounterByLocation(locationId: string): Promise<any | null> {
+    const [enc] = await db.select().from(combatEncounters).where(eq(combatEncounters.locationId, locationId)).limit(1);
+    return enc || null;
+  }
+
+  async getCombatEncounterById(encounterId: string): Promise<any | null> {
+    const [enc] = await db.select().from(combatEncounters).where(eq(combatEncounters.id, encounterId)).limit(1);
+    return enc || null;
+  }
+
+  async addEnvironmentFeatures(encounterId: string, features: Array<any>): Promise<any[]> {
+    const created: any[] = [];
+    for (const f of features) {
+      const id = randomUUID();
+      const [row] = await db.insert(combatEnvironmentFeatures).values({ ...f, id, encounterId }).returning();
+      created.push(row);
+    }
+    return created;
+  }
+
+  async addCombatSpawns(encounterId: string, spawns: Array<any>): Promise<any[]> {
+    const created: any[] = [];
+    for (const s of spawns) {
+      const id = randomUUID();
+      const [row] = await db.insert(combatSpawns).values({ ...s, id, encounterId }).returning();
+      created.push(row);
+    }
+    return created;
+  }
+
+  async updateCombatEncounter(encounterId: string, updates: any): Promise<any | undefined> {
+    const [updated] = await db.update(combatEncounters).set(updates).where(eq(combatEncounters.id, encounterId)).returning();
+    return updated;
+  }
+
+  async getEnvironmentFeaturesByEncounter(encounterId: string): Promise<any[]> {
+    return await db.select().from(combatEnvironmentFeatures).where(eq(combatEnvironmentFeatures.encounterId, encounterId)).orderBy(combatEnvironmentFeatures.createdAt);
+  }
+
+  async getCombatSpawnsByEncounter(encounterId: string): Promise<any[]> {
+    return await db.select().from(combatSpawns).where(eq(combatSpawns.encounterId, encounterId)).orderBy(combatSpawns.createdAt);
+  }
   async updateDynamicNpc(id: string, updates: any): Promise<any | undefined> {
     const [updated] = await db.update(dynamicNpcs).set(updates).where(eq(dynamicNpcs.id, id)).returning();
     return updated;
