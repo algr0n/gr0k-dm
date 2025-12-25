@@ -1472,6 +1472,12 @@ async function executeGameActions(
                           }
                         });
                         console.log(`[Quest Reward] Gave ${quest.rewards.gold} gp to ${char.characterName}`);
+                        // Notify clients about character currency update
+                        broadcastFn(roomCode, {
+                          type: 'character_update',
+                          characterId: char.id,
+                          updates: { currency: { ...currentCurrency, gp: currentCurrency.gp + quest.rewards.gold } }
+                        });
                       }
 
                       // Award XP
@@ -1481,6 +1487,12 @@ async function executeGameActions(
                           xp: currentXp + quest.rewards.xp
                         });
                         console.log(`[Quest Reward] Gave ${quest.rewards.xp} xp to ${char.characterName}`);
+                        // Notify clients about character XP update
+                        broadcastFn(roomCode, {
+                          type: 'character_update',
+                          characterId: char.id,
+                          updates: { xp: currentXp + quest.rewards.xp }
+                        });
                       }
 
                       // Award items (they should already exist from pre-creation)
@@ -1505,6 +1517,15 @@ async function executeGameActions(
                               quantity: 1
                             });
                             console.log(`[Quest Reward] Gave ${item.name} to ${char.characterName}`);
+                            // Notify clients about inventory change
+                            broadcastFn(roomCode, {
+                              type: 'inventory_update',
+                              characterId: char.id,
+                              action: 'add',
+                              itemId: item.id,
+                              itemName: item.name,
+                              quantity: 1
+                            });
                           } catch (itemErr) {
                             console.error(`[Quest Reward] Failed to award item "${itemIdentifier}" to ${char.characterName}:`, itemErr);
                             // Continue with other items
