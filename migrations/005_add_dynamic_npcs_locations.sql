@@ -4,7 +4,7 @@ BEGIN TRANSACTION;
 
 CREATE TABLE IF NOT EXISTS dynamic_npcs (
   id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-  room_id TEXT NOT NULL REFERENCES adventures(id) ON DELETE CASCADE,
+  room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   role TEXT,
   description TEXT,
@@ -17,7 +17,7 @@ CREATE INDEX IF NOT EXISTS idx_dynamic_npcs_role ON dynamic_npcs(role);
 
 CREATE TABLE IF NOT EXISTS dynamic_locations (
   id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-  room_id TEXT NOT NULL REFERENCES adventures(id) ON DELETE CASCADE,
+  room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   type TEXT NOT NULL DEFAULT 'other',
   description TEXT,

@@ -724,7 +724,37 @@ class DatabaseStorage implements Storage {
   // Quests - AI-created or predefined quest management
   // ==============================================================================
   async getQuestsByRoom(roomId: string): Promise<any[]> {
-    return await db.select().from(adventureQuests).where(eq(adventureQuests.roomId, roomId)).orderBy(adventureQuests.createdAt);
+    // Fetch the room to get its adventureId (if using adventure mode)
+    const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
+    
+    if (!room) {
+      return [];
+    }
+    
+    // Fetch both dynamic quests (roomId) and adventure quests (adventureId)
+    const dynamicQuests = await db
+      .select()
+      .from(adventureQuests)
+      .where(eq(adventureQuests.roomId, roomId))
+      .orderBy(adventureQuests.createdAt);
+    
+    // If room is in adventure mode, also fetch adventure quests
+    let adventureQuests_data: any[] = [];
+    if (room.adventureId && room.useAdventureMode) {
+      adventureQuests_data = await db
+        .select()
+        .from(adventureQuests)
+        .where(eq(adventureQuests.adventureId, room.adventureId))
+        .orderBy(adventureQuests.createdAt);
+    }
+    
+    // Combine and deduplicate (in case a quest has both roomId and adventureId)
+    const allQuests = [...dynamicQuests, ...adventureQuests_data];
+    const uniqueQuests = Array.from(
+      new Map(allQuests.map(q => [q.id, q])).values()
+    );
+    
+    return uniqueQuests;
   }
 
   async createQuest(quest: any): Promise<any> {
