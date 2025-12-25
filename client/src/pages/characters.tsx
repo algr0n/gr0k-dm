@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
@@ -18,6 +18,7 @@ import { gameSystems, gameSystemLabels, type GameSystem, type SavedCharacter, cl
 import { Checkbox } from "@/components/ui/checkbox";
 import { dnd5eData, cyberpunkRedData } from "@/lib/gameData";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import { calculateDndMaxHp, getAbilityModifier } from "@shared/race-class-bonuses";
 
 interface InventoryItemWithDetails {
   id: string;
@@ -254,6 +255,17 @@ export default function Characters() {
   const [selectedClassSkills, setSelectedClassSkills] = useState<DndSkill[]>([]);
   const [selectedRaceBonusSkills, setSelectedRaceBonusSkills] = useState<DndSkill[]>([]);
   const [expertiseSkills, setExpertiseSkills] = useState<Record<number, DndSkill[]>>({});
+
+  // Auto-calculate HP when class, level, or constitution changes
+  useEffect(() => {
+    if (dndForm.class && dndForm.level >= 1) {
+      const conModifier = getAbilityModifier(dndForm.stats.constitution);
+      const calculatedHp = calculateDndMaxHp(dndForm.class, dndForm.level, conModifier);
+      if (calculatedHp !== dndForm.maxHp) {
+        setDndForm(prev => ({ ...prev, maxHp: calculatedHp }));
+      }
+    }
+  }, [dndForm.class, dndForm.level, dndForm.stats.constitution]);
 
   const resetForm = () => {
     setDndForm(defaultDnDForm);

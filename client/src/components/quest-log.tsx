@@ -2,18 +2,85 @@ import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Scroll, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { Scroll, CheckCircle2, XCircle, Clock, Loader2 } from "lucide-react";
 import type { GameSession, QuestEntry } from "@shared/schema";
 
+interface RoomQuest {
+  quest: {
+    id: string;
+    title: string;
+    description: string | null;
+    status: "active" | "completed" | "failed";
+  };
+  objectives: Array<{
+    id: string;
+    description: string;
+    isCompleted: boolean;
+  }>;
+  completionPercentage: number;
+}
+
 export function QuestLog() {
-  const { data: sessions = [], isLoading } = useQuery<GameSession[]>({
+  const { data: sessions = [], isLoading: sessionsLoading } = useQuery<GameSession[]>({
     queryKey: ["/api/sessions"],
   });
 
-  const allQuests: (QuestEntry & { sessionName: string })[] = sessions.flatMap((session) =>
-    session.quests.map((quest) => ({ ...quest, sessionName: session.name }))
+  // Fetch user's saved characters to get their active room codes
+  const { data: characters = [], isLoading: charactersLoading } = useQuery<Array<{ id: string; currentRoomCode: string | null }>>({
+    queryKey: ["/api/saved-characters"],
+  });
+
+  // Get unique room codes where user has active characters
+  const activeRoomCodes = [...new Set(characters.filter(c => c.currentRoomCode).map(c => c.currentRoomCode))];
+
+  // Fetch quests for each active room
+  const roomQuestsQueries = useQuery({
+    queryKey: ["/api/rooms/quests", activeRoomCodes],
+    queryFn: async () => {
+      if (activeRoomCodes.length === 0) return [];
+      
+      const allRoomQuests: Array<RoomQuest & { roomCode: string }> = [];
+      
+      for (const roomCode of activeRoomCodes) {
+        try {
+          const response = await fetch(`/api/rooms/${roomCode}/quests-with-progress`);
+          if (response.ok) {
+            const quests: RoomQuest[] = await response.json();
+            allRoomQuests.push(...quests.map(q => ({ ...q, roomCode: roomCode as string })));
+          }
+        } catch (error) {
+          console.error(`Failed to fetch quests for room ${roomCode}:`, error);
+        }
+      }
+      
+      return allRoomQuests;
+    },
+    enabled: activeRoomCodes.length > 0,
+  });
+
+  const isLoading = sessionsLoading || charactersLoading || roomQuestsQueries.isLoading;
+
+  // Transform session quests to consistent format
+  const sessionQuests: (QuestEntry & { sessionName: string; source: "session" })[] = sessions.flatMap((session) =>
+    session.quests.map((quest) => ({ ...quest, sessionName: session.name, source: "session" as const }))
   );
 
+  // Transform room quests to consistent format
+  const roomQuests: Array<QuestEntry & { sessionName: string; source: "room" }> = (roomQuestsQueries.data || []).map(rq => ({
+    id: rq.quest.id,
+    title: rq.quest.title,
+    description: rq.quest.description || undefined,
+    objectives: rq.objectives.map(obj => ({
+      text: obj.description,
+      completed: obj.isCompleted
+    })),
+    status: rq.quest.status as "active" | "completed" | "failed" | "inactive",
+    sessionName: `Room ${rq.roomCode}`,
+    source: "room" as const
+  }));
+
+  // Combine all quests
+  const allQuests = [...sessionQuests, ...roomQuests];
   const activeQuests = allQuests.filter((q) => q.status === "active");
   const completedQuests = allQuests.filter((q) => q.status === "completed");
 
@@ -99,7 +166,7 @@ export function QuestLog() {
   );
 }
 
-function QuestCard({ quest }: { quest: QuestEntry & { sessionName: string } }) {
+function QuestCard({ quest }: { quest: QuestEntry & { sessionName: string; source?: "session" | "room" } }) {
   return (
     <div
       className={`p-3 rounded-md ${
@@ -117,6 +184,9 @@ function QuestCard({ quest }: { quest: QuestEntry & { sessionName: string } }) {
             <h4 className={`font-medium ${quest.status === "completed" ? "line-through text-muted-foreground" : ""}`}>
               {quest.title}
             </h4>
+            {quest.source === "room" && (
+              <Badge variant="outline" className="text-[10px] py-0 px-1 h-4">Room</Badge>
+            )}
           </div>
           <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
             {quest.description}

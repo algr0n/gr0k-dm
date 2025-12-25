@@ -11,6 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Progress } from "@/components/ui/progress";
 import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download, FolderOpen, Coins, Weight, Zap, Flame, Wand2, ScrollText } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
@@ -18,7 +19,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, type CharacterStatusEffect, type CharacterInventoryItemWithDetails, gameSystemLabels, type GameSystem, statusEffectDefinitions, getMaxSpellSlots, isSpellcaster, buildSkillStats, dndSkills, type DndSkill, getSpellLimitInfo, getAbilityModifier, getSpellcastingAbility } from "@shared/schema";
+import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, type CharacterStatusEffect, type CharacterInventoryItemWithDetails, gameSystemLabels, type GameSystem, statusEffectDefinitions, getMaxSpellSlots, isSpellcaster, buildSkillStats, dndSkills, type DndSkill, getSpellLimitInfo, getAbilityModifier, getSpellcastingAbility, xpThresholds } from "@shared/schema";
 import { SpellBrowser } from "@/components/spell-browser";
 import { FloatingCharacterPanel } from "@/components/floating-character-panel";
 import { DMControlsPanel } from "@/components/dm-controls-panel";
@@ -1559,9 +1560,29 @@ export default function RoomPage() {
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 text-center">
-                      <div className="p-3 rounded-md bg-muted/50">
-                        <div className="text-xl font-bold" data-testid="text-total-xp">{myCharacterData.savedCharacter.xp || 0}</div>
-                        <div className="text-xs text-muted-foreground">XP</div>
+                      <div className="p-3 rounded-md bg-muted/50 space-y-2">
+                        <div className="space-y-1">
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="text-muted-foreground">XP</span>
+                            <span className="text-muted-foreground">
+                              {myCharacterData.savedCharacter.xp || 0}/{xpThresholds[(myCharacterData.savedCharacter.level || 1) + 1] || xpThresholds[20]}
+                            </span>
+                          </div>
+                          <Progress 
+                            value={(() => {
+                              const currentLevel = myCharacterData.savedCharacter.level || 1;
+                              const currentXP = myCharacterData.savedCharacter.xp || 0;
+                              const currentThreshold = xpThresholds[currentLevel];
+                              const nextThreshold = xpThresholds[currentLevel + 1] || xpThresholds[20];
+                              const xpIntoLevel = currentXP - currentThreshold;
+                              const xpForNextLevel = nextThreshold - currentThreshold;
+                              return Math.min(100, Math.max(0, (xpIntoLevel / xpForNextLevel) * 100));
+                            })()}
+                            className="h-2"
+                            data-testid="progress-xp"
+                          />
+                        </div>
+                        <div className="text-xs text-muted-foreground">to Level {(myCharacterData.savedCharacter.level || 1) + 1}</div>
                       </div>
                       <div className="p-3 rounded-md bg-muted/50">
                         <div className="text-xl font-bold" data-testid="text-level">{myCharacterData.savedCharacter.level || 1}</div>
