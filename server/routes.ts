@@ -487,7 +487,6 @@ function parseDMResponseTags(response: string): ParsedGameAction[] {
   // Minimum: [QUEST: Title]
   // More robust pattern that handles nested brackets and complex JSON
   const questPattern = /\[QUEST:\s*([^|\]]+?)\s*(?:\|\s*([^|\]]+?))?\s*(?:\|\s*([^|\]]+?))?\s*(?:\|\s*(\{.+?\}))?\s*\]/gis;
-  let match: RegExpExecArray | null;
   while ((match = questPattern.exec(response)) !== null) {
     console.log('[Quest Parsing] Found QUEST tag:', match[0].substring(0, 100) + '...');
     const questData: ParsedGameAction = {
