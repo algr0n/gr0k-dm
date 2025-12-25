@@ -3,7 +3,7 @@ import EncounterMap from '../components/encounter-map'
 import InitiativeTracker from '../components/initiative-tracker'
 import CombatLog from '../components/combat-log'
 import sample from '../fixtures/encounter-sample.json'
-import { holdTurn, passTurn, submitAction } from '../lib/combat-api'
+import { holdTurn, passTurn, submitAction, confirmSuggestion, cancelSuggestion } from '../lib/combat-api'
 import { useRoomSocket } from '../hooks/useRoomSocket'
 import { parseNaturalLanguageToAction } from '../lib/nl-parser'
 
@@ -25,6 +25,8 @@ export default function EncounterDemoPage() {
   }
 
   // Wire websocket to demo room
+  const [suggestions, setSuggestions] = React.useState<any[]>([])
+
   const { send: wsSend } = useRoomSocket('demo-room', (msg) => {
     if (!msg) return
     if (msg.type === 'combat_event') {
@@ -51,6 +53,9 @@ export default function EncounterDemoPage() {
       }
     } else if (msg.type === 'chat' || msg.type === 'dm') {
       setLog(s => [...s, { id: `l${s.length+1}`, text: `${msg.type.toUpperCase()}: ${msg.content}`, timestamp: Date.now() }])
+    } else if (msg.type === 'action_suggestion') {
+      // Add to list of suggestions for the origin client
+      setSuggestions(s => [...s, { id: msg.suggestionId, actions: msg.actions, confidence: msg.confidence, originalText: msg.originalText }])
     }
   })
 
@@ -133,6 +138,64 @@ export default function EncounterDemoPage() {
         <div className="mt-4 flex gap-2">
           <input className="flex-1 rounded border p-2" value={chatText} onChange={(e)=> setChatText(e.target.value)} placeholder="Say something to the DM or type an action..." />
           <button className="px-3 py-2 bg-blue-600 text-white rounded" onClick={handleSendChat}>Send</button>
+        </div>
+
+        {/* Action suggestions UI */}
+        <div className="mt-3 space-y-2">
+          {suggestions.map((s) => (
+            <div key={s.id} className="p-2 border rounded bg-gray-50">
+              <div className="text-sm italic">Suggestion: "{s.originalText}"</div>
+              <div className="text-xs text-gray-600">Confidence: {Math.round((s.confidence||0)*100)}%</div>
+              <div className="mt-2 flex gap-2">
+                <button className="px-2 py-1 bg-green-600 text-white rounded" onClick={async () => {
+                  try {
+                    // For demo, pick first actor as the actorId
+                    const actorId = items[0]?.id
+                    await confirmSuggestion('demo-room', s.id, { actorId })
+                    setLog(l => [...l, { id: `l${l.length+1}`, text: `Suggestion confirmed`, timestamp: Date.now() }])
+                    setSuggestions(prev => prev.filter((x:any) => x.id !== s.id))
+                  } catch (err) {
+                    setLog(l => [...l, { id: `l${l.length+1}`, text: `Failed to confirm suggestion`, timestamp: Date.now() }])
+                  }
+                }}>Confirm</button>
+                <button className="px-2 py-1 bg-gray-200 rounded" onClick={() => {
+                  // Enter edit mode by setting an editingText field
+                  setSuggestions(prev => prev.map(x => x.id === s.id ? { ...x, editingText: x.originalText } : x))
+                }}>Edit</button>
+                <button className="px-2 py-1 bg-red-600 text-white rounded" onClick={async () => {
+                  try {
+                    await cancelSuggestion('demo-room', s.id)
+                    setLog(l => [...l, { id: `l${l.length+1}`, text: `Suggestion canceled`, timestamp: Date.now() }])
+                    setSuggestions(prev => prev.filter((x:any) => x.id !== s.id))
+                  } catch (err) {
+                    setLog(l => [...l, { id: `l${l.length+1}`, text: `Failed to cancel suggestion`, timestamp: Date.now() }])
+                  }
+                }}>Cancel</button>
+              </div>
+
+              {s.editingText !== undefined && (
+                <div className="mt-2 flex gap-2">
+                  <input className="flex-1 rounded border p-1" value={s.editingText} onChange={(e) => setSuggestions(prev => prev.map(x => x.id === s.id ? { ...x, editingText: e.target.value } : x))} />
+                  <button className="px-2 py-1 bg-blue-600 text-white rounded" onClick={async () => {
+                    const edited = s.editingText
+                    const parsed = parseNaturalLanguageToAction(edited, items[0]?.id)
+                    if (!parsed) {
+                      setLog(l => [...l, { id: `l${l.length+1}`, text: `Could not parse edited suggestion`, timestamp: Date.now() }])
+                      return
+                    }
+                    try {
+                      // submit action directly
+                      await submitAction('demo-room', { actorId: parsed.actorId || items[0]?.id, type: parsed.type, targetName: parsed.targetName, to: parsed.to })
+                      setLog(l => [...l, { id: `l${l.length+1}`, text: `Edited suggestion submitted`, timestamp: Date.now() }])
+                      setSuggestions(prev => prev.filter((x:any) => x.id !== s.id))
+                    } catch (err) {
+                      setLog(l => [...l, { id: `l${l.length+1}`, text: `Failed to submit edited suggestion`, timestamp: Date.now() }])
+                    }
+                  }}>Save & Confirm</button>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
       <div className="col-span-1 space-y-4">

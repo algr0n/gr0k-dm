@@ -2019,6 +2019,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
+  // In-memory suggestion store for NL->Action confirm flow
+  const suggestionStore: Map<string, { roomCode: string; userId: string; playerName: string; action: any; originalText: string; createdAt: number }> = new Map()
+  const SUGGESTION_THRESHOLD = 0.6
+  const AUTO_ACCEPT_THRESHOLD = 0.8
+
   wss.on("connection", (ws: AuthenticatedWebSocket, req) => {
     const urlParams = new URLSearchParams(req.url?.split("?")[1]);
     const roomId = urlParams.get("roomId");
@@ -2059,6 +2064,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       ws.on("message", async (data) => {
         try {
           const message = JSON.parse(data.toString());
+
+          // If chat, consider generating an action suggestion for the originator
+          if (message.type === 'chat' && typeof message.content === 'string') {
+            try {
+              const { parseNaturalLanguageToAction } = await import('./utils/nl-parser')
+              const parsed = parseNaturalLanguageToAction(message.content)
+              if (parsed && parsed.confidence >= SUGGESTION_THRESHOLD && parsed.confidence < AUTO_ACCEPT_THRESHOLD) {
+                const suggestionId = randomUUID()
+                suggestionStore.set(suggestionId, { roomCode: code, userId: ws.userId, playerName, action: parsed, originalText: message.content, createdAt: Date.now() })
+                // Send suggestion only to originating socket
+                ws.send(JSON.stringify({ type: 'action_suggestion', suggestionId, actions: [parsed], confidence: parsed.confidence, originalText: message.content }))
+              }
+            } catch (err) {
+              console.error('[Suggestion] NL parse error:', err)
+            }
+          }
 
           if (message.type === "chat" || message.type === "action") {
             // Queue the message for batch processing
@@ -3707,124 +3728,131 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // Structured combat actions (player or monster actions)
+  // Helper used by combat action routes and suggestion confirm
+  async function executeCombatAction(code: string, action: any) {
+    const state = roomFullCombatState.get(code);
+    if (!state || !state.isActive) throw new Error('No active combat');
+
+    const { actorId, type } = action;
+    const currentActor = state.initiatives[state.currentTurnIndex];
+    if (!currentActor) throw new Error('Invalid combat state');
+
+    // Validate it's actor's turn
+    if (currentActor.id !== actorId) {
+      const err: any = new Error("Not actor's turn");
+      err.code = 403; throw err;
+    }
+
+    if (type === 'attack') {
+      const { targetId, attackBonus = 0, damageExpression = null } = action;
+      const target = state.initiatives.find((i: any) => i.id === targetId);
+      if (!target) { const err:any = new Error('Target not found'); err.code = 404; throw err }
+
+      const result = resolveAttack(null, attackBonus, target.ac ?? 10, damageExpression);
+
+      if (result.hit && result.damageTotal) {
+        target.currentHp = (target.currentHp ?? target.maxHp ?? 0) - result.damageTotal;
+      }
+
+      // Update threat for the actor (attacker gains threat)
+      updateThreat(state, actorId, Math.max(1, result.damageTotal || (result.hit ? 5 : 1)));
+
+      // Record action
+      state.actionHistory.push({ actorId, type: 'attack', targetId, result, timestamp: Date.now() });
+
+      // Broadcast structured result
+      broadcastToRoom(code, {
+        type: 'combat_result',
+        actorId,
+        targetId,
+        attackRoll: result.d20,
+        attackTotal: result.attackTotal,
+        hit: result.hit,
+        isCritical: result.isCritical,
+        damageRolls: result.damageRolls,
+        damageTotal: result.damageTotal,
+        targetHp: target.currentHp,
+      });
+
+      // If target dies, broadcast and take cares
+      if ((target.currentHp ?? 0) <= 0) {
+        broadcastToRoom(code, { type: 'combat_event', event: 'defeated', targetId, name: target.name });
+      }
+
+      // Advance turn
+      const prevActorId = currentActor.id;
+      advanceTurn(state);
+
+      // Process held triggers for prev actor
+      const inserted = processTrigger(state, prevActorId);
+      if (inserted.length > 0) {
+        broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
+      }
+
+      // Persist back
+      roomFullCombatState.set(code, state);
+      // Keep legacy short state in sync
+      const currentIdx = state.currentTurnIndex;
+      const legacyInitiatives = state.initiatives.map((e: any) => ({ playerId: e.id, playerName: e.name, characterName: e.name, roll: e.roll, modifier: e.modifier, total: e.total }));
+      roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives });
+
+      return { success: true, result };
+    }
+
+    if (type === 'pass') {
+      // Record pass
+      state.actionHistory.push({ actorId, type: 'pass', timestamp: Date.now() });
+      broadcastToRoom(code, { type: 'combat_event', event: 'pass', actorId });
+
+      const prevActorId = currentActor.id;
+      advanceTurn(state);
+      const inserted = processTrigger(state, prevActorId);
+      if (inserted.length > 0) {
+        broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
+      }
+
+      roomFullCombatState.set(code, state);
+      const currentIdx = state.currentTurnIndex;
+      const legacyInitiatives2 = state.initiatives.map((e: any) => ({ playerId: e.id, playerName: e.name, characterName: e.name, roll: e.roll, modifier: e.modifier, total: e.total }));
+      roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives2 });
+
+      return { success: true };
+    }
+
+    if (type === 'move') {
+      const moveResult = applyMoveAction(state, action);
+      // Broadcast move
+      broadcastToRoom(code, { type: 'combat_event', event: 'move', actorId, to: moveResult });
+
+      // Advance turn
+      const prevActorId = currentActor.id;
+      advanceTurn(state);
+      const inserted = processTrigger(state, prevActorId);
+      if (inserted.length > 0) broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
+
+      roomFullCombatState.set(code, state);
+      const currentIdx = state.currentTurnIndex;
+      const legacyInitiatives2 = state.initiatives.map((e: any) => ({ playerId: e.id, playerName: e.name, characterName: e.name, roll: e.roll, modifier: e.modifier, total: e.total }));
+      roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives2 });
+
+      return { success: true, moveResult };
+    }
+
+    throw new Error('Unsupported action type');
+  }
+
   app.post("/api/rooms/:code/combat/action", async (req, res) => {
     try {
       const { code } = req.params;
       const { action } = req.body;
       if (!action) return res.status(400).json({ error: "Missing action" });
 
-      const state = roomFullCombatState.get(code);
-      if (!state || !state.isActive) return res.status(400).json({ error: "No active combat" });
-
-      const { actorId, type } = action;
-      const currentActor = state.initiatives[state.currentTurnIndex];
-      if (!currentActor) return res.status(400).json({ error: "Invalid combat state" });
-
-      // Validate it's actor's turn
-      if (currentActor.id !== actorId) {
-        return res.status(403).json({ error: "Not actor's turn" });
-      }
-
-      if (type === 'attack') {
-        const { targetId, attackBonus = 0, damageExpression = null } = action;
-        const target = state.initiatives.find((i: any) => i.id === targetId);
-        if (!target) return res.status(404).json({ error: "Target not found" });
-
-        const result = resolveAttack(null, attackBonus, target.ac ?? 10, damageExpression);
-
-        if (result.hit && result.damageTotal) {
-          target.currentHp = (target.currentHp ?? target.maxHp ?? 0) - result.damageTotal;
-        }
-
-        // Update threat for the actor (attacker gains threat)
-        updateThreat(state, actorId, Math.max(1, result.damageTotal || (result.hit ? 5 : 1)));
-
-        // Record action
-        state.actionHistory.push({ actorId, type: 'attack', targetId, result, timestamp: Date.now() });
-
-        // Broadcast structured result
-        broadcastToRoom(code, {
-          type: 'combat_result',
-          actorId,
-          targetId,
-          attackRoll: result.d20,
-          attackTotal: result.attackTotal,
-          hit: result.hit,
-          isCritical: result.isCritical,
-          damageRolls: result.damageRolls,
-          damageTotal: result.damageTotal,
-          targetHp: target.currentHp,
-        });
-
-        // If target dies, broadcast and take cares
-        if ((target.currentHp ?? 0) <= 0) {
-          broadcastToRoom(code, { type: 'combat_event', event: 'defeated', targetId, name: target.name });
-        }
-
-        // Advance turn
-        const prevActorId = currentActor.id;
-        advanceTurn(state);
-
-        // Process held triggers for prev actor
-        const inserted = processTrigger(state, prevActorId);
-        if (inserted.length > 0) {
-          broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
-        }
-
-        // Persist back
-        roomFullCombatState.set(code, state);
-        // Keep legacy short state in sync
-        const currentIdx = state.currentTurnIndex;
-        const legacyInitiatives = state.initiatives.map((e: any) => ({ playerId: e.id, playerName: e.name, characterName: e.name, roll: e.roll, modifier: e.modifier, total: e.total }));
-        roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives });
-
-        res.json({ success: true, result });
-        return;
-      }
-
-      if (type === 'pass') {
-        // Record pass
-        state.actionHistory.push({ actorId, type: 'pass', timestamp: Date.now() });
-        broadcastToRoom(code, { type: 'combat_event', event: 'pass', actorId });
-
-        const prevActorId = currentActor.id;
-        advanceTurn(state);
-        const inserted = processTrigger(state, prevActorId);
-        if (inserted.length > 0) {
-          broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
-        }
-
-        roomFullCombatState.set(code, state);
-        const currentIdx = state.currentTurnIndex;
-        const legacyInitiatives2 = state.initiatives.map((e: any) => ({ playerId: e.id, playerName: e.name, characterName: e.name, roll: e.roll, modifier: e.modifier, total: e.total }));
-        roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives2 });
-
-        res.json({ success: true });
-        return;
-      }
-
-      if (type === 'move') {
-        const moveResult = applyMoveAction(state, action);
-        // Broadcast move
-        broadcastToRoom(code, { type: 'combat_event', event: 'move', actorId, to: moveResult });
-
-        // Advance turn
-        const prevActorId = currentActor.id;
-        advanceTurn(state);
-        const inserted = processTrigger(state, prevActorId);
-        if (inserted.length > 0) broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
-
-        roomFullCombatState.set(code, state);
-        const currentIdx = state.currentTurnIndex;
-        const legacyInitiatives2 = state.initiatives.map((e: any) => ({ playerId: e.id, playerName: e.name, characterName: e.name, roll: e.roll, modifier: e.modifier, total: e.total }));
-        roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives2 });
-
-        res.json({ success: true, moveResult });
-        return;
-      }
-
-      return res.status(400).json({ error: 'Unsupported action type' });
-    } catch (error) {
+      const result = await executeCombatAction(code, action);
+      res.json(result);
+    } catch (error: any) {
+      if (error?.code === 403) return res.status(403).json({ error: "Not actor's turn" });
+      if (error?.code === 404) return res.status(404).json({ error: 'Target not found' });
+      if (error?.message === 'No active combat') return res.status(400).json({ error: "No active combat" });
       console.error('Combat action error:', error);
       res.status(500).json({ error: 'Failed to process combat action' });
     }
@@ -3932,6 +3960,50 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error('AI strategy error:', error);
       res.status(500).json({ error: 'Failed to get AI strategy' });
+    }
+  });
+
+  // Confirm a previously suggested action (NL->Action confirm flow)
+  app.post('/api/rooms/:code/suggestions/:id/confirm', isAuthenticated, async (req, res) => {
+    try {
+      const { code, id } = req.params;
+      const suggestion = suggestionStore.get(id);
+      if (!suggestion) return res.status(404).json({ error: 'Suggestion not found' });
+      if (suggestion.roomCode !== code) return res.status(400).json({ error: 'Invalid room' });
+      if (suggestion.userId !== req.user!.id) return res.status(403).json({ error: 'Forbidden' });
+
+      const { actorId, overrideAction } = req.body || {};
+      let action = suggestion.action;
+      if (overrideAction) action = overrideAction;
+      if (actorId) action.actorId = actorId;
+
+      // Execute action using shared helper
+      const result = await executeCombatAction(code, action);
+      // Remove suggestion
+      suggestionStore.delete(id);
+      res.json({ success: true, result });
+    } catch (error: any) {
+      if (error?.code === 403) return res.status(403).json({ error: "Not actor's turn" });
+      if (error?.code === 404) return res.status(404).json({ error: 'Target not found' });
+      console.error('Suggestion confirm error:', error);
+      res.status(500).json({ error: 'Failed to confirm suggestion' });
+    }
+  });
+
+  // Cancel a previously suggested action
+  app.post('/api/rooms/:code/suggestions/:id/cancel', isAuthenticated, async (req, res) => {
+    try {
+      const { code, id } = req.params;
+      const suggestion = suggestionStore.get(id);
+      if (!suggestion) return res.status(404).json({ error: 'Suggestion not found' });
+      if (suggestion.roomCode !== code) return res.status(400).json({ error: 'Invalid room' });
+      if (suggestion.userId !== req.user!.id) return res.status(403).json({ error: 'Forbidden' });
+
+      suggestionStore.delete(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Suggestion cancel error:', error);
+      res.status(500).json({ error: 'Failed to cancel suggestion' });
     }
   });
 
