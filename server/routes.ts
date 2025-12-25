@@ -1089,6 +1089,48 @@ async function executeGameActions(
           } else {
             combatState.isActive = true;
           }
+
+          // If there are no initiatives yet, roll initiatives including dynamic NPCs
+          if (!combatState.initiatives || combatState.initiatives.length === 0) {
+            try {
+              const players = await storage.getPlayersByRoom(room.id);
+              const chars = await storage.getCharactersByRoomCode(roomCode);
+
+              let monsters: any[] = [];
+              try {
+                monsters = await storage.getDynamicNpcsByRoom(room.id) || [];
+              } catch (err) {
+                console.warn(`[Combat Start] Failed to load dynamic NPCs for room ${room.id}:`, err);
+              }
+
+              const initiatives = rollInitiativesForCombat(chars, players, monsters);
+              const combatFull = createCombatState(roomCode, initiatives);
+              roomFullCombatState.set(roomCode, combatFull as FullCombatState);
+
+              const initiativesForState = initiatives.map((e) => ({
+                playerId: e.metadata?.userId ?? e.id,
+                playerName: e.metadata?.playerName ?? (e.controller === 'player' ? e.name : 'DM'),
+                characterName: e.name,
+                roll: e.roll,
+                modifier: e.modifier,
+                total: e.total,
+              }));
+
+              combatState.initiatives = initiativesForState;
+              combatState.currentTurnIndex = combatFull.currentTurnIndex;
+              combatState.isActive = combatFull.isActive;
+
+              // Broadcast initiative order
+              broadcastFn(roomCode, {
+                type: "system",
+                content: "Combat begins! Initiative order:",
+                initiatives: initiatives.map((entry) => `${entry.name} (${entry.total})`),
+              });
+            } catch (err) {
+              console.error('[DM Action] Failed to roll initiatives on combat_start:', err);
+            }
+          }
+
           roomCombatState.set(roomCode, combatState);
           broadcastFn(roomCode, { type: "combat_update", combat: combatState });
           console.log(`[DM Action] Combat started in room ${roomCode}`);
@@ -1576,6 +1618,43 @@ async function executeGameActions(
 
             broadcastFn(roomCode, { type: 'story_event_created', event });
             console.log(`[DM Action] Created dynamic NPC '${npcRecord.name}' (id=${npcRecord.id}) in room ${roomCode}`);
+
+            // If combat is active, roll initiative for the new NPC and insert into combat
+            const combat = roomCombatState.get(roomCode);
+            if (combat && combat.isActive) {
+              try {
+                const initiativeEntries = rollInitiativesForCombat([], [], [npcRecord]);
+                const entry = initiativeEntries[0];
+
+                // Update full combat state
+                const full = roomFullCombatState.get(roomCode);
+                if (full && Array.isArray(full.initiatives)) {
+                  full.initiatives.push(entry);
+                  full.initiatives.sort((a: any, b: any) => b.total - a.total);
+                  roomFullCombatState.set(roomCode, full);
+                }
+
+                // Update legacy combat state
+                const newLegacy = {
+                  playerId: entry.id,
+                  playerName: entry.metadata?.playerName ?? (entry.controller === 'player' ? entry.name : 'DM'),
+                  characterName: entry.name,
+                  roll: entry.roll,
+                  modifier: entry.modifier,
+                  total: entry.total,
+                };
+
+                combat.initiatives.push(newLegacy);
+                combat.initiatives.sort((a, b) => b.total - a.total);
+                roomCombatState.set(roomCode, combat);
+
+                broadcastFn(roomCode, { type: "combat_update", combat });
+                broadcastFn(roomCode, { type: "system", content: `${npcRecord.name} enters combat with initiative ${entry.total}` });
+              } catch (e) {
+                console.error('[DM Action] Failed to add NPC to active combat:', e);
+              }
+            }
+
           } catch (err) {
             console.error('[DM Action] Failed to create dynamic NPC:', err);
           }
