@@ -19,7 +19,7 @@ import {
   LayoutGrid
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { type SavedCharacter, type InventoryItem, type Item, type CharacterStatusEffect, type CharacterInventoryItemWithDetails } from "@shared/schema";
+import { type SavedCharacter, type InventoryItem, type Item, type CharacterStatusEffect, type CharacterInventoryItemWithDetails, xpThresholds } from "@shared/schema";
 import { InventoryLayout } from "./inventory/InventoryLayout";
 
 type InventoryWithItem = InventoryItem & { item: Item };
@@ -193,8 +193,25 @@ export function FloatingCharacterPanel({
               <div>
                 <span className="font-medium">Initiative:</span> +{character?.initiativeModifier || 0}
               </div>
-              <div>
-                <span className="font-medium">XP:</span> {character?.xp || 0}
+              <div className="space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium">XP:</span>
+                  <span className="text-xs text-muted-foreground">
+                    {character?.xp || 0}/{xpThresholds[(character?.level || 1) + 1] || xpThresholds[20]} to Level {(character?.level || 1) + 1}
+                  </span>
+                </div>
+                <Progress 
+                  value={(() => {
+                    const currentLevel = character?.level || 1;
+                    const currentXP = character?.xp || 0;
+                    const currentThreshold = xpThresholds[currentLevel];
+                    const nextThreshold = xpThresholds[currentLevel + 1] || xpThresholds[20];
+                    const xpIntoLevel = currentXP - currentThreshold;
+                    const xpForNextLevel = nextThreshold - currentThreshold;
+                    return Math.min(100, Math.max(0, (xpIntoLevel / xpForNextLevel) * 100));
+                  })()}
+                  className="h-2"
+                />
               </div>
               <div>
                 <span className="font-medium">Currency:</span>{" "}
