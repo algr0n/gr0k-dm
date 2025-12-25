@@ -37,7 +37,8 @@ npm run seed:adventures  # Seeds Lost Mine of Phandelver & Dragon of Icespire Pe
 npm run db:push          # Push schema changes to database
 
 # Production (use migrations)
-npm run migrate:prod     # Apply all pending migrations
+npm run migrate:prod     # Apply all pending migrations (uses run-all-migrations.js)
+node scripts/run-all-migrations.js  # Direct migration runner (idempotent, handles all SQL and JS migrations)
 npm run db:generate      # Generate new migration from schema changes
 
 # Seeding
@@ -51,7 +52,7 @@ npm run seed:adventures  # Seed adventure modules (Lost Mine, Dragon Peak)
 When you start the production server:
 
 1. `npm start` runs (defined in `package.json`)
-2. `npm run migrate:prod` executes first (runs `scripts/run-migrations.ts`)
+2. `npm run migrate:prod` executes first (runs `scripts/run-all-migrations.js`)
 3. Migration script connects to database using environment variables
 4. All pending migrations from `migrations/` directory are applied in order
 5. If successful, server starts; if migrations fail, process exits with error

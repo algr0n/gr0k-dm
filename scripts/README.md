@@ -2,6 +2,43 @@
 
 This directory contains utility scripts for the Grok DM project.
 
+## Database Migration
+
+### `run-all-migrations.js`
+
+The unified migration runner that handles all database migrations idempotently.
+
+**Usage:**
+
+```bash
+# Run all migrations from the beginning
+node scripts/run-all-migrations.js
+
+# Run migrations starting from a specific migration (e.g., 005)
+node scripts/run-all-migrations.js 005
+```
+
+**Features:**
+
+- **Idempotent**: Safe to run multiple times - skips already-applied changes
+- **Smart Execution**: Automatically detects and uses JS migrations when available (in `migrations-js/`)
+- **Fallback Handling**: Falls back to statement-by-statement execution if batch fails
+- **Error Handling**: Gracefully handles duplicate column/table/index errors
+- **Transaction Support**: Handles `BEGIN TRANSACTION` blocks properly
+
+**Environment Variables:**
+
+- `TURSO_DATABASE_URL`: Database connection URL
+- `TURSO_AUTH_TOKEN`: Database authentication token
+
+**Migration Structure:**
+
+```
+migrations/          # SQL migration files
+migrations-js/       # JS migration files (idempotent versions)
+run-all-migrations.js  # Main migration runner
+```
+
 ## PDF Conversion Script
 
 ### `convert_pdfs_to_text.py`
