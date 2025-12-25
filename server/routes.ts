@@ -3480,6 +3480,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Get public rooms
+  app.get("/api/rooms/public", async (req, res) => {
+    try {
+      const { gameSystem } = req.query;
+      const rooms = await storage.getPublicRooms(gameSystem as string | undefined);
+      
+      // Map rooms to include isPrivate and exclude passwordHash
+      const roomsWithPrivacy = rooms.map((room: any) => {
+        const { passwordHash, ...roomWithoutHash } = room;
+        return {
+          ...roomWithoutHash,
+          isPrivate: !!passwordHash,
+        };
+      });
+      
+      res.json(roomsWithPrivacy);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get public rooms" });
+    }
+  });
+
   // Get room info
   app.get("/api/rooms/:code", async (req, res) => {
     try {
@@ -3608,27 +3629,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error ending room:", error);
       res.status(500).json({ error: "Failed to end room" });
-    }
-  });
-
-  // Get public rooms
-  app.get("/api/rooms/public", async (req, res) => {
-    try {
-      const { gameSystem } = req.query;
-      const rooms = await storage.getPublicRooms(gameSystem as string | undefined);
-      
-      // Map rooms to include isPrivate and exclude passwordHash
-      const roomsWithPrivacy = rooms.map((room: any) => {
-        const { passwordHash, ...roomWithoutHash } = room;
-        return {
-          ...roomWithoutHash,
-          isPrivate: !!passwordHash,
-        };
-      });
-      
-      res.json(roomsWithPrivacy);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to get public rooms" });
     }
   });
 
