@@ -485,9 +485,11 @@ function parseDMResponseTags(response: string): ParsedGameAction[] {
   // Parse QUEST creation tags:
   // [QUEST: Title | QuestGiver | Status | {"description":"...","objectives":[...],"rewards":{...},"urgency":"high"}]
   // Minimum: [QUEST: Title]
-  const questPattern = /\[QUEST:\s*([^|\]\n]+?)\s*(?:\|\s*([^|\]\n]+?))?\s*(?:\|\s*([^|\]\n]+?))?\s*(?:\|\s*(\{[^\]]+\}))?\s*\]/gi;
+  // More robust pattern that handles nested brackets and complex JSON
+  const questPattern = /\[QUEST:\s*([^|\]]+?)\s*(?:\|\s*([^|\]]+?))?\s*(?:\|\s*([^|\]]+?))?\s*(?:\|\s*(\{.+?\}))?\s*\]/gis;
+  let match: RegExpExecArray | null;
   while ((match = questPattern.exec(response)) !== null) {
-    console.log('[Quest Parsing] Found QUEST tag:', match[0]);
+    console.log('[Quest Parsing] Found QUEST tag:', match[0].substring(0, 100) + '...');
     const questData: ParsedGameAction = {
       type: "quest_add",
       questTitle: match[1].trim(),
@@ -506,11 +508,14 @@ function parseDMResponseTags(response: string): ParsedGameAction[] {
         if (props.urgency) questData.questUrgency = props.urgency;
         console.log('[Quest Parsing] Parsed quest data:', questData);
       } catch (e) {
-        console.error("Failed to parse quest properties:", e, "JSON:", match[4]);
+        console.error("[Quest Parsing] Failed to parse quest properties:", e, "JSON:", match[4]);
       }
+    } else {
+      console.log('[Quest Parsing] No JSON properties found');
     }
     
     actions.push(questData);
+    console.log('[Quest Parsing] Added quest action to execute');
   }
 
   // Parse QUEST status updates:
