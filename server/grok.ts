@@ -58,6 +58,8 @@ export type {
 // =============================================================================
 
 import type { NpcStatBlock } from "./npc-stats";
+// Import the JSON extraction utility
+import { extractJsonFromResponse } from "./npc-stats";
 
 /**
  * Generate an NPC stat block using Grok AI
@@ -148,14 +150,8 @@ Make the stat block appropriate for the NPC's role and description. Ensure all n
       return null;
     }
 
-    // Try to extract JSON from the response (in case there's markdown wrapping)
-    let jsonStr = content.trim();
-    
-    // Remove markdown code blocks if present
-    const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (codeBlockMatch) {
-      jsonStr = codeBlockMatch[1].trim();
-    }
+    // Extract JSON from response (handles markdown wrapping)
+    const jsonStr = extractJsonFromResponse(content);
     
     // Parse JSON
     const statBlock = JSON.parse(jsonStr) as NpcStatBlock;

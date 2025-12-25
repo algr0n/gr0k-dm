@@ -118,38 +118,62 @@ function calculateModifiers(abilities: AbilityScores): AbilityScores {
 }
 
 /**
- * Estimate proficiency bonus and challenge rating from NPC context
+ * NPC role categories for stat estimation
  */
-function estimateProficiencyBonus(npc: NpcRow): number {
-  // Try to infer from role or description
+const NPC_ROLE_CATEGORIES = [
+  {
+    keywords: ['powerful', 'legendary', 'boss', 'ancient', 'elder'],
+    profBonus: 4,
+    hitDice: { count: 10, size: 10 },
+    tier: 'legendary',
+  },
+  {
+    keywords: ['veteran', 'leader', 'captain', 'champion', 'master'],
+    profBonus: 3,
+    hitDice: { count: 8, size: 8 },
+    tier: 'veteran',
+  },
+  {
+    keywords: ['guard', 'soldier', 'warrior', 'knight', 'fighter'],
+    profBonus: 2,
+    hitDice: { count: 4, size: 8 },
+    tier: 'trained',
+  },
+] as const;
+
+const DEFAULT_ROLE_CATEGORY = {
+  profBonus: 2,
+  hitDice: { count: 3, size: 8 },
+  tier: 'common',
+} as const;
+
+/**
+ * Categorize NPC based on role and description keywords
+ */
+function categorizeNpc(npc: NpcRow): typeof NPC_ROLE_CATEGORIES[number] | typeof DEFAULT_ROLE_CATEGORY {
   const text = `${npc.role || ''} ${npc.description || ''}`.toLowerCase();
   
-  if (text.includes('powerful') || text.includes('legendary') || text.includes('boss')) {
-    return 4; // CR 9-12
-  } else if (text.includes('veteran') || text.includes('leader') || text.includes('captain')) {
-    return 3; // CR 5-8
-  } else if (text.includes('guard') || text.includes('soldier') || text.includes('warrior')) {
-    return 2; // CR 1-4
+  for (const category of NPC_ROLE_CATEGORIES) {
+    if (category.keywords.some(keyword => text.includes(keyword))) {
+      return category;
+    }
   }
   
-  return 2; // Default to CR 1-4
+  return DEFAULT_ROLE_CATEGORY;
+}
+
+/**
+ * Estimate proficiency bonus from NPC context
+ */
+function estimateProficiencyBonus(npc: NpcRow): number {
+  return categorizeNpc(npc).profBonus;
 }
 
 /**
  * Estimate hit dice from NPC context
  */
 function estimateHitDice(npc: NpcRow): { count: number; size: number } {
-  const text = `${npc.role || ''} ${npc.description || ''}`.toLowerCase();
-  
-  if (text.includes('powerful') || text.includes('legendary') || text.includes('boss')) {
-    return { count: 10, size: 10 }; // ~100 HP
-  } else if (text.includes('veteran') || text.includes('leader') || text.includes('captain')) {
-    return { count: 8, size: 8 }; // ~60 HP
-  } else if (text.includes('guard') || text.includes('soldier') || text.includes('warrior')) {
-    return { count: 4, size: 8 }; // ~30 HP
-  }
-  
-  return { count: 3, size: 8 }; // Default
+  return categorizeNpc(npc).hitDice;
 }
 
 /**
@@ -206,8 +230,24 @@ function generateDeterministicStatBlock(npc: NpcRow): NpcStatBlock {
 }
 
 // =============================================================================
-// NPC Stat Block Generation with AI Fallback
+// NPC Stat Block Generation with AI
 // =============================================================================
+
+/**
+ * Extract JSON from potentially markdown-wrapped API response
+ */
+export function extractJsonFromResponse(content: string): string {
+  let jsonStr = content.trim();
+  
+  // Match and extract JSON from markdown code blocks
+  // Handles: ```json {...} ```, ``` {...} ```, or plain {...}
+  const codeBlockMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch) {
+    jsonStr = codeBlockMatch[1].trim();
+  }
+  
+  return jsonStr;
+}
 
 /**
  * Generate a complete NPC stat block, preferring AI generation with fallback

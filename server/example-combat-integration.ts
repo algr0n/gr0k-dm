@@ -170,17 +170,26 @@ export async function regenerateAllNpcStats(
 ): Promise<void> {
   console.log(`[Batch Regenerate] Regenerating stats for ${npcRows.length} NPCs`);
 
-  for (const npc of npcRows) {
-    try {
+  // Process NPCs in parallel for better performance
+  const results = await Promise.allSettled(
+    npcRows.map(async (npc) => {
       await ensureNpcHasStats(npc, {
         forceRegenerate: true,
         saveStats: saveAdapter,
       });
-      console.log(`[Batch Regenerate] ✓ ${npc.name}`);
-    } catch (error) {
-      console.error(`[Batch Regenerate] ✗ ${npc.name}:`, error);
+      return npc.name;
+    })
+  );
+
+  // Log results
+  results.forEach((result, index) => {
+    const npcName = npcRows[index].name;
+    if (result.status === 'fulfilled') {
+      console.log(`[Batch Regenerate] ✓ ${npcName}`);
+    } else {
+      console.error(`[Batch Regenerate] ✗ ${npcName}:`, result.reason);
     }
-  }
+  });
 
   console.log(`[Batch Regenerate] Complete`);
 }
