@@ -15,6 +15,8 @@
     "db:check": "node script/check-db.mjs",
     "migrate:prod": "tsx script/run-migrations.ts",
     "db:migrate-turso": "tsx scripts/run-migration-turso.ts",
+    "db:migrate-quests": "node scripts/run-quest-migrations.js",
+    "db:migrate-all": "node scripts/run-all-migrations.js",
     "db:health-check": "tsx scripts/health-check-db.ts",
     "seed:adventures": "tsx server/seed-adventures.ts",
     "seed:spells": "tsx server/seed-spells.ts"
