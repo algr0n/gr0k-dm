@@ -1480,19 +1480,14 @@ async function executeGameActions(
                         });
                       }
 
-                      // Award XP
+                      // Award XP (use centralized helper to handle level-ups and broadcasts)
                       if (quest.rewards.xp && quest.rewards.xp > 0) {
-                        const currentXp = char.xp || 0;
-                        await storage.updateSavedCharacter(char.id, {
-                          xp: currentXp + quest.rewards.xp
-                        });
-                        console.log(`[Quest Reward] Gave ${quest.rewards.xp} xp to ${char.characterName}`);
-                        // Notify clients about character XP update
-                        broadcastFn(roomCode, {
-                          type: 'character_update',
-                          characterId: char.id,
-                          updates: { xp: currentXp + quest.rewards.xp }
-                        });
+                        try {
+                          const awardResult = await awardXpToCharacter(char.id, quest.rewards.xp, roomCode);
+                          console.log(`[Quest Reward] Gave ${quest.rewards.xp} xp to ${char.characterName} (leveledUp=${awardResult.leveledUp})`);
+                        } catch (xpErr) {
+                          console.error(`[Quest Reward] Failed to award XP to ${char.characterName}:`, xpErr);
+                        }
                       }
 
                       // Award items (they should already exist from pre-creation)
@@ -2229,44 +2224,73 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(403).json({ error: "Only the character owner or room DM can award XP" });
       }
 
-      const oldXp = existing.xp || 0;
-      const newXp = oldXp + xpAmount;
-      const oldLevel = existing.level;
-      const newLevel = getLevelFromXP(newXp);
-      const leveledUp = newLevel > oldLevel;
-
-      let updates: Record<string, unknown> = { xp: newXp };
-
-      if (leveledUp) {
-        updates.level = newLevel;
-
-        // Calculate HP increase for each level gained
-        if (existing.class && classDefinitions[existing.class as DndClass]) {
-          const conMod = existing.stats?.constitution ? getAbilityModifier(existing.stats.constitution as number) : 0;
-
-          let hpGain = 0;
-          for (let lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
-            hpGain += calculateLevelUpHP(existing.class as DndClass, conMod);
-          }
-
-          updates.maxHp = (existing.maxHp || 10) + hpGain;
-          updates.currentHp = existing.currentHp + hpGain;
-        }
-      }
-
-      const character = await storage.updateSavedCharacter(id, updates);
+      // Delegate to helper to award XP (handles leveling, HP gain and broadcasts)
+      const awardResult = await awardXpToCharacter(id, xpAmount, undefined);
       res.json({
-        ...character,
-        xpAwarded: xpAmount,
-        leveledUp,
-        previousLevel: leveledUp ? oldLevel : undefined,
-        levelsGained: leveledUp ? newLevel - oldLevel : 0,
+        ...awardResult.character,
+        xpAwarded: awardResult.xpAwarded,
+        leveledUp: awardResult.leveledUp,
+        previousLevel: awardResult.leveledUp ? awardResult.previousLevel : undefined,
+        levelsGained: awardResult.leveledUp ? awardResult.levelsGained : 0,
       });
     } catch (error) {
       console.error("Error awarding XP:", error);
       res.status(500).json({ error: "Failed to award XP" });
     }
   });
+
+  // Helper: award XP to a character, handle level-ups, HP gains, DB update and broadcasts
+  async function awardXpToCharacter(characterId: string, xpAmount: number, roomCode?: string) {
+    const existing = await storage.getSavedCharacter(characterId);
+    if (!existing) throw new Error("Character not found");
+
+    const oldXp = existing.xp || 0;
+    const newXp = oldXp + xpAmount;
+    const oldLevel = existing.level || 1;
+    const newLevel = getLevelFromXP(newXp);
+    const leveledUp = newLevel > oldLevel;
+
+    let updates: any = { xp: newXp };
+
+    let levelsGained = 0;
+    let totalHpGain = 0;
+
+    if (leveledUp) {
+      levelsGained = newLevel - oldLevel;
+      updates.level = newLevel;
+
+      if (existing.class && classDefinitions[existing.class as DndClass]) {
+        const conMod = existing.stats?.constitution ? getAbilityModifier(existing.stats.constitution as number) : 0;
+        let hpGain = 0;
+        for (let lvl = oldLevel + 1; lvl <= newLevel; lvl++) {
+          hpGain += calculateLevelUpHP(existing.class as DndClass, conMod);
+        }
+        totalHpGain = hpGain;
+        updates.maxHp = (existing.maxHp || 10) + hpGain;
+        updates.currentHp = Math.min((updates.currentHp ?? existing.currentHp) + hpGain, updates.maxHp);
+      }
+    }
+
+    const updated = await storage.updateSavedCharacter(characterId, updates);
+
+    // Broadcast update to clients in the room if roomCode provided
+    if (roomCode) {
+      broadcastToRoom(roomCode, {
+        type: 'character_update',
+        characterId: characterId,
+        updates,
+      });
+    }
+
+    return {
+      character: updated,
+      xpAwarded: xpAmount,
+      leveledUp,
+      previousLevel: oldLevel,
+      levelsGained,
+      totalHpGain,
+    };
+  }
 
   app.delete("/api/saved-characters/:id", isAuthenticated, async (req, res) => {
     try {
