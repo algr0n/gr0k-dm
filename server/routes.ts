@@ -169,31 +169,48 @@ async function fetchStoryContext(
     const storyEvents = await storage.getStoryEventsByRoom(roomId, { limit: 10, minImportance: 2 });
     const sessionSummary = await storage.getLatestSessionSummary(roomId);
     
-    // Fetch quest progress if adventure exists
+    // Fetch quest progress (both adventure quests and dynamic quests)
     let questProgress: import('@shared/adventure-schema').QuestWithProgress[] = [];
-    if (adventureId) {
-      const objectives = await storage.getQuestObjectivesByRoom(roomId);
+    
+    // Get all quest objectives for this room
+    const objectives = await storage.getQuestObjectivesByRoom(roomId);
+    
+    // Get quest details and group objectives
+    const { adventureQuests } = await import('@shared/adventure-schema');
+    const questIds = [...new Set(objectives.map((o: any) => o.questId))];
+    
+    if (questIds.length > 0) {
+      const quests = await db
+        .select()
+        .from(adventureQuests)
+        .where(inArray(adventureQuests.id, questIds));
       
-      // Get quest details and group objectives
-      const { adventureQuests } = await import('@shared/adventure-schema');
-      const questIds = [...new Set(objectives.map((o: any) => o.questId))];
-      
-      if (questIds.length > 0) {
-        const quests = await db
-          .select()
-          .from(adventureQuests)
-          .where(inArray(adventureQuests.id, questIds));
-        
-        questProgress = quests.map(quest => {
-          const questObjectives = objectives.filter((o: any) => o.questId === quest.id);
-          const completed = questObjectives.filter((o: any) => o.isCompleted).length;
-          const total = questObjectives.length;
-          return {
-            quest,
-            objectives: questObjectives,
-            completionPercentage: total > 0 ? Math.round((completed / total) * 100) : 0,
-          };
-        });
+      questProgress = quests.map(quest => {
+        const questObjectives = objectives.filter((o: any) => o.questId === quest.id);
+        const completed = questObjectives.filter((o: any) => o.isCompleted).length;
+        const total = questObjectives.length;
+        return {
+          quest,
+          objectives: questObjectives,
+          completionPercentage: total > 0 ? Math.round((completed / total) * 100) : 0,
+        };
+      });
+    } else {
+      // Also check for quests directly associated with the room (dynamic quests)
+      const roomQuests = await storage.getQuestsByRoom(roomId);
+      if (roomQuests.length > 0) {
+        questProgress = await Promise.all(
+          roomQuests.map(async (quest: any) => {
+            const questObjectives = await storage.getQuestObjectives(quest.id);
+            const completed = questObjectives.filter((o: any) => o.isCompleted).length;
+            const total = questObjectives.length;
+            return {
+              quest,
+              objectives: questObjectives,
+              completionPercentage: total > 0 ? Math.round((completed / total) * 100) : 0,
+            };
+          })
+        );
       }
     }
 
@@ -278,19 +295,37 @@ interface ParsedGameAction {
     | "stable"
     | "dead"
     | "status_add"
-    | "status_remove";
+    | "status_remove"
+    | "npc_add"
+    | "location_add"
+    | "quest_add"
+    | "quest_update";
   playerName?: string;
   characterName?: string;
   currentHp?: number;
   maxHp?: number;
   itemName?: string;
   quantity?: number;
-  customProperties?: string; // NEW: JSON string with item stats
+  customProperties?: string; // NEW: JSON string with item stats or NPC/location props
   goldAmount?: number;
   currency?: { cp: number; sp: number; gp: number };
   successes?: number;
   failures?: number;
   statusName?: string;
+  // npc/location specific
+  npcName?: string;
+  npcRole?: string;
+  locationName?: string;
+  locationType?: string;
+  // quest specific
+  questTitle?: string;
+  questGiver?: string;
+  questStatus?: string;
+  questDescription?: string;
+  questObjectives?: string[];
+  questRewards?: Record<string, any>;
+  questUrgency?: string;
+  questId?: string; // For quest updates
 }
 
 function parseDMResponseTags(response: string): ParsedGameAction[] {
@@ -419,6 +454,69 @@ function parseDMResponseTags(response: string): ParsedGameAction[] {
       type: "status_remove",
       playerName: match[1].trim(),
       statusName: match[2].trim(),
+    });
+  }
+
+  // Parse NPC creation tags:
+  // [NPC: Name] or [NPC: Name | Role] or [NPC: Name | Role | {"personality":"...","description":"..."}]
+  const npcPattern = /\[NPC:\s*([^|\]\n]+?)\s*(?:\|\s*([^|\]\n]+?))?\s*(?:\|\s*(\{[^\]]+\}))?\s*\]/gi;
+  while ((match = npcPattern.exec(response)) !== null) {
+    actions.push({
+      type: "npc_add",
+      npcName: match[1].trim(),
+      npcRole: match[2] ? match[2].trim() : undefined,
+      customProperties: match[3] ? match[3].trim() : undefined,
+    });
+  }
+
+  // Parse LOCATION creation tags:
+  // [LOCATION: Name] or [LOCATION: Name | Type] or [LOCATION: Name | Type | {"description":"..."}]
+  const locationPattern = /\[LOCATION:\s*([^|\]\n]+?)\s*(?:\|\s*([^|\]\n]+?))?\s*(?:\|\s*(\{[^\]]+\}))?\s*\]/gi;
+  while ((match = locationPattern.exec(response)) !== null) {
+    actions.push({
+      type: "location_add",
+      locationName: match[1].trim(),
+      locationType: match[2] ? match[2].trim() : undefined,
+      customProperties: match[3] ? match[3].trim() : undefined,
+    });
+  }
+
+  // Parse QUEST creation tags:
+  // [QUEST: Title | QuestGiver | Status | {"description":"...","objectives":[...],"rewards":{...},"urgency":"high"}]
+  // Minimum: [QUEST: Title]
+  const questPattern = /\[QUEST:\s*([^|\]\n]+?)\s*(?:\|\s*([^|\]\n]+?))?\s*(?:\|\s*([^|\]\n]+?))?\s*(?:\|\s*(\{[^\]]+\}))?\s*\]/gi;
+  while ((match = questPattern.exec(response)) !== null) {
+    const questData: ParsedGameAction = {
+      type: "quest_add",
+      questTitle: match[1].trim(),
+      questGiver: match[2] ? match[2].trim() : undefined,
+      questStatus: match[3] ? match[3].trim() : "active",
+    };
+    
+    // Parse JSON properties if present
+    if (match[4]) {
+      try {
+        const props = JSON.parse(match[4]);
+        if (props.description) questData.questDescription = props.description;
+        if (props.objectives) questData.questObjectives = props.objectives;
+        if (props.rewards) questData.questRewards = props.rewards;
+        if (props.urgency) questData.questUrgency = props.urgency;
+      } catch (e) {
+        console.error("Failed to parse quest properties:", e);
+      }
+    }
+    
+    actions.push(questData);
+  }
+
+  // Parse QUEST status updates:
+  // [QUEST_UPDATE: QuestId | Status] or [QUEST_UPDATE: QuestTitle | Status]
+  const questUpdatePattern = /\[QUEST_UPDATE:\s*([^|\]\n]+?)\s*\|\s*([^|\]\n]+?)\s*\]/gi;
+  while ((match = questUpdatePattern.exec(response)) !== null) {
+    actions.push({
+      type: "quest_update",
+      questId: match[1].trim(), // Can be ID or title
+      questStatus: match[2].trim(),
     });
   }
 
@@ -1084,6 +1182,70 @@ async function executeGameActions(
           break;
         }
 
+        case "npc_add": {
+          if (!action.npcName) break;
+          try {
+            const props = action.customProperties ? JSON.parse(action.customProperties) : {};
+            const npcRecord = await storage.createDynamicNpc({
+              roomId: room.id,
+              name: action.npcName,
+              role: action.npcRole,
+              description: props.description || props.desc || undefined,
+              personality: props.personality || undefined,
+              statsBlock: props.stats || props.statsBlock || undefined,
+            });
+
+            // Create a story event and broadcast
+            const event = await storage.createStoryEvent({
+              roomId: room.id,
+              eventType: 'npc_created',
+              title: `New NPC: ${npcRecord.name}`,
+              summary: `${npcRecord.name} (${npcRecord.role || 'NPC'}) has been introduced by the DM.`,
+              participants: [],
+              relatedNpcId: npcRecord.id,
+              importance: 2,
+            });
+
+            broadcastFn(roomCode, { type: 'story_event_created', event });
+            console.log(`[DM Action] Created dynamic NPC '${npcRecord.name}' (id=${npcRecord.id}) in room ${roomCode}`);
+          } catch (err) {
+            console.error('[DM Action] Failed to create dynamic NPC:', err);
+          }
+          break;
+        }
+
+        case "location_add": {
+          if (!action.locationName) break;
+          try {
+            const props = action.customProperties ? JSON.parse(action.customProperties) : {};
+            const locRecord = await storage.createDynamicLocation({
+              roomId: room.id,
+              name: action.locationName,
+              type: action.locationType || props.type || 'other',
+              description: props.description || props.desc || undefined,
+              boxedText: props.boxedText || props.boxed_text || undefined,
+              features: props.features || undefined,
+              connections: props.connections || undefined,
+            });
+
+            const event = await storage.createStoryEvent({
+              roomId: room.id,
+              eventType: 'location_created',
+              title: `Location discovered: ${locRecord.name}`,
+              summary: `${locRecord.name} has been discovered and added to the adventure.`,
+              participants: [],
+              relatedLocationId: locRecord.id,
+              importance: 2,
+            });
+
+            broadcastFn(roomCode, { type: 'story_event_created', event });
+            console.log(`[DM Action] Created dynamic location '${locRecord.name}' (id=${locRecord.id}) in room ${roomCode}`);
+          } catch (err) {
+            console.error('[DM Action] Failed to create dynamic location:', err);
+          }
+          break;
+        }
+
         case "death_save": {
           if (!action.playerName) break;
           const char = findCharacter(action.playerName);
@@ -1116,6 +1278,119 @@ async function executeGameActions(
               updates: { currentHp: 0, isAlive: true, isStable: true },
             });
             console.log(`[DM Action] ${action.playerName} has stabilized at 0 HP`);
+          }
+          break;
+        }
+
+        case "quest_add": {
+          if (!action.questTitle) break;
+          try {
+            // Find quest giver NPC if specified
+            let dynamicQuestGiverId: string | null = null;
+            if (action.questGiver) {
+              const npcs = await storage.getDynamicNpcsByRoom(room.id);
+              const questGiverNpc = npcs.find(
+                npc => npc.name.toLowerCase() === action.questGiver!.toLowerCase()
+              );
+              if (questGiverNpc) {
+                dynamicQuestGiverId = questGiverNpc.id;
+                // Mark NPC as quest giver
+                await storage.updateDynamicNpc(questGiverNpc.id, { isQuestGiver: true });
+              }
+            }
+
+            // Create the quest
+            const questRecord = await storage.createQuest({
+              roomId: room.id,
+              name: action.questTitle,
+              description: action.questDescription || `Quest: ${action.questTitle}`,
+              objectives: action.questObjectives || [],
+              rewards: action.questRewards || undefined,
+              isDynamic: true,
+              status: (action.questStatus || 'active') as 'active' | 'in_progress' | 'completed' | 'failed',
+              urgency: action.questUrgency || undefined,
+              questGiver: action.questGiver || undefined,
+              dynamicQuestGiverId,
+            });
+
+            // Create objective progress entries
+            const objectives = action.questObjectives || [];
+            for (let i = 0; i < objectives.length; i++) {
+              await storage.createQuestObjectiveProgress({
+                roomId: room.id,
+                questId: questRecord.id,
+                objectiveIndex: i,
+                objectiveText: objectives[i],
+                isCompleted: false,
+              });
+            }
+
+            // Create story event
+            const event = await storage.createStoryEvent({
+              roomId: room.id,
+              eventType: 'quest_start',
+              title: `New Quest: ${questRecord.name}`,
+              summary: questRecord.description,
+              participants: [],
+              relatedQuestId: questRecord.id,
+              relatedNpcId: dynamicQuestGiverId || undefined,
+              importance: action.questUrgency === 'critical' ? 5 : action.questUrgency === 'high' ? 4 : 3,
+            });
+
+            broadcastFn(roomCode, { type: 'story_event_created', event });
+            broadcastFn(roomCode, { type: 'quest_created', quest: questRecord });
+            console.log(`[DM Action] Created dynamic quest '${questRecord.name}' (id=${questRecord.id}) in room ${roomCode}`);
+          } catch (err) {
+            console.error('[DM Action] Failed to create quest:', err);
+          }
+          break;
+        }
+
+        case "quest_update": {
+          if (!action.questId || !action.questStatus) break;
+          try {
+            // Try to find quest by ID or by title
+            const quests = await storage.getQuestsByRoom(room.id);
+            const quest = quests.find(
+              q => q.id === action.questId || q.name.toLowerCase() === action.questId!.toLowerCase()
+            );
+
+            if (quest) {
+              await storage.updateQuest(quest.id, {
+                status: action.questStatus as 'active' | 'in_progress' | 'completed' | 'failed'
+              });
+
+              // If completed, update all objectives
+              if (action.questStatus === 'completed') {
+                const objectives = await storage.getQuestObjectives(quest.id);
+                for (const obj of objectives) {
+                  if (!obj.isCompleted) {
+                    await storage.updateQuestObjective(obj.id, {
+                      isCompleted: true,
+                      completedAt: new Date(),
+                    });
+                  }
+                }
+
+                // Create completion event
+                const event = await storage.createStoryEvent({
+                  roomId: room.id,
+                  eventType: 'quest_complete',
+                  title: `Quest Completed: ${quest.name}`,
+                  summary: `The quest "${quest.name}" has been completed!`,
+                  participants: characters.map(c => c.characterName),
+                  relatedQuestId: quest.id,
+                  importance: 4,
+                });
+
+                broadcastFn(roomCode, { type: 'story_event_created', event });
+              }
+
+              broadcastFn(roomCode, { type: 'quest_updated', questId: quest.id, status: action.questStatus });
+              console.log(`[DM Action] Updated quest '${quest.name}' status to ${action.questStatus}`);
+            }
+          } catch (err) {
+            console.error('[DM Action] Failed to update quest:', err);
           }
           break;
         }
@@ -3341,6 +3616,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // GET /api/rooms/:roomId/dynamic-npcs - List dynamic NPCs created for this room
+  app.get("/api/rooms/:roomId/dynamic-npcs", async (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const npcs = await storage.getDynamicNpcsByRoom(roomId);
+      res.json(npcs);
+    } catch (error) {
+      console.error("Error fetching dynamic NPCs:", error);
+      res.status(500).json({ error: "Failed to fetch dynamic NPCs" });
+    }
+  });
+
+  // GET /api/rooms/:roomId/dynamic-locations - List dynamic locations created for this room
+  app.get("/api/rooms/:roomId/dynamic-locations", async (req, res) => {
+    try {
+      const { roomId } = req.params;
+      const locs = await storage.getDynamicLocationsByRoom(roomId);
+      res.json(locs);
+    } catch (error) {
+      console.error("Error fetching dynamic locations:", error);
+      res.status(500).json({ error: "Failed to fetch dynamic locations" });
+    }
+  });
+
   // POST /api/rooms/:roomId/adventure-progress - Update adventure progress
   app.post("/api/rooms/:roomId/adventure-progress", async (req, res) => {
     try {
@@ -3711,6 +4010,114 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error fetching quests:", error);
       res.status(500).json({ error: "Failed to fetch quests" });
+    }
+  });
+
+  // Get quests with objectives and progress for UI display
+  app.get("/api/rooms/:roomCode/quests-with-progress", async (req, res) => {
+    try {
+      const { roomCode } = req.params;
+      const room = await storage.getRoomByCode(roomCode);
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+
+      // Get all quest objectives for this room
+      const objectives = await storage.getQuestObjectivesByRoom(room.id);
+      
+      // Get quest details
+      const questIds = [...new Set(objectives.map((o: any) => o.questId))];
+      
+      let questsWithProgress: any[] = [];
+      
+      if (questIds.length > 0) {
+        const quests = await db
+          .select()
+          .from(adventureQuests)
+          .where(inArray(adventureQuests.id, questIds));
+        
+        questsWithProgress = quests.map(quest => {
+          const questObjectives = objectives.filter((o: any) => o.questId === quest.id);
+          const completed = questObjectives.filter((o: any) => o.isCompleted).length;
+          const total = questObjectives.length;
+          return {
+            quest,
+            objectives: questObjectives,
+            completionPercentage: total > 0 ? Math.round((completed / total) * 100) : 0,
+          };
+        });
+      }
+      
+      // Also get direct room quests (dynamic quests without objectives yet)
+      const roomQuests = await storage.getQuestsByRoom(room.id);
+      for (const quest of roomQuests) {
+        if (!questIds.includes(quest.id)) {
+          const questObjectives = await storage.getQuestObjectives(quest.id);
+          const completed = questObjectives.filter((o: any) => o.isCompleted).length;
+          const total = questObjectives.length;
+          questsWithProgress.push({
+            quest,
+            objectives: questObjectives,
+            completionPercentage: total > 0 ? Math.round((completed / total) * 100) : 0,
+          });
+        }
+      }
+
+      res.json(questsWithProgress);
+    } catch (error) {
+      console.error("Error fetching quests with progress:", error);
+      res.status(500).json({ error: "Failed to fetch quests with progress" });
+    }
+  });
+
+  // Update quest status
+  app.patch("/api/quests/:questId", async (req, res) => {
+    try {
+      const { questId } = req.params;
+      const { status } = req.body;
+
+      if (!status || !["active", "in_progress", "completed", "failed"].includes(status)) {
+        return res.status(400).json({ error: "Invalid status" });
+      }
+
+      const updated = await storage.updateQuest(questId, { status });
+      
+      if (!updated) {
+        return res.status(404).json({ error: "Quest not found" });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating quest:", error);
+      res.status(500).json({ error: "Failed to update quest" });
+    }
+  });
+
+  // Update objective status
+  app.patch("/api/objectives/:objectiveId", async (req, res) => {
+    try {
+      const { objectiveId } = req.params;
+      const { isCompleted, completedBy } = req.body;
+
+      const updates: any = {};
+      if (typeof isCompleted === "boolean") {
+        updates.isCompleted = isCompleted;
+        if (isCompleted) {
+          updates.completedAt = new Date();
+          if (completedBy) updates.completedBy = completedBy;
+        }
+      }
+
+      const updated = await storage.updateQuestObjective(objectiveId, updates);
+      
+      if (!updated) {
+        return res.status(404).json({ error: "Objective not found" });
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating objective:", error);
+      res.status(500).json({ error: "Failed to update objective" });
     }
   });
 

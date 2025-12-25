@@ -11,7 +11,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download, FolderOpen, Coins, Weight, Zap, Flame, Wand2 } from "lucide-react";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download, FolderOpen, Coins, Weight, Zap, Flame, Wand2, ScrollText } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -23,6 +23,7 @@ import { SpellBrowser } from "@/components/spell-browser";
 import { FloatingCharacterPanel } from "@/components/floating-character-panel";
 import { DMControlsPanel } from "@/components/dm-controls-panel";
 import { InventoryLayout } from "@/components/inventory/InventoryLayout";
+import { QuestTracker } from "@/components/quest-tracker";
 import { Heart } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -925,6 +926,16 @@ export default function RoomPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // When switching back to the chat tab, ensure the view scrolls to the latest message
+  useEffect(() => {
+    if (activeTab === "chat") {
+      // Use requestAnimationFrame to ensure the tab content is visible before scrolling
+      requestAnimationFrame(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+    }
+  }, [activeTab]);
+
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputValue.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || gameEnded) return;
@@ -1251,6 +1262,10 @@ export default function RoomPage() {
               <TabsTrigger value="inventory" className="gap-2" data-testid="tab-inventory">
                 <Package className="h-4 w-4" />
                 Inventory
+              </TabsTrigger>
+              <TabsTrigger value="quests" className="gap-2" data-testid="tab-quests">
+                <ScrollText className="h-4 w-4" />
+                Quests
               </TabsTrigger>
               {roomData?.gameSystem === "dnd" && myCharacterData?.savedCharacter?.class && isSpellcaster(myCharacterData.savedCharacter.class) && (
                 <TabsTrigger value="spells" className="gap-2" data-testid="tab-spells">
@@ -1823,6 +1838,13 @@ export default function RoomPage() {
                   }}
                 />
               )}
+            </div>
+          </TabsContent>
+
+          {/* Quests Tab - shows active quests and progress */}
+          <TabsContent value="quests" className="flex-1 mt-0 overflow-hidden data-[state=inactive]:hidden">
+            <div className="h-full p-4">
+              <QuestTracker roomId={roomData?.id || ""} roomCode={code} />
             </div>
           </TabsContent>
 

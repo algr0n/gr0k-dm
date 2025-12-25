@@ -120,6 +120,14 @@ export interface Storage {
   createQuestObjective(objective: any): Promise<any>;
   updateQuestObjective(id: string, updates: any): Promise<any | undefined>;
   deleteQuestObjectivesByRoom(roomId: string): Promise<boolean>;
+  getQuestObjectives(questId: string): Promise<any[]>;
+  createQuestObjectiveProgress(data: any): Promise<any>;
+
+  // Story Tracking - Quests
+  getQuestsByRoom(roomId: string): Promise<any[]>;
+  createQuest(quest: any): Promise<any>;
+  updateQuest(id: string, updates: any): Promise<any | undefined>;
+  deleteQuestsByRoom(roomId: string): Promise<boolean>;
 
   // Story Tracking - Story Events
   getStoryEventsByRoom(roomId: string, options?: { limit?: number; eventType?: string; minImportance?: number }): Promise<any[]>;
@@ -132,6 +140,13 @@ export interface Storage {
   createSessionSummary(summary: any): Promise<any>;
   updateSessionSummary(id: string, updates: any): Promise<any | undefined>;
   deleteSessionSummariesByRoom(roomId: string): Promise<boolean>;
+
+  // Dynamic NPCs & Locations (AI/DM-created persistent entities for a room)
+  createDynamicNpc(npc: { roomId: string; name: string; role?: string; description?: string; personality?: string; statsBlock?: any; isQuestGiver?: boolean }): Promise<any>;
+  getDynamicNpcsByRoom(roomId: string): Promise<any[]>;
+  updateDynamicNpc(id: string, updates: any): Promise<any | undefined>;
+  createDynamicLocation(loc: { roomId: string; name: string; type?: string; description?: string; boxedText?: string; features?: string[]; connections?: string[] }): Promise<any>;
+  getDynamicLocationsByRoom(roomId: string): Promise<any[]>;
 
   // Token usage
   // getTokenUsage is implemented in grok.ts - exported separately
@@ -151,6 +166,9 @@ import {
   questObjectiveProgress,
   storyEvents,
   sessionSummaries,
+  dynamicNpcs,
+  dynamicLocations,
+  adventureQuests,
 } from "@shared/adventure-schema";
 // Type imports are already declared above; keep only the table imports (avoid duplicate type declarations).
 import { eq, and, like, desc, sql, lt, gte } from "drizzle-orm";
@@ -672,6 +690,67 @@ class DatabaseStorage implements Storage {
     await db.delete(sessionSummaries)
       .where(eq(sessionSummaries.roomId, roomId));
     return true;
+  }
+
+  // ==============================================================================
+  // Dynamic NPCs & Locations
+  // ==============================================================================
+  async createDynamicNpc(npc: { roomId: string; name: string; role?: string; description?: string; personality?: string; statsBlock?: any; isQuestGiver?: boolean }): Promise<any> {
+    const id = randomUUID();
+    const [created] = await db.insert(dynamicNpcs).values({ ...npc, id }).returning();
+    return created;
+  }
+
+  async getDynamicNpcsByRoom(roomId: string): Promise<any[]> {
+    return await db.select().from(dynamicNpcs).where(eq(dynamicNpcs.roomId, roomId)).orderBy(dynamicNpcs.createdAt);
+  }
+
+  async updateDynamicNpc(id: string, updates: any): Promise<any | undefined> {
+    const [updated] = await db.update(dynamicNpcs).set(updates).where(eq(dynamicNpcs.id, id)).returning();
+    return updated;
+  }
+
+  async createDynamicLocation(loc: { roomId: string; name: string; type?: string; description?: string; boxedText?: string; features?: string[]; connections?: string[] }): Promise<any> {
+    const id = randomUUID();
+    const [created] = await db.insert(dynamicLocations).values({ ...loc, id }).returning();
+    return created;
+  }
+
+  async getDynamicLocationsByRoom(roomId: string): Promise<any[]> {
+    return await db.select().from(dynamicLocations).where(eq(dynamicLocations.roomId, roomId)).orderBy(dynamicLocations.createdAt);
+  }
+
+  // ==============================================================================
+  // Quests - AI-created or predefined quest management
+  // ==============================================================================
+  async getQuestsByRoom(roomId: string): Promise<any[]> {
+    return await db.select().from(adventureQuests).where(eq(adventureQuests.roomId, roomId)).orderBy(adventureQuests.createdAt);
+  }
+
+  async createQuest(quest: any): Promise<any> {
+    const id = randomUUID();
+    const [created] = await db.insert(adventureQuests).values({ ...quest, id }).returning();
+    return created;
+  }
+
+  async updateQuest(id: string, updates: any): Promise<any | undefined> {
+    const [updated] = await db.update(adventureQuests).set(updates).where(eq(adventureQuests.id, id)).returning();
+    return updated;
+  }
+
+  async deleteQuestsByRoom(roomId: string): Promise<boolean> {
+    await db.delete(adventureQuests).where(eq(adventureQuests.roomId, roomId));
+    return true;
+  }
+
+  async getQuestObjectives(questId: string): Promise<any[]> {
+    return await db.select().from(questObjectiveProgress).where(eq(questObjectiveProgress.questId, questId)).orderBy(questObjectiveProgress.objectiveIndex);
+  }
+
+  async createQuestObjectiveProgress(data: any): Promise<any> {
+    const id = randomUUID();
+    const [created] = await db.insert(questObjectiveProgress).values({ ...data, id }).returning();
+    return created;
   }
 
   // ==============================================================================

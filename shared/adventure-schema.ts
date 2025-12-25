@@ -10,6 +10,7 @@ import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { sql } from "drizzle-orm";
+import { rooms } from "./schema";
 
 // SQLite Helper Functions (redefined to avoid circular dependency)
 const generateUUID = () => sql`(lower(hex(randomblob(16))))`;
@@ -203,7 +204,9 @@ export const adventureQuests = sqliteTable("adventure_quests", {
   chapterId: text("chapter_id")
     .references(() => adventureChapters.id, { onDelete: "set null" }),
   questGiverId: text("quest_giver_id")
-    .references(() => adventureNpcs.id, { onDelete: "set null" }), // NPC who gives the quest
+    .references(() => adventureNpcs.id, { onDelete: "set null" }), // Predefined NPC quest giver
+  dynamicQuestGiverId: text("dynamic_quest_giver_id")
+    .references(() => dynamicNpcs.id, { onDelete: "set null" }), // Dynamic NPC quest giver
   roomId: text("room_id"), // For dynamic quests not tied to adventures
   questGiver: text("quest_giver"), // Free-form NPC name for dynamic quests
   name: text("name").notNull(),
@@ -217,6 +220,7 @@ export const adventureQuests = sqliteTable("adventure_quests", {
   }>(),
   isMainQuest: integer("is_main_quest", { mode: 'boolean' }).notNull().default(false),
   isDynamic: integer("is_dynamic", { mode: 'boolean' }).notNull().default(false), // AI-generated quest
+  status: text("status").notNull().default("active"), // active, in_progress, completed, failed
   urgency: text("urgency"), // low, medium, high, critical
   prerequisiteQuestIds: text("prerequisite_quest_ids", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
   createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
@@ -224,8 +228,10 @@ export const adventureQuests = sqliteTable("adventure_quests", {
   index("idx_quests_adventure").on(table.adventureId),
   index("idx_quests_chapter").on(table.chapterId),
   index("idx_quests_giver").on(table.questGiverId),
+  index("idx_quests_dynamic_giver").on(table.dynamicQuestGiverId),
   index("idx_quests_room").on(table.roomId),
   index("idx_quests_dynamic").on(table.isDynamic),
+  index("idx_quests_status").on(table.status),
 ]);
 
 export type AdventureQuest = typeof adventureQuests.$inferSelect;
@@ -321,6 +327,53 @@ export const insertSessionSummarySchema = createInsertSchema(sessionSummaries).o
   id: true,
   createdAt: true,
 });
+
+// =============================================================================
+// Dynamic NPCs - AI-generated or DM-created persistent NPCs for a specific room
+// =============================================================================
+
+export const dynamicNpcs = sqliteTable("dynamic_npcs", {
+  id: text("id").primaryKey().default(generateUUID()),
+  roomId: text("room_id").notNull().references(() => rooms.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  role: text("role"),
+  description: text("description"),
+  personality: text("personality"),
+  statsBlock: text("stats_block", { mode: 'json' }).$type<Record<string, any>>(),
+  isQuestGiver: integer("is_quest_giver", { mode: 'boolean' }).notNull().default(false),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [
+  index("idx_dynamic_npcs_room").on(table.roomId),
+  index("idx_dynamic_npcs_role").on(table.role),
+  index("idx_dynamic_npcs_quest_giver").on(table.isQuestGiver),
+]);
+
+export type DynamicNpc = typeof dynamicNpcs.$inferSelect;
+export type InsertDynamicNpc = typeof dynamicNpcs.$inferInsert;
+export const insertDynamicNpcSchema = createInsertSchema(dynamicNpcs).omit({ id: true, createdAt: true });
+
+// =============================================================================
+// Dynamic Locations - AI-generated or DM-created persistent locations for a room
+// =============================================================================
+
+export const dynamicLocations = sqliteTable("dynamic_locations", {
+  id: text("id").primaryKey().default(generateUUID()),
+  roomId: text("room_id").notNull().references(() => rooms.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  type: text("type").notNull().default("other"),
+  description: text("description"),
+  boxedText: text("boxed_text"),
+  features: text("features", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
+  connections: text("connections", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [
+  index("idx_dynamic_locations_room").on(table.roomId),
+  index("idx_dynamic_locations_type").on(table.type),
+]);
+
+export type DynamicLocation = typeof dynamicLocations.$inferSelect;
+export type InsertDynamicLocation = typeof dynamicLocations.$inferInsert;
+export const insertDynamicLocationSchema = createInsertSchema(dynamicLocations).omit({ id: true, createdAt: true });
 
 // =============================================================================
 // Relations
