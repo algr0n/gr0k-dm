@@ -6053,11 +6053,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // Catch-all for unmatched API routes - return JSON 404 instead of falling back to static/index.html
-  app.use("/api/*", (req, res) => {
-    res.status(404).json({ error: "API endpoint not found" });
-  });
-
   // Monster bestiary API
   app.get("/api/monsters", async (req, res) => {
     try {
@@ -6140,6 +6135,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       console.error('[Admin] Demote failed:', err);
       res.status(500).json({ error: 'Failed to demote user' });
     }
+  });
+
+  // Catch-all for unmatched API routes - return JSON 404 instead of falling back to static/index.html
+  app.use("/api/*", (req, res) => {
+    res.status(404).json({ error: "API endpoint not found" });
   });
 
   return httpServer;
