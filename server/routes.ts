@@ -1659,6 +1659,17 @@ async function executeGameActions(
   // Replace actions with consolidatedActions so the rest of the logic processes deduped currency changes
   actions = consolidatedActions;
 
+  // Ensure correct execution order for combat-related actions.
+  // Spawn monsters MUST occur before combat_start so initiative rolling sees the spawns.
+  const spawnActions = actions.filter(a => a.type === 'spawn_monster');
+  const combatStartActions = actions.filter(a => a.type === 'combat_start');
+  const otherActions = actions.filter(a => a.type !== 'spawn_monster' && a.type !== 'combat_start');
+  const orderedActions: ParsedGameAction[] = [
+    ...spawnActions,
+    ...combatStartActions,
+    ...otherActions,
+  ];
+
   const characters = await storage.getCharactersByRoomCode(roomCode);
   const room = await storage.getRoomByCode(roomCode);
   if (!room) return;
@@ -1666,7 +1677,7 @@ async function executeGameActions(
   const players = await storage.getPlayersByRoom(room.id);
   // Debug: room and participants (kept minimal)
 
-  for (const action of actions) {
+  for (const action of orderedActions) {
     try {
       // Find character by player name (case insensitive match)
       const findCharacter = (playerName: string) => {
