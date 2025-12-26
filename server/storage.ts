@@ -128,6 +128,13 @@ export interface Storage {
   createQuest(quest: any): Promise<any>;
   updateQuest(id: string, updates: any): Promise<any | undefined>;
   deleteQuestsByRoom(roomId: string): Promise<boolean>;
+  
+  // Quest Acceptance
+  acceptQuest(roomId: string, questId: string, acceptedBy?: string): Promise<any>;
+  isQuestAccepted(roomId: string, questId: string): Promise<boolean>;
+  getAcceptedQuestIds(roomId: string): Promise<string[]>;
+  getAvailableQuestsForRoom(roomId: string): Promise<any[]>;
+  getAdventureQuestById(questId: string): Promise<any | undefined>;
 
   // Story Tracking - Story Events
   getStoryEventsByRoom(roomId: string, options?: { limit?: number; eventType?: string; minImportance?: number }): Promise<any[]>;
@@ -172,7 +179,7 @@ import {
   adventureQuests,
 } from "@shared/adventure-schema";
 // Type imports are already declared above; keep only the table imports (avoid duplicate type declarations).
-import { eq, and, like, desc, sql, lt, gte } from "drizzle-orm";
+import { eq, and, like, desc, sql, lt, gte, inArray } from "drizzle-orm";
 
 class DatabaseStorage implements Storage {
   // ==============================================================================
@@ -776,37 +783,21 @@ class DatabaseStorage implements Storage {
   // Quests - AI-created or predefined quest management
   // ==============================================================================
   async getQuestsByRoom(roomId: string): Promise<any[]> {
-    // Fetch the room to get its adventureId (if using adventure mode)
-    const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
+    // ONLY return accepted quests - players must accept quests first
+    const acceptedIds = await this.getAcceptedQuestIds(roomId);
     
-    if (!room) {
+    if (acceptedIds.length === 0) {
       return [];
     }
     
-    // Fetch both dynamic quests (roomId) and adventure quests (adventureId)
-    const dynamicQuests = await db
+    // Fetch all accepted quests
+    const quests = await db
       .select()
       .from(adventureQuests)
-      .where(eq(adventureQuests.roomId, roomId))
+      .where(inArray(adventureQuests.id, acceptedIds))
       .orderBy(adventureQuests.createdAt);
     
-    // If room is in adventure mode, also fetch adventure quests
-    let adventureQuests_data: any[] = [];
-    if (room.adventureId && room.useAdventureMode) {
-      adventureQuests_data = await db
-        .select()
-        .from(adventureQuests)
-        .where(eq(adventureQuests.adventureId, room.adventureId))
-        .orderBy(adventureQuests.createdAt);
-    }
-    
-    // Combine and deduplicate (in case a quest has both roomId and adventureId)
-    const allQuests = [...dynamicQuests, ...adventureQuests_data];
-    const uniqueQuests = Array.from(
-      new Map(allQuests.map(q => [q.id, q])).values()
-    );
-    
-    return uniqueQuests;
+    return quests;
   }
 
   async createQuest(quest: any): Promise<any> {
@@ -823,6 +814,65 @@ class DatabaseStorage implements Storage {
   async deleteQuestsByRoom(roomId: string): Promise<boolean> {
     await db.delete(adventureQuests).where(eq(adventureQuests.roomId, roomId));
     return true;
+  }
+
+  async acceptQuest(roomId: string, questId: string, acceptedBy?: string): Promise<any> {
+    const { acceptedQuests } = await import('@shared/adventure-schema');
+    const [accepted] = await db.insert(acceptedQuests).values({
+      roomId,
+      questId,
+      acceptedBy,
+    }).returning();
+    return accepted;
+  }
+
+  async isQuestAccepted(roomId: string, questId: string): Promise<boolean> {
+    const { acceptedQuests } = await import('@shared/adventure-schema');
+    const { and } = await import('drizzle-orm');
+    const result = await db.select().from(acceptedQuests)
+      .where(and(eq(acceptedQuests.roomId, roomId), eq(acceptedQuests.questId, questId)))
+      .limit(1);
+    return result.length > 0;
+  }
+
+  async getAcceptedQuestIds(roomId: string): Promise<string[]> {
+    const { acceptedQuests } = await import('@shared/adventure-schema');
+    const result = await db.select({ questId: acceptedQuests.questId })
+      .from(acceptedQuests)
+      .where(eq(acceptedQuests.roomId, roomId));
+    return result.map(r => r.questId);
+  }
+
+  async getAvailableQuestsForRoom(roomId: string): Promise<any[]> {
+    const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
+    
+    if (!room) {
+      return [];
+    }
+    
+    // ONLY return dynamic quests that were created for this room
+    // Pre-made adventure quests should be offered by the AI DM at appropriate narrative moments
+    const dynamicQuests = await db
+      .select()
+      .from(adventureQuests)
+      .where(eq(adventureQuests.roomId, roomId))
+      .orderBy(adventureQuests.createdAt);
+    
+    // Get accepted quest IDs
+    const acceptedIds = await this.getAcceptedQuestIds(roomId);
+    
+    // Filter out accepted quests
+    return dynamicQuests.filter(q => !acceptedIds.includes(q.id));
+  }
+
+  // Get a specific adventure quest by ID (for AI to offer)
+  async getAdventureQuestById(questId: string): Promise<any | undefined> {
+    const [quest] = await db
+      .select()
+      .from(adventureQuests)
+      .where(eq(adventureQuests.id, questId))
+      .limit(1);
+    return quest;
   }
 
   async getQuestObjectives(questId: string): Promise<any[]> {

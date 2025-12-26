@@ -25,6 +25,7 @@ import { FloatingCharacterPanel } from "@/components/floating-character-panel";
 import { DMControlsPanel } from "@/components/dm-controls-panel";
 import { InventoryLayout } from "@/components/inventory/InventoryLayout";
 import { QuestTracker } from "@/components/quest-tracker";
+import { QuestAcceptanceModal } from "@/components/quest-acceptance-modal";
 import { Heart } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -260,6 +261,10 @@ export default function RoomPage() {
   const [gameEnded, setGameEnded] = useState(false);
   const [isRoomPublic, setIsRoomPublic] = useState(false);
   const [combatState, setCombatState] = useState<CombatState | null>(null);
+  
+  // Quest acceptance modal state
+  const [questToAccept, setQuestToAccept] = useState<any | null>(null);
+  const [questAcceptModalOpen, setQuestAcceptModalOpen] = useState(false);
   
   // Floating character panel state
   const [showCharacterPanel, setShowCharacterPanel] = useState(false);
@@ -900,11 +905,24 @@ export default function RoomPage() {
           queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "room-characters"] });
           queryClient.invalidateQueries({ queryKey: ["/api/rooms", code] });
 
-        } else if (data.type === "quest_created") {
-          // A new dynamic quest was created by the DM; refresh quest lists
+        } else if (data.type === "quest_offered") {
+          // A quest is being offered to the party (dynamic or adventure quests)
+          setQuestToAccept(data.quest);
+          setQuestAcceptModalOpen(true);
+          toast({ 
+            title: "New Quest Available", 
+            description: `${data.quest?.questGiver || 'Someone'} has a quest for you!`,
+            duration: 5000,
+          });
+
+        } else if (data.type === "quest_accepted") {
+          // Someone accepted a quest; refresh quest lists
           queryClient.invalidateQueries({ queryKey: [`/api/rooms/${code}/quests-with-progress`] });
           queryClient.invalidateQueries({ queryKey: [`/api/rooms/${code}/quests`] });
-          toast({ title: "New quest", description: `${data.quest?.name} was added to the quest log.` });
+          queryClient.invalidateQueries({ queryKey: [`/api/rooms/${roomData?.id}/available-quests`] });
+          if (data.acceptedBy) {
+            toast({ title: "Quest Accepted", description: `${data.acceptedBy} accepted: ${data.quest?.name}` });
+          }
 
         } else if (data.type === "quest_updated") {
           // Quest status changed; refresh quest lists
@@ -1965,7 +1983,34 @@ export default function RoomPage() {
 
           {/* Quests Tab - shows active quests and progress */}
           <TabsContent value="quests" className="flex-1 mt-0 overflow-hidden data-[state=inactive]:hidden">
-            <div className="h-full p-4">
+            <div className="h-full p-4 space-y-4">
+              {/* Available Quests Button - Shows dynamic/offered quests only */}
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={async () => {
+                  try {
+                    const response = await fetch(`/api/rooms/${roomData.id}/available-quests`);
+                    const availableQuests = await response.json();
+                    if (availableQuests.length > 0) {
+                      // Show first available quest
+                      setQuestToAccept(availableQuests[0]);
+                      setQuestAcceptModalOpen(true);
+                    } else {
+                      toast({
+                        title: "No Pending Quests",
+                        description: roomData?.useAdventureMode 
+                          ? "Quests will appear as you progress through the adventure."
+                          : "No quests are currently available. The DM may offer quests during gameplay.",
+                      });
+                    }
+                  } catch (error) {
+                    console.error("Failed to fetch available quests:", error);
+                  }
+                }}
+              >
+                View Pending Quests
+              </Button>
               <QuestTracker roomId={roomData?.id || ""} roomCode={code} />
             </div>
           </TabsContent>
@@ -2723,6 +2768,15 @@ export default function RoomPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Quest Acceptance Modal */}
+      <QuestAcceptanceModal
+        open={questAcceptModalOpen}
+        onOpenChange={setQuestAcceptModalOpen}
+        quest={questToAccept}
+        roomId={roomData?.id || ""}
+        characterName={myCharacterData?.savedCharacter?.characterName || playerName}
+      />
     </div>
   );
 }

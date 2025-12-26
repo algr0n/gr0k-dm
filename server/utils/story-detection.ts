@@ -202,29 +202,21 @@ export async function detectAndLogStoryEvents(
             createdQuestId = questResult[0].id;
             console.log(`[Quest Detection] ✅ Created dynamic quest: "${extractedQuest.title}" (ID: ${createdQuestId})`);
 
-            // Create quest objectives in progress table
-            for (let i = 0; i < extractedQuest.objectives.length; i++) {
-              await db.insert(questObjectiveProgress).values({
-                roomId: roomId,
-                questId: createdQuestId,
-                objectiveIndex: i,
-                objectiveText: extractedQuest.objectives[i],
-                isCompleted: false,
-              });
-            }
+            // Note: Quest objectives will be created when quest is accepted
+            // This gives players choice to accept or decline quests
 
-            // Log a story event for quest start
+            // Log a story event for quest offered
             events.push({
               roomId,
-              eventType: 'quest_start',
-              title: `Quest: ${extractedQuest.title}`,
-              summary: `${extractedQuest.questGiver} has given the party a new quest: ${extractedQuest.title}`,
+              eventType: 'quest_offered',
+              title: `Quest Offered: ${extractedQuest.title}`,
+              summary: `${extractedQuest.questGiver} has offered the party a quest: ${extractedQuest.title}`,
               participants: [],
               relatedQuestId: createdQuestId,
-              importance: 3,
+              importance: 2,
             });
 
-            console.log(`[Quest Detection] ✅ Created ${extractedQuest.objectives.length} quest objectives`);
+            console.log(`[Quest Detection] ✅ Quest offered to party (${extractedQuest.objectives.length} objectives)`);
           }
         } catch (error) {
           console.error('[Quest Detection] Error creating dynamic quest:', error);

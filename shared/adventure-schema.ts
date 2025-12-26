@@ -323,6 +323,30 @@ export const insertQuestObjectiveProgressSchema = createInsertSchema(questObject
 });
 
 // =============================================================================
+// Accepted Quests Table - Track which quests have been accepted by rooms
+// =============================================================================
+
+export const acceptedQuests = sqliteTable("accepted_quests", {
+  id: text("id").primaryKey().default(generateUUID()),
+  roomId: text("room_id").notNull(), // FK to rooms
+  questId: text("quest_id")
+    .notNull()
+    .references(() => adventureQuests.id, { onDelete: "cascade" }),
+  acceptedAt: integer("accepted_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+  acceptedBy: text("accepted_by"), // Character name who accepted it (optional)
+}, (table) => [
+  index("idx_accepted_quests_room").on(table.roomId),
+  index("idx_accepted_quests_quest").on(table.questId),
+]);
+
+export type AcceptedQuest = typeof acceptedQuests.$inferSelect;
+export type InsertAcceptedQuest = typeof acceptedQuests.$inferInsert;
+export const insertAcceptedQuestSchema = createInsertSchema(acceptedQuests).omit({
+  id: true,
+  acceptedAt: true,
+});
+
+// =============================================================================
 // Story Events Table - Log key story moments for AI memory
 // =============================================================================
 
