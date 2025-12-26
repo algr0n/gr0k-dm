@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/useAuth";
-import { LogIn, LogOut, User, Scroll, Settings, Landmark } from "lucide-react";
+import { LogIn, LogOut, User, Scroll, Settings, Landmark, Lock } from "lucide-react";
 import Landing from "@/pages/landing";
 import RoomPage from "@/pages/room";
 import Characters from "@/pages/characters";
@@ -19,6 +19,7 @@ import AuthPage from "@/pages/auth-page";
 import MyRooms from "@/pages/my-rooms";
 import NotFound from "@/pages/not-found";
 import ComponentsDemo from "@/pages/ComponentsDemo";
+import AdminCachePage from "@/pages/admin/cache";
 
 const Bestiary = lazy(() => import("@/pages/bestiary"));
 
@@ -34,6 +35,7 @@ function Router() {
       <Route path="/profile" component={ProfileSettings} />
       <Route path="/my-rooms" component={MyRooms} />
       <Route path="/bestiary" component={Bestiary} />
+      <Route path="/admin/cache" component={AdminCachePage} />
       <Route component={NotFound} />
       </Switch>
     </Suspense>
@@ -129,6 +131,14 @@ function Header() {
                     Profile Settings
                   </Link>
                 </DropdownMenuItem>
+                {user?.admin && (
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin/cache">
+                      <Lock className="mr-2 h-4 w-4" />
+                      Admin
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} data-testid="button-logout">
                   <LogOut className="mr-2 h-4 w-4" />

@@ -173,3 +173,27 @@ export const isAuthenticated: RequestHandler = (req, res, next) => {
   }
   return res.status(401).json({ message: "Unauthorized" });
 };
+
+export const requireAdmin: RequestHandler = async (req, res, next) => {
+  if (!req.isAuthenticated() || !req.user) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  try {
+    const userId = req.user.id;
+    const user = await storage.getUser(userId);
+
+    const adminUsernames = (process.env.ADMIN_USERNAMES || "").split(",").map(s => s.trim()).filter(Boolean);
+    if (adminUsernames.length > 0 && user && user.username && adminUsernames.includes(user.username)) {
+      return next();
+    }
+
+    if (user && (user as any).admin) {
+      return next();
+    }
+
+    return res.status(403).json({ message: "Forbidden" });
+  } catch (err) {
+    console.error("requireAdmin error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};

@@ -403,6 +403,7 @@ export const users = sqliteTable("users", {
   username: text("username").unique(),
   profileImageUrl: text("profile_image_url"),
   customProfileImageUrl: text("custom_profile_image_url"),
+  admin: integer("admin").default(0),
   createdAt: integer("created_at", { mode: 'timestamp' }).default(currentTimestamp()),
   updatedAt: integer("updated_at", { mode: 'timestamp' }).default(currentTimestamp()),
 });
