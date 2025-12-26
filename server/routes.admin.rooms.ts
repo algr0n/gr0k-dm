@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import { db } from "./db";
 import { rooms, players } from "@shared/schema";
 import { sql, eq, desc } from "drizzle-orm";
-import { storage } from "./index"; // assuming storage is exported from index
+// storage is imported dynamically at runtime to avoid static export errors
 
 // NOTE: This file is not directly used; the admin routes are registered in server/routes.ts
 // This helper file documents intended implementations.
@@ -11,6 +11,9 @@ import { storage } from "./index"; // assuming storage is exported from index
 export async function registerAdminRoomRoutes(app: any, isAuthenticated: any, requireAdmin: any) {
   app.get("/api/admin/rooms", isAuthenticated, requireAdmin, async (req: Request, res: Response) => {
     try {
+      const mod = (await import("./index")) as any;
+      const storage = mod.storage;
+
       const results = await db.select({ room: rooms, playerCount: sql<number>`CAST(count(${players.id}) as INTEGER)` })
         .from(rooms)
         .leftJoin(players, eq(rooms.id, players.roomId))
@@ -45,6 +48,9 @@ export async function registerAdminRoomRoutes(app: any, isAuthenticated: any, re
 
   app.delete("/api/admin/rooms/:id", isAuthenticated, requireAdmin, async (req: Request, res: Response) => {
     try {
+      const mod = (await import("./index")) as any;
+      const storage = mod.storage;
+
       const { id } = req.params;
       const room = await storage.getRoom(id);
       if (!room) return res.status(404).json({ error: 'Room not found' });
