@@ -1558,14 +1558,14 @@ export default function RoomPage() {
                 ) : (
                   <CombatActionsPanel
                     roomCode={code!}
-                    myActorId={myCharacterData.savedCharacter.id}
+                    myActorId={myCharacterData.roomCharacter.userId} // Use userId to match combat state playerId
                     isMyTurn={
                       combatState.initiatives[combatState.currentTurnIndex]?.characterName ===
                       myCharacterData.roomCharacter.characterName
                     }
                     compact={true}
                     participants={combatState.initiatives.map((i) => ({
-                      id: i.playerId,
+                      id: i.playerId, // This is the ID used by combat engine (userId for players, npcId for monsters)
                       name: i.characterName,
                       currentHp: i.currentHp,
                       maxHp: i.maxHp,
