@@ -36,13 +36,13 @@ export default function EncounterDemoPage() {
         setActiveId(prev => nextActiveId(prev))
       }
       if (msg.event === 'move' && msg.actorId && msg.to) {
-        setTokens(prev => prev?.map((t:any) => t.id === msg.actorId ? { ...t, x: msg.to.x, y: msg.to.y } : t))
+        setTokens((prev: any[] | undefined) => prev?.map((t:any) => t.id === msg.actorId ? { ...t, x: msg.to.x, y: msg.to.y } : t))
       }
     } else if (msg.type === 'combat_result') {
       setLog(s => [...s, { id: `l${s.length+1}`, text: `Result: ${msg.actorId} -> ${msg.targetId} ${msg.hit ? 'hit' : 'miss'} (${msg.damageTotal || 0})`, timestamp: Date.now() }])
       // update target HP if present
       if (msg.targetId) {
-        setTokens(prev => prev?.map((t:any) => t.id === msg.targetId ? { ...t, metadata: { ...(t.metadata||{}), hp: msg.targetHp } } : t))
+        setTokens((prev: any[] | undefined) => prev?.map((t:any) => t.id === msg.targetId ? { ...t, metadata: { ...(t.metadata||{}), hp: msg.targetHp } } : t))
       }
     } else if (msg.type === 'combat_update' || msg.type === 'encounter:updated') {
       // simple sync: if combat_update contains initiatives, update active
@@ -116,7 +116,7 @@ export default function EncounterDemoPage() {
           onMove={async (actorId, to) => {
             // optimistic move
             setLog(s => [...s, { id: `l${s.length+1}`, text: `${actorId} moves to ${to.x},${to.y} (optimistic)`, timestamp: Date.now() }])
-            setTokens(prev => prev?.map((t:any) => t.id === actorId ? { ...t, x: to.x, y: to.y } : t))
+            setTokens((prev: any[] | undefined) => prev?.map((t:any) => t.id === actorId ? { ...t, x: to.x, y: to.y } : t))
             try {
               await submitAction('demo-room', { actorId, type: 'move', to })
               setLog(s => [...s, { id: `l${s.length+1}`, text: `Move submitted`, timestamp: Date.now() }])

@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/useAuth";
 import { LogIn, LogOut, User, Scroll, Settings, Landmark, Lock } from "lucide-react";
@@ -112,6 +113,11 @@ function Header() {
                 <div className="px-2 pb-1.5 text-xs text-muted-foreground" data-testid="text-user-email">
                   {user.email}
                 </div>
+                {user?.admin && (
+                  <div className="px-2 pb-1.5">
+                    <Badge className="bg-red-600 text-white">Admin</Badge>
+                  </div>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
                   <Link href="/my-rooms">
