@@ -80,9 +80,12 @@ async function detectAndCreateMonstersForCombat(
   
   console.log(`[Monster Detection] Analyzing message: ${dmMessage.substring(0, 150)}...`);
   
-  // Simpler pattern: match "number + optional adjective + creature name"
+  // Pattern to match "number + optional adjective + creature name"
   // Examples: "two bandits", "a dragon", "three giant spiders", "five goblins"
-  const pattern = /(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(massive|giant|huge|large|small|young|ancient|elder)\s+)?([a-z]+(?:\s+[a-z]+)?)/gi;
+  // Stop before action verbs to avoid capturing "goblins screech" or "bandits charge"
+  const actionVerbs = /^(screech|charge|attack|rush|leap|jump|burst|erupt|emerge|appear|come|go|run|walk|crawl|fly|swim|strike|hit|slash|bite|claw|grab|throw|cast|speak|say|yell|shout|roar|growl|snarl)$/i;
+  
+  const pattern = /(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(massive|giant|huge|large|small|young|ancient|elder|young|adult|dire)\s+)?([a-z]+(?:\s+[a-z]+)?)/gi;
 
   const potentialMonsters = new Map<string, number>(); // Map of monsterName -> count
   
@@ -91,6 +94,23 @@ async function detectAndCreateMonstersForCombat(
     const countWord = match[1].toLowerCase();
     const adjective = match[2] || '';
     let monsterName = match[3].trim();
+    
+    // Split into words and check if any are action verbs
+    const words = monsterName.split(' ');
+    const filteredWords: string[] = [];
+    
+    for (const word of words) {
+      if (actionVerbs.test(word)) {
+        // Stop at action verb
+        break;
+      }
+      filteredWords.push(word);
+    }
+    
+    // Skip if we filtered out all words
+    if (filteredWords.length === 0) continue;
+    
+    monsterName = filteredWords.join(' ');
     
     // Remove trailing 's' for plurals
     if (monsterName.endsWith('s') && monsterName.length > 3 && !monsterName.endsWith('ss')) {
