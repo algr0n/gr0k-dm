@@ -101,6 +101,16 @@ grok.ts
 └── db/* → bestiary, characters
 ```
 
+## Token-saving measures (cost & token optimizations)
+- **Response caching** (`server/cache/response-cache.ts`) — deterministic/rules queries are detected with `isCacheable()` and served from cache (short/long TTLs), avoiding unnecessary Grok calls for repeated questions.
+- **Deterministic combat engine** (`server/combat.ts`) — initiative, attack resolution (`resolveAttack`), action decision heuristics (`decideMonsterActions`) and stage/environment logic are computed server-side so most mechanical work doesn't consume tokens.
+- **Combat generator controls** (`server/generators/combat.ts`) — supports **decision-only** mode (no dice or damage resolution) for compact, machine-parseable decisions and limits monster contexts to 3 to reduce token usage.
+- **Monster cache** (`server/cache/monster-cache.ts`) + `server/db/bestiary.ts` — reduces DB/API lookups by caching fetched stat blocks per room.
+- **Structured generation for deterministic outputs** (`server/generators/stage.ts`) — uses low temperature (0.0) and strict JSON output to keep responses compact and predictable.
+- **Token tracking & monitoring** (`server/utils/token-tracker.ts`) — all generators call `tokenTracker.track(...)` so we can monitor usage and tune prompts/limits.
+
+> The practical result: Grok is used primarily for narration, edge cases (critical hits, special abilities, complex tactics), and high-level structured outputs while deterministic systems and caches handle the bulk of combat logic to save tokens and ensure consistent outcomes.
+
 ## Adding New Features (reminder)
 - New game system: add prompt file + export in prompts/index
 - New generator: add file to `server/generators/` and export from `index.ts`
