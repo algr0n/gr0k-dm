@@ -8,8 +8,8 @@ export default function AdminCachePage() {
   const { data, isLoading, error, refetch } = useQuery<any>({
     queryKey: ["/api/cache/stats"],
     queryFn: async () => {
-      const res = await fetch("/api/cache/stats");
-      if (!res.ok) throw new Error("Failed to fetch cache stats");
+      // Use apiRequest (credentials included) so session cookie is sent for auth
+      const res = await apiRequest("GET", "/api/cache/stats");
       return res.json();
     },
     retry: false,
