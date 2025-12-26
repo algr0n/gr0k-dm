@@ -248,13 +248,14 @@ async function detectAndCreateMonstersForCombat(
   const monsterNameExceptions = /^(crawling claw|flying sword|flying snake|swimming horror)$/i;
   
   // Common non-monster words to exclude (locations, buildings, furniture, abstract nouns, damage terms, etc.)
-  const nonMonsterWords = /^(fight|battle|combat|forest|woods|cave|dungeon|town|village|city|path|trail|road|shadows|darkness|light|air|water|earth|fire|area|place|spot|thing|way|damage|stone|blade|weapon|sword|arrow|spear|shield|tavern|inn|cabin|house|building|shop|store|church|temple|tower|castle|room|hall|chamber|door|gate|window|wall|floor|ceiling|table|chair|bench|bed|chest|crate|barrel|box)$/i;
+  // Note: "pair", "duo", "trio" are handled as count words, not filtered here
+  const nonMonsterWords = /^(fight|battle|combat|forest|woods|cave|dungeon|town|village|city|path|trail|road|shadows|darkness|light|air|water|earth|fire|area|place|spot|thing|way|damage|stone|blade|weapon|sword|arrow|spear|shield|tavern|inn|cabin|house|building|shop|store|church|temple|tower|castle|room|hall|chamber|door|gate|window|wall|floor|ceiling|table|chair|bench|bed|chest|crate|barrel|box|group|horde|pack|swarm|band|gang|mob|crowd|party|team)$/i;
   
   // Action verbs and gerunds that commonly appear after monster counts or descriptions
   // These should trigger stopping the monster name capture
   const actionVerbs = /^(scavenging|snarl|snarls|snarling|growl|growls|growling|roar|roars|roaring|screech|screeches|screeching|charge|charges|charging|attack|attacks|attacking|rush|rushes|rushing|leap|leaps|leaping|jump|jumps|jumping|burst|bursts|bursting|erupt|erupts|erupting|emerge|emerges|emerging|appear|appears|appearing|lunge|lunges|lunging|swing|swings|swinging|strike|strikes|striking|hit|hits|hitting|slash|slashes|slashing|bite|bites|biting|grab|grabs|grabbing|throw|throws|throwing|hurl|hurls|hurling|speak|speaks|speaking|say|says|saying|yell|yells|yelling|shout|shouts|shouting|draw|draws|drawing|raise|raises|raising|drawn|raised|demand|demands|demanding|close|closes|closing|spot|spots|spotting|miss|misses|missing)$/i;
   
-  const pattern = /(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(massive|giant|huge|large|small|young|ancient|elder|young|adult|dire)\s+)?([a-z]+(?:\s+[a-z]+)?)/gi;
+  const pattern = /(a|an|one|two|three|four|five|six|seven|eight|nine|ten|pair|duo|trio|quartet|\d+)\s+(?:of\s+)?(?:(massive|giant|huge|large|small|young|ancient|elder|young|adult|dire)\s+)?([a-z]+(?:\s+[a-z]+)?)/gi;
 
   const potentialMonsters = new Map<string, number>(); // Map of monsterName -> count
   
@@ -313,7 +314,8 @@ async function detectAndCreateMonstersForCombat(
     // Parse count
     const countMap: Record<string, number> = {
       'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
-      'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+      'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
+      'pair': 2, 'duo': 2, 'trio': 3, 'quartet': 4
     };
     const count = countMap[countWord] || parseInt(countWord, 10) || 1;
     
