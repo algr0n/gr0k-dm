@@ -253,9 +253,10 @@ async function detectAndCreateMonstersForCombat(
   
   // Action verbs and gerunds that commonly appear after monster counts or descriptions
   // These should trigger stopping the monster name capture
-  const actionVerbs = /^(scavenging|snarl|snarls|snarling|growl|growls|growling|roar|roars|roaring|screech|screeches|screeching|charge|charges|charging|attack|attacks|attacking|rush|rushes|rushing|leap|leaps|leaping|jump|jumps|jumping|burst|bursts|bursting|erupt|erupts|erupting|emerge|emerges|emerging|appear|appears|appearing|lunge|lunges|lunging|swing|swings|swinging|strike|strikes|striking|hit|hits|hitting|slash|slashes|slashing|bite|bites|biting|grab|grabs|grabbing|throw|throws|throwing|hurl|hurls|hurling|speak|speaks|speaking|say|says|saying|yell|yells|yelling|shout|shouts|shouting|draw|draws|drawing|raise|raises|raising|drawn|raised|demand|demands|demanding|close|closes|closing|spot|spots|spotting|miss|misses|missing)$/i;
+  // Note: "snarling", "growling", "roaring" removed - they're often adjectives describing monsters
+  const actionVerbs = /^(screech|screeches|screeching|charge|charges|charging|attack|attacks|attacking|rush|rushes|rushing|leap|leaps|leaping|jump|jumps|jumping|burst|bursts|bursting|erupt|erupts|erupting|emerge|emerges|emerging|appear|appears|appearing|lunge|lunges|lunging|swing|swings|swinging|strike|strikes|striking|hit|hits|hitting|slash|slashes|slashing|bite|bites|biting|grab|grabs|grabbing|throw|throws|throwing|hurl|hurls|hurling|speak|speaks|speaking|say|says|saying|yell|yells|yelling|shout|shouts|shouting|draw|draws|drawing|raise|raises|raising|drawn|raised|demand|demands|demanding|close|closes|closing|spot|spots|spotting|miss|misses|missing)$/i;
   
-  const pattern = /(a|an|one|two|three|four|five|six|seven|eight|nine|ten|pair|duo|trio|quartet|\d+)\s+(?:of\s+)?(?:(massive|giant|huge|large|small|young|ancient|elder|young|adult|dire)\s+)?([a-z]+(?:\s+[a-z]+)?)/gi;
+  const pattern = /(a|an|one|two|three|four|five|six|seven|eight|nine|ten|pair|duo|trio|quartet|\d+)\s+(?:of\s+)?(?:(massive|giant|huge|large|small|young|ancient|elder|adult|dire|snarling|growling|roaring|howling|screeching|wounded|injured|enraged|mad|rabid|feral|wild|savage)\s+)?([a-z]+(?:\s+[a-z]+)?)/gi;
 
   const potentialMonsters = new Map<string, number>(); // Map of monsterName -> count
   
