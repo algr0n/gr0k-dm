@@ -48,9 +48,16 @@ export function CombatActionsPanel({
   const queryClient = useQueryClient();
 
   // Filter out self and dead enemies for targeting
+  // Consider targets valid if HP is undefined (not yet set) or > 0
   const validTargets = participants.filter(
-    (p) => p.id !== myActorId && (p.currentHp ?? 0) > 0
+    (p) => p.id !== myActorId && (p.currentHp === undefined || p.currentHp > 0)
   );
+
+  console.log('[CombatPanel] Filtering targets:', {
+    myActorId,
+    allParticipants: participants.map(p => ({ id: p.id, name: p.name, hp: p.currentHp, controller: p.controller })),
+    validTargets: validTargets.map(p => ({ id: p.id, name: p.name, hp: p.currentHp })),
+  });
 
   const combatActionMutation = useMutation({
     mutationFn: async (action: any) => {
