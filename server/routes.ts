@@ -4941,10 +4941,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Helper to trigger NPC turn automatically
   async function triggerNpcTurnIfNeeded(code: string) {
     const state = roomCombatState.get(code);
-    if (!state || !state.isActive) return;
+    if (!state || !state.isActive) {
+      console.log(`[Combat] triggerNpcTurnIfNeeded: No active combat for room ${code}`);
+      return;
+    }
 
     const currentActor = state.initiatives[state.currentTurnIndex];
-    if (!currentActor) return;
+    if (!currentActor) {
+      console.log(`[Combat] triggerNpcTurnIfNeeded: No current actor at index ${state.currentTurnIndex} for room ${code}`);
+      return;
+    }
 
     // Check if current actor is a monster/NPC
     if (currentActor.controller === 'monster') {
@@ -4955,7 +4961,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
       
       npcTurnProcessing.add(code);
-      console.log(`[Combat] NPC turn detected: ${currentActor.name}`);
+      console.log(`[Combat] NPC turn detected: ${currentActor.name} (index ${state.currentTurnIndex})`);
       
       // Notify players it's the NPC's turn
       broadcastToRoom(code, {
@@ -4965,7 +4971,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       try {
         const room = await storage.getRoomByCode(code);
-        if (!room) return;
+        if (!room) {
+          console.error(`[Combat] Room not found for code ${code}, aborting NPC turn`);
+          npcTurnProcessing.delete(code);
+          return;
+        }
 
         // Use the combat engine to execute monster actions
         const players = await storage.getPlayersByRoom(room.id);
@@ -5012,17 +5022,36 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           } catch (attackErr) {
             console.error('[Combat] Monster attack failed, using fallback narrative:', attackErr);
             // Fallback: Generate AI narration if combat engine fails
+            try {
+              const enemyActions = await generateCombatDMTurn(openai, room, undefined, (db as any).$client);
+              broadcastToRoom(code, {
+                type: 'dm',
+                content: enemyActions,
+              });
+            } catch (aiErr) {
+              console.error('[Combat] AI generation also failed:', aiErr);
+              // Final fallback: generic message
+              broadcastToRoom(code, {
+                type: 'dm',
+                content: `${currentActor.name} attacks but the outcome is unclear!`,
+              });
+            }
+          }
+        } else {
+          // No player targets, just narrate
+          try {
             const enemyActions = await generateCombatDMTurn(openai, room, undefined, (db as any).$client);
             broadcastToRoom(code, {
               type: 'dm',
               content: enemyActions,
             });
+          } catch (aiErr) {
+            console.error('[Combat] AI generation failed for no-target scenario:', aiErr);
+            broadcastToRoom(code, {
+              type: 'dm',
+              content: `${currentActor.name} looks around menacingly!`,
+            });
           }
-        } else {
-          // No player targets, just narrate
-          const enemyActions = await generateCombatDMTurn(openai, room, undefined, (db as any).$client);
-          broadcastToRoom(code, {
-            type: 'dm',
             content: enemyActions,
           });
         }
