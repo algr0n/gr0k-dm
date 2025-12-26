@@ -50,7 +50,14 @@ export function CombatActionsPanel({
   // Filter out self and dead enemies for targeting
   // Consider targets valid if HP is undefined (not yet set) or > 0
   const validTargets = participants.filter(
-    (p) => p.id !== myActorId && (p.currentHp === undefined || p.currentHp > 0)
+    (p) => {
+      // Can't target self
+      if (p.id === myActorId) return false;
+      // Can't target dead enemies (HP defined and 0 or negative)
+      if (p.currentHp !== undefined && p.currentHp <= 0) return false;
+      // All others are valid targets (alive or HP not set yet)
+      return true;
+    }
   );
 
   console.log('[CombatPanel] Filtering targets:', {

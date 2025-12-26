@@ -1210,21 +1210,21 @@ export default function RoomPage() {
                     <div className="space-y-1">
                       {combatState.initiatives.map((entry, idx) => {
                         const isCurrentTurn = idx === combatState.currentTurnIndex;
-                        const isMyCharacter = entry.characterName === myCharacterData?.roomCharacter?.characterName;
+                        const isMyCharacter = entry.name === myCharacterData?.roomCharacter?.characterName;
                         const canControl = isHost || isMyCharacter;
                         
                         return (
                           <div
-                            key={entry.playerId}
+                            key={entry.id}
                             className={cn(
                               "flex flex-col text-sm px-2 py-1.5 rounded gap-1",
                               isCurrentTurn && "bg-primary/20 font-medium border-l-2 border-primary"
                             )}
-                            data-testid={`initiative-${entry.playerId}`}
+                            data-testid={`initiative-${entry.id}`}
                           >
                             <div className="flex items-center justify-between gap-2">
                               <span className="truncate flex-1">
-                                {idx + 1}. {entry.characterName}
+                                {idx + 1}. {entry.name}
                               </span>
                               <div className="flex items-center gap-1.5">
                                 {entry.currentHp !== undefined && entry.maxHp !== undefined && (
@@ -1248,12 +1248,12 @@ export default function RoomPage() {
                                     if (wsRef.current?.readyState === WebSocket.OPEN) {
                                       wsRef.current.send(JSON.stringify({
                                         type: "hold_turn",
-                                        actorId: entry.playerId,
+                                        actorId: entry.id,
                                         holdType: "end"
                                       }));
                                     }
                                   }}
-                                  data-testid={`button-hold-${entry.playerId}`}
+                                  data-testid={`button-hold-${entry.id}`}
                                 >
                                   Hold
                                 </Button>
@@ -1265,11 +1265,11 @@ export default function RoomPage() {
                                     if (wsRef.current?.readyState === WebSocket.OPEN) {
                                       wsRef.current.send(JSON.stringify({
                                         type: "pass_turn",
-                                        actorId: entry.playerId
+                                        actorId: entry.id
                                       }));
                                     }
                                   }}
-                                  data-testid={`button-pass-${entry.playerId}`}
+                                  data-testid={`button-pass-${entry.id}`}
                                 >
                                   Pass
                                 </Button>
@@ -1518,8 +1518,8 @@ export default function RoomPage() {
                 <CombatResultDisplay
                   results={combatResults}
                   participants={combatState.initiatives.map((i) => ({
-                    id: i.playerId,
-                    name: i.characterName,
+                    id: i.id,
+                    name: i.name,
                   }))}
                 />
               </div>
@@ -1533,17 +1533,17 @@ export default function RoomPage() {
                     roomCode={code!}
                     myActorId={myCharacterData.savedCharacter.id}
                     isMyTurn={
-                      combatState.initiatives[combatState.currentTurnIndex]?.characterName ===
+                      combatState.initiatives[combatState.currentTurnIndex]?.name ===
                       myCharacterData.roomCharacter.characterName
                     }
                     compact={true}
                     participants={combatState.initiatives.map((i) => ({
-                      id: i.playerId,
-                      name: i.characterName,
+                      id: i.id,
+                      name: i.name,
                       currentHp: i.currentHp,
                       maxHp: i.maxHp,
                       ac: i.ac,
-                      controller: i.playerName === "DM" ? "monster" : "player",
+                      controller: i.controller,
                     }))}
                     characterData={{
                       class: myCharacterData.savedCharacter.class ?? undefined,
@@ -1558,19 +1558,19 @@ export default function RoomPage() {
                 ) : (
                   <CombatActionsPanel
                     roomCode={code!}
-                    myActorId={myCharacterData.roomCharacter.userId} // Use userId to match combat state playerId
+                    myActorId={myCharacterData.savedCharacter.id} // Use character ID to match combat state
                     isMyTurn={
-                      combatState.initiatives[combatState.currentTurnIndex]?.characterName ===
+                      combatState.initiatives[combatState.currentTurnIndex]?.name ===
                       myCharacterData.roomCharacter.characterName
                     }
                     compact={true}
-                    participants={combatState.initiatives.map((i) => ({
-                      id: i.playerId, // This is the ID used by combat engine (userId for players, npcId for monsters)
-                      name: i.characterName,
+                    participants={combatState.initiatives.map((i: any) => ({
+                      id: i.id, // Use InitiativeEntry.id from full combat state
+                      name: i.name,
                       currentHp: i.currentHp,
                       maxHp: i.maxHp,
                       ac: i.ac,
-                      controller: i.playerName === "DM" ? "monster" : "player",
+                      controller: i.controller, // Use controller field from InitiativeEntry
                     }))}
                     characterData={{
                       attackBonus: (() => {

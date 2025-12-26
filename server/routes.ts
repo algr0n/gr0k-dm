@@ -30,7 +30,7 @@ import {
   type AdventureContext,
   getTokenUsage,
 } from "./grok";
-import { rollInitiativesForCombat, createCombatState, resolveAttack, addHold, processTrigger, advanceTurn, updateThreat, applyMoveAction, decideMonsterActions, type CombatState as FullCombatState } from "./combat";
+import { rollInitiativesForCombat, createCombatState, resolveAttack, addHold, processTrigger, advanceTurn, updateThreat, applyMoveAction, decideMonsterActions, type CombatState } from "./combat";
 import { narrateCombatMoment } from "./combat-narrator";
 import {
   insertRoomSchema,
@@ -464,15 +464,21 @@ interface InitiativeEntry {
   ac?: number;
 }
 
-interface CombatState {
-  isActive: boolean;
-  currentTurnIndex: number;
-  initiatives: InitiativeEntry[];
+interface InitiativeEntry {
+  playerId: string;
+  playerName: string;
+  characterName: string;
+  roll: number;
+  modifier: number;
+  total: number;
+  currentHp?: number;
+  maxHp?: number;
+  ac?: number;
+  actorId?: string;
 }
 
+// Use only the advanced CombatState from combat.ts
 const roomCombatState = new Map<string, CombatState>();
-// Full combat state with richer per-combatant data (used by new action endpoints)
-const roomFullCombatState = new Map<string, any>();
 
 // Track dropped items per room (items on the ground that players can pick up)
 interface DroppedItem {
@@ -1285,7 +1291,7 @@ async function executeGameActions(
               
               // Update NPC HP in combat states
               const combatState = roomCombatState.get(roomCode);
-              const fullCombatState = roomFullCombatState.get(roomCode);
+              const fullCombatState = roomCombatState.get(roomCode);
               
               if (combatState && combatState.initiatives) {
                 const npcInitiative = combatState.initiatives.find(
@@ -1305,7 +1311,7 @@ async function executeGameActions(
                 if (npcEntry) {
                   npcEntry.currentHp = updatedHp;
                   npcEntry.maxHp = maxHp;
-                  roomFullCombatState.set(roomCode, fullCombatState);
+                  roomCombatState.set(roomCode, fullCombatState);
                 }
               }
               
@@ -1329,7 +1335,7 @@ async function executeGameActions(
                   // Update legacy combat state
                   combatState.currentTurnIndex = fullCombatState.currentTurnIndex;
                   roomCombatState.set(roomCode, combatState);
-                  roomFullCombatState.set(roomCode, fullCombatState);
+                  roomCombatState.set(roomCode, fullCombatState);
                   
                   // Broadcast turn change
                   broadcastFn(roomCode, {
@@ -1407,25 +1413,9 @@ async function executeGameActions(
                   console.warn(`[Combat Start] rollInitiativesForCombat returned empty array despite having ${chars.length} chars and ${monsters.length} monsters`);
                 }
                 
-                const combatFull = createCombatState(roomCode, initiatives);
-                roomFullCombatState.set(roomCode, combatFull as FullCombatState);
-
-                const initiativesForState = initiatives.map((e) => ({
-                  playerId: e.metadata?.userId ?? e.id,
-                  playerName: e.metadata?.playerName ?? (e.controller === 'player' ? e.name : 'DM'),
-                  characterName: e.name,
-                  roll: e.roll,
-                  modifier: e.modifier,
-                  total: e.total,
-                  currentHp: e.currentHp,
-                  maxHp: e.maxHp,
-                  ac: e.ac,
-                }));
-
-                combatState.initiatives = initiativesForState;
-                combatState.currentTurnIndex = combatFull.currentTurnIndex;
-                combatState.isActive = combatFull.isActive;
-                console.log(`[Combat Start] Combat state prepared with ${initiativesForState.length} initiatives`);
+                const combatState = createCombatState(roomCode, initiatives);
+                roomCombatState.set(roomCode, combatState);
+                console.log(`[Combat Start] Combat state prepared with ${initiatives.length} initiatives`);
 
                 // Broadcast initiative order
                 broadcastFn(roomCode, {
@@ -1941,11 +1931,11 @@ async function executeGameActions(
                 const entry = initiativeEntries[0];
 
                 // Update full combat state
-                const full = roomFullCombatState.get(roomCode);
+                const full = roomCombatState.get(roomCode);
                 if (full && Array.isArray(full.initiatives)) {
                   full.initiatives.push(entry);
                   full.initiatives.sort((a: any, b: any) => b.total - a.total);
-                  roomFullCombatState.set(roomCode, full);
+                  roomCombatState.set(roomCode, full);
                 }
 
                 // Update legacy combat state
@@ -2495,23 +2485,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             // Handle hold turn request via WebSocket
             try {
               const { actorId, holdType, triggerActorId } = message;
-              const state = roomFullCombatState.get(code);
+              const state = roomCombatState.get(code);
               if (state && state.isActive) {
                 addHold(state, actorId, { type: holdType || 'end', triggerActorId });
-                roomFullCombatState.set(code, state);
+                roomCombatState.set(code, state);
                 broadcastToRoom(code, { type: 'combat_event', event: 'hold', actorId, holdType, triggerActorId });
-                // Also update legacy state
-                const currentIdx = state.currentTurnIndex;
-                const legacyInitiatives = state.initiatives.map((e: any) => ({ 
-                  playerId: e.id, 
-                  playerName: e.metadata?.playerName ?? e.name, 
-                  characterName: e.name, 
-                  roll: e.roll, 
-                  modifier: e.modifier, 
-                  total: e.total 
-                }));
-                roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives });
-                broadcastToRoom(code, { type: "combat_update", combat: roomCombatState.get(code) });
+                broadcastToRoom(code, { type: "combat_update", combat: state });
               }
             } catch (err) {
               console.error('[WebSocket] Hold turn error:', err);
@@ -2520,7 +2499,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             // Handle pass turn request via WebSocket
             try {
               const { actorId } = message;
-              const state = roomFullCombatState.get(code);
+              const state = roomCombatState.get(code);
               if (state && state.isActive) {
                 const currentActor = state.initiatives[state.currentTurnIndex];
                 if (currentActor && currentActor.id === actorId) {
@@ -2535,19 +2514,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                     broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
                   }
                   
-                  roomFullCombatState.set(code, state);
-                  // Update legacy state
-                  const currentIdx = state.currentTurnIndex;
-                  const legacyInitiatives = state.initiatives.map((e: any) => ({ 
-                    playerId: e.id, 
-                    playerName: e.metadata?.playerName ?? e.name, 
-                    characterName: e.name, 
-                    roll: e.roll, 
-                    modifier: e.modifier, 
-                    total: e.total 
-                  }));
-                  roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives });
-                  broadcastToRoom(code, { type: "combat_update", combat: roomCombatState.get(code) });
+                  roomCombatState.set(code, state);
+                  broadcastToRoom(code, { type: "combat_update", combat: state });
                 }
               }
             } catch (err) {
@@ -2574,6 +2542,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   function broadcastToRoom(roomCode: string, message: any) {
     const connections = roomConnections.get(roomCode);
     if (connections) {
+      // Filter out internal AI prompts/context that should never be shown to users
+      if (message.type === 'system' && typeof message.content === 'string') {
+        const isInternalPrompt = /COMBAT TURN:|DECISION MODE:|THE PARTY:|ADVENTURE MODE:|Assistant:|User:|First, the user message is/i.test(message.content);
+        if (isInternalPrompt) {
+          console.log('[Broadcast] Filtered internal AI prompt from chat');
+          return;
+        }
+      }
+      
       const payload = JSON.stringify(message);
       for (const ws of connections) {
         if (ws.readyState === WebSocket.OPEN) {
@@ -4258,24 +4235,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const initiatives = rollInitiativesForCombat(characters, players, monsters);
       const combatState = createCombatState(code, initiatives);
 
-      // Store the rich combat state separately for the new engine
-      roomFullCombatState.set(code, combatState as FullCombatState);
-
-      // Convert to legacy InitiativeEntry shape for roomCombatState (backwards-compat)
-      const initiativesForState = initiatives.map((e) => ({
-        playerId: e.metadata?.userId ?? e.id,
-        playerName: e.metadata?.playerName ?? (e.controller === 'player' ? e.name : 'DM'),
-        characterName: e.name,
-        roll: e.roll,
-        modifier: e.modifier,
-        total: e.total,
-      }));
-
-      roomCombatState.set(code, {
-        isActive: combatState.isActive,
-        currentTurnIndex: combatState.currentTurnIndex,
-        initiatives: initiativesForState,
-      });
+      // Store the combat state
+      roomCombatState.set(code, combatState);
 
       // Broadcast initiative order
       broadcastToRoom(code, {
@@ -4338,7 +4299,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // Helper to trigger NPC turn automatically
   async function triggerNpcTurnIfNeeded(code: string) {
-    const state = roomFullCombatState.get(code);
+    const state = roomCombatState.get(code);
     if (!state || !state.isActive) return;
 
     const currentActor = state.initiatives[state.currentTurnIndex];
@@ -4365,19 +4326,72 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const room = await storage.getRoomByCode(code);
         if (!room) return;
 
-        // Generate AI narration for what the NPC does
-        const enemyActions = await generateCombatDMTurn(openai, room, undefined, (db as any).$client);
+        // Use the combat engine to execute monster actions
+        const players = await storage.getPlayersByRoom(room.id);
+        const playerTargets = state.initiatives.filter((i: any) => i.controller === 'player');
         
-        // Broadcast the AI's narrative of the NPC's action
-        broadcastToRoom(code, {
-          type: 'dm',
-          content: enemyActions,
-        });
+        if (playerTargets.length > 0) {
+          // Choose random player target
+          const randomTarget = playerTargets[Math.floor(Math.random() * playerTargets.length)];
+          
+          // Execute attack using combat engine
+          try {
+            const attackAction = {
+              actorId: currentActor.id,
+              type: 'attack',
+              targetId: randomTarget.id,
+              attackBonus: currentActor.attackBonus || 0,
+              damageExpression: currentActor.damageExpression || '1d6',
+            };
+            
+            const result = resolveAttack(state, attackAction);
+            
+            // Broadcast combat result with narrative
+            broadcastToRoom(code, {
+              type: 'dm',
+              content: `${currentActor.name} attacks ${randomTarget.name}! ${result.narrative || ''}`,
+            });
+            
+            // Update combat state with damage
+            roomCombatState.set(code, state);
+            roomCombatState.set(code, {
+              isActive: state.isActive,
+              currentTurnIndex: state.currentTurnIndex,
+              initiatives: state.initiatives.map((e: any) => ({
+                playerId: e.id,
+                playerName: e.metadata?.playerName ?? e.name,
+                characterName: e.name,
+                roll: e.roll,
+                modifier: e.modifier,
+                total: e.total,
+                currentHp: e.currentHp,
+                maxHp: e.maxHp,
+                ac: e.ac,
+              }))
+            });
+            broadcastToRoom(code, { type: 'combat_update', combat: roomCombatState.get(code) });
+          } catch (attackErr) {
+            console.error('[Combat] Monster attack failed, using fallback narrative:', attackErr);
+            // Fallback: Generate AI narration if combat engine fails
+            const enemyActions = await generateCombatDMTurn(openai, room, undefined, (db as any).$client);
+            broadcastToRoom(code, {
+              type: 'dm',
+              content: enemyActions,
+            });
+          }
+        } else {
+          // No player targets, just narrate
+          const enemyActions = await generateCombatDMTurn(openai, room, undefined, (db as any).$client);
+          broadcastToRoom(code, {
+            type: 'dm',
+            content: enemyActions,
+          });
+        }
 
         // Auto-advance after a delay to give players time to see the action
         setTimeout(async () => {
           try {
-            const currentState = roomFullCombatState.get(code);
+            const currentState = roomCombatState.get(code);
             if (!currentState || !currentState.isActive) {
               npcTurnProcessing.delete(code);
               return;
@@ -4393,24 +4407,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
               }
 
-              roomFullCombatState.set(code, currentState);
-              const currentIdx = currentState.currentTurnIndex;
-              const legacyInitiatives = currentState.initiatives.map((e: any) => ({ 
-                playerId: e.id, 
-                playerName: e.name, 
-                characterName: e.name, 
-                roll: e.roll, 
-                modifier: e.modifier, 
-                total: e.total 
-              }));
-              roomCombatState.set(code, { 
-                isActive: currentState.isActive, 
-                currentTurnIndex: currentIdx, 
-                initiatives: legacyInitiatives 
-              });
+              roomCombatState.set(code, currentState);
 
               // Broadcast turn update
-              broadcastToRoom(code, { type: 'combat_update', combat: roomCombatState.get(code) });
+              broadcastToRoom(code, { type: 'combat_update', combat: currentState });
 
               // Clear processing flag before recursive call
               npcTurnProcessing.delete(code);
@@ -4429,11 +4429,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         console.error('[Combat] NPC turn failed:', err);
         npcTurnProcessing.delete(code);
         // Auto-advance even on error so combat doesn't get stuck
-        const currentState = roomFullCombatState.get(code);
+        const currentState = roomCombatState.get(code);
         if (currentState && currentState.isActive) {
           advanceTurn(currentState);
-          roomFullCombatState.set(code, currentState);
-          broadcastToRoom(code, { type: 'combat_update', combat: roomCombatState.get(code) });
+          roomCombatState.set(code, currentState);
+          broadcastToRoom(code, { type: 'combat_update', combat: currentState });
           await triggerNpcTurnIfNeeded(code);
         }
       }
@@ -4446,7 +4446,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Structured combat actions (player or monster actions)
   // Helper used by combat action routes and suggestion confirm
   async function executeCombatAction(code: string, action: any) {
-    const state = roomFullCombatState.get(code);
+    const state = roomCombatState.get(code);
     if (!state || !state.isActive) throw new Error('No active combat');
 
     const { actorId, type } = action;
@@ -4568,14 +4568,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       // Persist back
-      roomFullCombatState.set(code, state);
-      // Keep legacy short state in sync
-      const currentIdx = state.currentTurnIndex;
-      const legacyInitiatives = state.initiatives.map((e: any) => ({ playerId: e.id, playerName: e.name, characterName: e.name, roll: e.roll, modifier: e.modifier, total: e.total }));
-      roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives });
+      roomCombatState.set(code, state);
 
       // Broadcast turn update
-      broadcastToRoom(code, { type: 'combat_update', combat: roomCombatState.get(code) });
+      broadcastToRoom(code, { type: 'combat_update', combat: state });
 
       // Trigger NPC turn if next actor is an NPC
       setImmediate(() => triggerNpcTurnIfNeeded(code));
@@ -4595,13 +4591,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
       }
 
-      roomFullCombatState.set(code, state);
-      const currentIdx = state.currentTurnIndex;
-      const legacyInitiatives2 = state.initiatives.map((e: any) => ({ playerId: e.id, playerName: e.name, characterName: e.name, roll: e.roll, modifier: e.modifier, total: e.total }));
-      roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives2 });
+      roomCombatState.set(code, state);
 
       // Broadcast turn update
-      broadcastToRoom(code, { type: 'combat_update', combat: roomCombatState.get(code) });
+      broadcastToRoom(code, { type: 'combat_update', combat: state });
 
       // Trigger NPC turn if next actor is an NPC
       setImmediate(() => triggerNpcTurnIfNeeded(code));
@@ -4620,10 +4613,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const inserted = processTrigger(state, prevActorId);
       if (inserted.length > 0) broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
 
-      roomFullCombatState.set(code, state);
-      const currentIdx = state.currentTurnIndex;
-      const legacyInitiatives2 = state.initiatives.map((e: any) => ({ playerId: e.id, playerName: e.name, characterName: e.name, roll: e.roll, modifier: e.modifier, total: e.total }));
-      roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives2 });
+      roomCombatState.set(code, state);
 
       return { success: true, moveResult };
     }
@@ -4692,7 +4682,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         effect 
       });
 
-      roomFullCombatState.set(code, state);
+      roomCombatState.set(code, state);
       return { success: true, effect };
     }
 
@@ -4716,7 +4706,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         actorName: currentActor.name
       });
 
-      roomFullCombatState.set(code, state);
+      roomCombatState.set(code, state);
       return { success: true };
     }
 
@@ -4767,7 +4757,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         broadcastToRoom(code, { type: 'combat_event', event: 'defeated', targetId, name: target.name });
       }
 
-      roomFullCombatState.set(code, state);
+      roomCombatState.set(code, state);
       return { success: true, result };
     }
 
@@ -4798,11 +4788,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { actorId, holdType, triggerActorId } = req.body;
       if (!actorId || !holdType) return res.status(400).json({ error: 'Missing params' });
 
-      const state = roomFullCombatState.get(code);
+      const state = roomCombatState.get(code);
       if (!state || !state.isActive) return res.status(400).json({ error: 'No active combat' });
 
       addHold(state, actorId, { type: holdType, triggerActorId });
-      roomFullCombatState.set(code, state);
+      roomCombatState.set(code, state);
       broadcastToRoom(code, { type: 'combat_event', event: 'hold', actorId, holdType, triggerActorId });
 
       res.json({ success: true });
@@ -4819,13 +4809,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { features } = req.body;
       if (!Array.isArray(features)) return res.status(400).json({ error: 'features must be an array' });
 
-      const state = roomFullCombatState.get(code);
+      const state = roomCombatState.get(code);
       if (!state) return res.status(404).json({ error: 'No active combat for room' });
 
       // Validate minimal feature shape and set
       state.environment = features.map((f: any) => ({ id: f.id || `env:${Math.random().toString(36).slice(2)}`, type: f.type, position: f.position, radius: f.radius || 1, properties: f.properties || {} }));
 
-      roomFullCombatState.set(code, state);
+      roomCombatState.set(code, state);
       broadcastToRoom(code, { type: 'combat_event', event: 'environment_update', features: state.environment });
 
       res.json({ success: true, environment: state.environment });
@@ -4840,7 +4830,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const { code } = req.params;
       const { actorId } = req.body;
-      const state = roomFullCombatState.get(code);
+      const state = roomCombatState.get(code);
       if (!state || !state.isActive) return res.status(400).json({ error: 'No active combat' });
 
       const currentActor = state.initiatives[state.currentTurnIndex];
@@ -4857,10 +4847,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
       }
 
-      roomFullCombatState.set(code, state);
-      const currentIdx = state.currentTurnIndex;
-      const legacyInitiatives3 = state.initiatives.map((e: any) => ({ playerId: e.id, playerName: e.name, characterName: e.name, roll: e.roll, modifier: e.modifier, total: e.total }));
-      roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives3 });
+      roomCombatState.set(code, state);
 
       res.json({ success: true });
     } catch (error) {
@@ -4874,7 +4861,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const { code } = req.params;
       const { maxActions = 1, useLLM = false } = req.body || {};
-      const state = roomFullCombatState.get(code);
+      const state = roomCombatState.get(code);
       if (!state || !state.isActive) return res.status(400).json({ error: 'No active combat' });
 
       // If useLLM, call generateCombatDMTurn in decisionOnly mode
