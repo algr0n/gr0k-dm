@@ -67,43 +67,51 @@ interface ActionEconomy {
   maxMovement: number;    // Max movement per turn
 }
 
-// Class-specific bonus actions
-const CLASS_BONUS_ACTIONS: Record<string, { name: string; description: string; type: string }[]> = {
+// Class-specific bonus actions with level requirements
+interface BonusAction {
+  name: string;
+  description: string;
+  type: string;
+  minLevel: number;
+}
+
+const CLASS_BONUS_ACTIONS: Record<string, BonusAction[]> = {
   rogue: [
-    { name: "Cunning Action: Dash", description: "Double your movement for this turn", type: "dash" },
-    { name: "Cunning Action: Disengage", description: "Your movement doesn't provoke opportunity attacks", type: "disengage" },
-    { name: "Cunning Action: Hide", description: "Make a Stealth check to hide", type: "hide" },
+    { name: "Cunning Action: Dash", description: "Double your movement for this turn", type: "dash", minLevel: 2 },
+    { name: "Cunning Action: Disengage", description: "Your movement doesn't provoke opportunity attacks", type: "disengage", minLevel: 2 },
+    { name: "Cunning Action: Hide", description: "Make a Stealth check to hide", type: "hide", minLevel: 2 },
   ],
   monk: [
-    { name: "Flurry of Blows", description: "Make two unarmed strikes (1 ki point)", type: "flurry" },
-    { name: "Patient Defense", description: "Take the Dodge action (1 ki point)", type: "dodge" },
-    { name: "Step of the Wind", description: "Disengage or Dash + double jump (1 ki point)", type: "step" },
+    { name: "Flurry of Blows", description: "Make two unarmed strikes (1 ki point)", type: "flurry", minLevel: 2 },
+    { name: "Patient Defense", description: "Take the Dodge action (1 ki point)", type: "dodge", minLevel: 2 },
+    { name: "Step of the Wind", description: "Disengage or Dash + double jump (1 ki point)", type: "step", minLevel: 2 },
   ],
   fighter: [
-    { name: "Second Wind", description: "Regain 1d10 + level HP (once per short rest)", type: "second_wind" },
+    { name: "Second Wind", description: "Regain 1d10 + level HP (once per short rest)", type: "second_wind", minLevel: 1 },
+    { name: "Action Surge", description: "Take an additional action (once per short rest)", type: "action_surge", minLevel: 2 },
   ],
   barbarian: [
-    { name: "Rage", description: "Enter rage for bonus damage and resistance", type: "rage" },
+    { name: "Rage", description: "Enter rage for bonus damage and resistance", type: "rage", minLevel: 1 },
   ],
   paladin: [],
   cleric: [
-    { name: "Channel Divinity", description: "Use your Channel Divinity feature", type: "channel" },
+    { name: "Channel Divinity", description: "Use your Channel Divinity feature", type: "channel", minLevel: 2 },
   ],
   wizard: [],
   sorcerer: [
-    { name: "Quickened Spell", description: "Cast a spell as a bonus action (2 sorcery points)", type: "quicken" },
+    { name: "Quickened Spell", description: "Cast a spell as a bonus action (2 sorcery points)", type: "quicken", minLevel: 2 },
   ],
   warlock: [
-    { name: "Hex (Move)", description: "Move your Hex curse to a new target", type: "hex_move" },
+    { name: "Hex (Move)", description: "Move your Hex curse to a new target", type: "hex_move", minLevel: 1 },
   ],
   bard: [
-    { name: "Bardic Inspiration", description: "Grant an ally a Bardic Inspiration die", type: "inspiration" },
+    { name: "Bardic Inspiration", description: "Grant an ally a Bardic Inspiration die", type: "inspiration", minLevel: 1 },
   ],
   druid: [
-    { name: "Wild Shape", description: "Transform into a beast form", type: "wild_shape" },
+    { name: "Wild Shape", description: "Transform into a beast form", type: "wild_shape", minLevel: 2 },
   ],
   ranger: [
-    { name: "Hunter's Mark (Move)", description: "Move Hunter's Mark to a new target", type: "hunters_mark" },
+    { name: "Hunter's Mark (Move)", description: "Move Hunter's Mark to a new target", type: "hunters_mark", minLevel: 1 },
   ],
 };
 
@@ -247,11 +255,13 @@ export function DnD5eCombatPanel({
       .filter(slot => slot.level > 0 && slot.count > 0);
   }, [characterData.spellSlots]);
 
-  // Get class-specific bonus actions
+  // Get class-specific bonus actions filtered by level
   const classBonusActions = useMemo(() => {
     const charClass = (characterData.class || "").toLowerCase();
-    return CLASS_BONUS_ACTIONS[charClass] || [];
-  }, [characterData.class]);
+    const charLevel = characterData.level || 1;
+    const allActions = CLASS_BONUS_ACTIONS[charClass] || [];
+    return allActions.filter(action => charLevel >= action.minLevel);
+  }, [characterData.class, characterData.level]);
 
   // Filter targets
   const validTargets = participants.filter(

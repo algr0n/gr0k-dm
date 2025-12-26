@@ -82,7 +82,14 @@ export function rollInitiativesForCombat(characters: any[], players: any[], mons
       ac: char.ac ?? 10,
       currentHp: char.currentHp ?? char.maxHp ?? 1,
       maxHp: char.maxHp ?? 1,
-      metadata: { userId: player.id || char.userId, playerName: player.name },
+      metadata: { 
+        userId: player.id || char.userId, 
+        playerName: player.name,
+        class: char.class,
+        level: char.level ?? 1,
+        race: char.race,
+        stats: char.stats,
+      },
     });
   }
 
