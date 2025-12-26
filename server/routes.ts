@@ -732,7 +732,8 @@ interface ParsedGameAction {
     | "npc_add"
     | "location_add"
     | "quest_add"
-    | "quest_update";
+    | "quest_update"
+    | "reputation_change";
   playerName?: string;
   characterName?: string;
   currentHp?: number;
@@ -764,6 +765,8 @@ interface ParsedGameAction {
   // Monster defeat
   monsterName?: string;
   participants?: string; // comma-separated participant names
+  // Reputation change
+  change?: number;
 }
 
 function parseDMResponseTags(response: string): ParsedGameAction[] {
@@ -987,6 +990,17 @@ function parseDMResponseTags(response: string): ParsedGameAction[] {
       type: "quest_update",
       questId: match[1].trim(), // Can be ID or title
       questStatus: match[2].trim(),
+    });
+  }
+
+  // Parse REPUTATION changes:
+  // [REPUTATION: NPC Name | +/-Amount]
+  const reputationPattern = /\[REPUTATION:\s*([^|\]\n]+?)\s*\|\s*([+-]?\d+)\s*\]/gi;
+  while ((match = reputationPattern.exec(response)) !== null) {
+    actions.push({
+      type: "reputation_change",
+      npcName: match[1].trim(),
+      change: parseInt(match[2], 10),
     });
   }
 
@@ -2407,6 +2421,54 @@ async function executeGameActions(
             console.log(`[DM Action] Created dynamic quest '${questRecord.name}' (id=${questRecord.id}) in room ${roomCode}`);
           } catch (err) {
             console.error('[DM Action] Failed to create quest:', err);
+          }
+          break;
+        }
+
+        case "reputation_change": {
+          if (!action.npcName || action.change === undefined) break;
+          
+          try {
+            // Find NPC by name
+            const npcs = await storage.getDynamicNpcsByRoom(room.id);
+            const npc = npcs.find((n: any) => 
+              n.name.toLowerCase() === action.npcName!.toLowerCase()
+            );
+            
+            if (npc) {
+              const oldReputation = npc.reputation ?? 0;
+              const updated = await storage.updateNpcReputation(npc.id, action.change);
+              
+              if (updated) {
+                const repStatus = storage.getReputationStatus(updated.reputation);
+                console.log(`[Reputation Change] ${npc.name}: ${oldReputation} → ${updated.reputation} (${repStatus.status})`);
+                
+                // Broadcast reputation change event
+                broadcastFn(roomCode, {
+                  type: 'npc_reputation_changed',
+                  npcId: npc.id,
+                  npcName: npc.name,
+                  oldReputation,
+                  newReputation: updated.reputation,
+                  status: repStatus.status,
+                  change: action.change,
+                });
+                
+                // Notify players
+                const changeText = action.change > 0 
+                  ? `improved by ${action.change}` 
+                  : `worsened by ${Math.abs(action.change)}`;
+                
+                broadcastFn(roomCode, {
+                  type: 'system',
+                  content: `Your reputation with ${npc.name} has ${changeText}! They now view you as ${repStatus.status.toLowerCase()} (${updated.reputation}/100).`,
+                });
+              }
+            } else {
+              console.warn(`[Reputation Change] NPC "${action.npcName}" not found in room ${roomCode}`);
+            }
+          } catch (err) {
+            console.error('[Reputation Change] Error:', err);
           }
           break;
         }

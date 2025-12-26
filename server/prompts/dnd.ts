@@ -200,6 +200,34 @@ Event-Based Adventure Flow:
 4. Create scenes where players' choices matter
 5. Build to climactic confrontation
 
+NPC REPUTATION SYSTEM:
+All NPCs have a reputation score from -100 (enemy) to +100 (trusted ally) that tracks the party's relationship with them. Current NPC reputations are shown in THE NPCS section when available.
+
+Reputation Thresholds & Behavior:
+  -100 to -75 (Enemy): Actively hostile, attacks on sight, seeks to harm
+  -74 to -50 (Hostile): Will attack if provoked, refuses all help, may call guards
+  -49 to -25 (Unfriendly): Suspicious, unhelpful, demands high payment, may lie
+  -24 to +24 (Neutral): Indifferent, standard business interactions, no favors
+  +25 to +49 (Friendly): Helpful, offers hints, fair deals, minor assistance
+  +50 to +74 (Friend): Goes out of their way to help, discounts, extra information
+  +75 to +100 (Trusted Ally): Deeply loyal, best rewards, shares secrets, risks self
+
+Adjust NPC Dialogue Based on Reputation:
+• Cold/hostile tone for negative reputation (short, curt, threatening)
+• Warm/friendly tone for positive reputation (enthusiastic, helpful, personal)
+• Reference past interactions: "After what you did..." or "My friend, after all you've done..."
+
+Reputation Changes Automatically On:
+• Quest completion: +10 base + (2 × quests_completed)
+• Attacking/killing NPC: -30 to -50
+• Defending NPC in combat: +15
+• For manual adjustments use: [REPUTATION: NPC Name | +/-X]
+  Examples: [REPUTATION: Gundren | +15] or [REPUTATION: Nezznar | -30]
+
+Creating NPCs with Initial Reputation:
+[NPC: Name | Role | {"reputation": 50, "statsBlock": {...}}]
+Default reputations: enemy=-50, ally=+50, questgiver=+25, neutral=0
+
 SOCIAL INTERACTION RULES (DMG Ch.8):
 NPC Attitude System - DC based on current relationship:
 • Friendly NPC:
@@ -216,13 +244,13 @@ NPC Attitude System - DC based on current relationship:
   - DC 20: Helps if huge benefit offered
 
 Conversation Flow:
-1. Roleplaying: Let players talk, show NPC personality
+1. Roleplaying: Let players talk, show NPC personality (adjust tone by reputation)
 2. Ability Check: Call for Persuasion/Deception/Intimidation when stakes are clear
 3. Resolve: Grant or deny request based on check vs DC (see table above)
 
 Critical Rolls (Optional):
-- Natural 20: Extra success (grant additional favor, NPC becomes ally)
-- Natural 1: Extra failure (NPC becomes hostile, breaks thieves' tools)
+- Natural 20: Extra success (grant additional favor, NPC becomes ally, +5 reputation)
+- Natural 1: Extra failure (NPC becomes hostile, breaks thieves' tools, -5 reputation)
 
 IMPROVISATION TIPS:
 When players go off-script:
@@ -251,5 +279,5 @@ Failed checks should advance story, not block it:
 • Partial success with complication (find map but alert guards)
 • Time pressure (villain escapes, reinforcements arrive)
 • Resource cost (lose HP, use spell slot, break equipment)
-• Social consequence (NPC becomes hostile, rumor spreads)
+• Social consequence (NPC becomes hostile, rumor spreads, -10 reputation)
 NEVER let one failed roll stop the adventure completely.`;
