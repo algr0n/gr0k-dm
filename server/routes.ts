@@ -3104,6 +3104,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             if (combatState) {
               ws.send(JSON.stringify({ type: "combat_update", combat: combatState }));
               // Check if current actor is NPC and trigger their turn
+              console.log(`[WebSocket] Scheduling triggerNpcTurnIfNeeded from get_combat_state for ${code}`);
               setImmediate(() => triggerNpcTurnIfNeeded(code));
             } else {
               console.log(`[WebSocket] No combat state found for room ${code}. Available rooms with combat:`, Array.from(roomCombatState.keys()));
@@ -4940,7 +4941,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // Helper to trigger NPC turn automatically
   async function triggerNpcTurnIfNeeded(code: string) {
+    console.log(`[Combat] triggerNpcTurnIfNeeded called for room ${code}`);
     const state = roomCombatState.get(code);
+    console.log(`[Combat] Combat state retrieved: ${!!state}, isActive: ${state?.isActive}, roomCombatState has ${roomCombatState.size} rooms`);
     if (!state || !state.isActive) {
       console.log(`[Combat] triggerNpcTurnIfNeeded: No active combat for room ${code}`);
       return;
@@ -4955,6 +4958,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     // Check if current actor is a monster/NPC
     if (currentActor.controller === 'monster') {
       // Prevent concurrent execution
+      console.log(`[Combat] Current actor is monster, checking processing flag. Has ${code}: ${npcTurnProcessing.has(code)}`);
       if (npcTurnProcessing.has(code)) {
         console.log(`[Combat] NPC turn already processing for room ${code}, skipping`);
         return;
@@ -5105,6 +5109,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
     } else {
       // Current actor is not a monster, nothing to do
+      console.log(`[Combat] Current actor is NOT monster (${currentActor.name}, controller: ${currentActor.controller}), clearing processing flag`);
       npcTurnProcessing.delete(code);
     }
   }
@@ -5237,11 +5242,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Persist back
       roomCombatState.set(code, state);
+      console.log(`[Combat Action] Persisted combat state for ${code}, next actor: ${state.initiatives[state.currentTurnIndex]?.name} (${state.initiatives[state.currentTurnIndex]?.controller})`);
 
       // Broadcast turn update
       broadcastToRoom(code, { type: 'combat_update', combat: state });
 
       // Trigger NPC turn if next actor is an NPC
+      console.log(`[Combat Action] Scheduling triggerNpcTurnIfNeeded for ${code}`);
       setImmediate(() => triggerNpcTurnIfNeeded(code));
 
       return { success: true, result };
@@ -5435,6 +5442,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/rooms/:code/combat/action", async (req, res) => {
     try {
       const { code } = req.params;
+      console.log(`[Combat Action API] Received action for room code: "${code}"`);
       const { action } = req.body;
       if (!action) return res.status(400).json({ error: "Missing action" });
 
