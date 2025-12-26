@@ -806,9 +806,26 @@ export default function RoomPage() {
       }
       
       if (isCleaningUp) return;
-      
+
+      // If user is signed in but hasn't joined this room or selected a character yet,
+      // defer connecting until they join / pick a character to avoid server rejecting the upgrade.
+      const isMember = !!roomData && !!roomData.players && roomData.players.some((p: any) => {
+        if (user?.id && p.userId === user.id) return true;
+        if (playerId && p.id === playerId) return true;
+        if (playerName && p.name === playerName) return true;
+        return false;
+      });
+
+      if (user && !isMember && !myCharacterData && roomData) {
+        console.log("[WebSocket] Deferring connection: user signed in but not a room member or has no character");
+        setIsConnecting(false);
+        // Prompt the user to pick or load a character so they can join
+        if (!showLoadCharacterDialog) setShowLoadCharacterDialog(true);
+        return;
+      }
+
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/ws?room=${code}`;
+      const wsUrl = `${protocol}//${window.location.host}/ws?room=${code}`; 
       
       console.log(`[WebSocket] Connecting to ${wsUrl} (attempt ${reconnectAttempts + 1})`);
       
@@ -942,7 +959,7 @@ export default function RoomPage() {
         wsRef.current.close();
       }
     };
-  }, [code, playerName, isAuthLoading]);
+  }, [code, playerName, isAuthLoading, myCharacterData, roomData, playerId, showLoadCharacterDialog, savedCharacters?.length, user?.id]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

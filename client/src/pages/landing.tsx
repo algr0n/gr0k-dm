@@ -12,6 +12,8 @@ import { Swords, Users, Dice6, Bot, Plus, Loader2, RotateCcw, Globe, Search, Hea
 import cashAppQR from "@assets/IMG_2407_1765085234277.webp";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { gameSystems, gameSystemLabels, type GameSystem, type Room, type SavedCharacter } from "@shared/schema";
@@ -62,6 +64,11 @@ export default function Landing() {
   const [hostStep, setHostStep] = useState<HostStep>("details");
   const [createdRoom, setCreatedRoom] = useState<(Room & { hostPlayer: { id: string } }) | null>(null);
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+  
+  // Join flow state
+  const [joinDialogOpen, setJoinDialogOpen] = useState(false);
+  const [roomToJoin, setRoomToJoin] = useState<PublicRoom | null>(null);
+  const [joinCharacterId, setJoinCharacterId] = useState<string | null>(null);
   
   // Check for last game session with state to enable reactivity
   const [lastRoomCode, setLastRoomCode] = useState<string | null>(null);
@@ -117,7 +124,7 @@ export default function Landing() {
   // Fetch saved characters for the user
   const { data: savedCharacters, isLoading: isLoadingCharacters } = useQuery<SavedCharacter[]>({
     queryKey: ["/api/saved-characters"],
-    enabled: !!currentUser && (hostStep === "character"),
+    enabled: !!currentUser && (hostStep === "character" || joinDialogOpen),
   });
 
   // Filter characters by game system
@@ -170,10 +177,11 @@ export default function Landing() {
     browseFilter === "all" || room.gameSystem === browseFilter
   ) || [];
 
-  const handleJoinFromBrowser = (code: string) => {
+  const handleJoinFromBrowser = (room: PublicRoom) => {
     setBrowseDialogOpen(false);
-    // Navigate directly to the room - the room page will handle the join flow
-    setLocation(`/room/${code}`);
+    setRoomToJoin(room);
+    setGameSystem(room.gameSystem as GameSystem);
+    setJoinDialogOpen(true);
   };
 
   const createRoomMutation = useMutation({
@@ -237,6 +245,34 @@ export default function Landing() {
         resetHostDialog();
         setLocation(`/room/${createdRoom.code}`);
       }
+    },
+  });
+
+  const joinRoomMutation = useMutation({
+    mutationFn: async () => {
+      if (!roomToJoin) throw new Error("No room selected");
+      if (!joinCharacterId || !currentUser) throw new Error("No character selected");
+      
+      const response = await apiRequest("POST", `/api/rooms/${roomToJoin.code}/join-with-character`, {
+        savedCharacterId: joinCharacterId,
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      const displayName = currentUser?.username || "Player";
+      sessionStorage.setItem("playerName", displayName);
+      sessionStorage.setItem("playerId", data.player.id);
+      setJoinDialogOpen(false);
+      setRoomToJoin(null);
+      setJoinCharacterId(null);
+      setLocation(`/room/${roomToJoin?.code}`);
+    },
+    onError: () => {
+      toast({
+        title: "Failed to join room",
+        description: "Please try again.",
+        variant: "destructive",
+      });
     },
   });
 
@@ -588,7 +624,7 @@ export default function Landing() {
                               </div>
                               <Button
                                 size="sm"
-                                onClick={() => handleJoinFromBrowser(room.code)}
+                                onClick={() => handleJoinFromBrowser(room)}
                                 data-testid={`button-join-room-${room.code}`}
                               >
                                 Join
@@ -606,6 +642,88 @@ export default function Landing() {
             )}
           </div>
         </div>
+        
+        {/* Join Room Character Selection Dialog */}
+        <Dialog open={joinDialogOpen} onOpenChange={(open) => {
+          setJoinDialogOpen(open);
+          if (!open) {
+            setRoomToJoin(null);
+            setJoinCharacterId(null);
+          }
+        }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Select Your Character</DialogTitle>
+              <DialogDescription>
+                Choose a character for {roomToJoin?.name && `"${roomToJoin.name}"`} ({gameSystemLabels[gameSystem]})
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              {isLoadingCharacters ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : availableCharacters.length === 0 ? (
+                <div className="text-center py-8 space-y-3">
+                  <p className="text-muted-foreground">
+                    You don't have any {gameSystemLabels[gameSystem]} characters yet.
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setJoinDialogOpen(false);
+                      setLocation("/characters");
+                    }}
+                  >
+                    Create a Character First
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <ScrollArea className="h-64">
+                    <RadioGroup value={joinCharacterId || ""} onValueChange={setJoinCharacterId}>
+                      <div className="space-y-2">
+                        {availableCharacters.map((char) => (
+                          <label
+                            key={char.id}
+                            className={cn(
+                              "flex items-center gap-3 p-3 rounded-md border cursor-pointer transition-colors",
+                              joinCharacterId === char.id
+                                ? "border-primary bg-primary/5"
+                                : "border-border hover:border-primary/50"
+                            )}
+                          >
+                            <RadioGroupItem value={char.id} id={`join-char-${char.id}`} />
+                            <div className="flex-1">
+                              <div className="font-medium">{char.characterName}</div>
+                              <div className="text-xs text-muted-foreground">
+                                Level {char.level} {char.race} {char.class}
+                              </div>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </RadioGroup>
+                  </ScrollArea>
+                  <Button
+                    className="w-full"
+                    onClick={() => joinRoomMutation.mutate()}
+                    disabled={!joinCharacterId || joinRoomMutation.isPending}
+                  >
+                    {joinRoomMutation.isPending ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Joining...
+                      </>
+                    ) : (
+                      "Join Game"
+                    )}
+                  </Button>
+                </>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
         
         <div className="mt-16 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 max-w-5xl w-full">
           <Card>
