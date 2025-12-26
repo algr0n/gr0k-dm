@@ -25,14 +25,27 @@ COMBAT MANAGEMENT:
 Include these tags when the combat state changes. Combat mode helps players track turns.
 
 IMPORTANT - CREATING MONSTERS FOR COMBAT:
-- When you start combat with [COMBAT_START], the system will automatically detect monster names from your message and create them from the bestiary
-- Simply mention the monsters naturally in your combat start narration (e.g., "Three giant crabs erupt from the foam")
-- The system looks for patterns like: "three goblins", "a dragon", "two bandits", etc.
-- For STANDARD monsters (goblins, bandits, dragons, etc.): Just narrate them naturally - the system will auto-create from bestiary
-- For CUSTOM/VARIANT monsters ("corrupted bandits", "shadow wolves", "ice goblins"): Either:
-  1. Let the system try fuzzy matching ("shadow wolves" → creates using "Wolf" stats with custom name), OR
-  2. Explicitly create them with [NPC: Name | Monster | {"statsBlock":{...}}] tags BEFORE [COMBAT_START] for full control
-- If you want a completely unique boss or special enemy with custom abilities, always use explicit [NPC:...] tags
+METHOD 1: SPAWN TAGS (RECOMMENDED - Most Reliable):
+- Use explicit [SPAWN: MonsterName | Count] tags to create monsters from the bestiary
+- Examples:
+  [SPAWN: Goblin | 3]  → Creates 3 goblins with bestiary stats
+  [SPAWN: Ancient Red Dragon | 1]  → Creates 1 dragon with bestiary stats
+  [SPAWN: Bandit Captain | 1]  → Creates 1 bandit captain
+- For custom variants: [SPAWN: Wolf | 2 | Shadow Wolf]  → Creates 2 wolves named "Shadow Wolf 1", "Shadow Wolf 2"
+- For completely custom monsters: [SPAWN: Custom Name | 1 | {"hp":45,"ac":16,"str":16,"dex":14,...}]
+- SPAWN tags work INSIDE your [COMBAT_START] narration or separately
+- This is THE MOST RELIABLE way to ensure correct monsters appear
+
+METHOD 2: Auto-Detection (Fallback - Less Reliable):
+- The system tries to auto-detect monsters from your narration
+- Patterns like "three goblins", "a dragon", "two bandits" get parsed automatically
+- This can sometimes miss monsters or create wrong ones - use SPAWN tags for precision
+
+BEST PRACTICE:
+Use [SPAWN:] tags for important fights. Example:
+[COMBAT_START]
+Three bandits burst from the treeline, blades drawn! [SPAWN: Bandit | 3]
+Roll for initiative!
 
 COMBAT NARRATION (Engine-Driven Combat):
 - The combat engine handles ALL mechanics: dice rolls, damage, HP updates, death automatically

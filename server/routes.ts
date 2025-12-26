@@ -235,6 +235,101 @@ async function createCombatSpawn(
   return spawn;
 }
 
+/**
+ * Wrapper for creating a monster spawn with automatic stat lookup
+ * Used by [SPAWN:] tags - handles bestiary lookup, cache, or custom stats
+ */
+async function createMonsterSpawn(
+  encounterId: string,
+  monsterName: string,
+  instanceName: string,
+  customStats?: any
+): Promise<any> {
+  let statsData: any;
+  let source = 'generic';
+  
+  // If custom stats provided directly, use those
+  if (customStats) {
+    statsData = {
+      hp: customStats.hp || 10,
+      ac: customStats.ac || 10,
+      size: customStats.size || 'Medium',
+      type: customStats.type || 'creature',
+      str: customStats.str ?? 10,
+      dex: customStats.dex ?? 10,
+      con: customStats.con ?? 10,
+      int: customStats.int ?? 10,
+      wis: customStats.wis ?? 10,
+      cha: customStats.cha ?? 10,
+      cr: customStats.cr || '0',
+      xp: customStats.xp ?? 10,
+      actions: customStats.actions || [],
+      traits: customStats.traits || [],
+    };
+    source = 'custom';
+  } else {
+    // Try bestiary first
+    const monsterData = await getMonsterByName(libsqlClient, monsterName);
+    if (monsterData) {
+      statsData = {
+        size: monsterData.size,
+        type: monsterData.type,
+        ac: monsterData.armor_class,
+        hp: monsterData.hp_avg,
+        str: monsterData.str,
+        dex: monsterData.dex,
+        con: monsterData.con,
+        int: monsterData.int,
+        wis: monsterData.wis,
+        cha: monsterData.cha,
+        cr: monsterData.challenge_rating,
+        xp: monsterData.xp,
+        actions: monsterData.actions,
+        traits: monsterData.traits,
+      };
+      source = 'bestiary';
+    } else {
+      // Try global NPC cache
+      const cachedNpc = await storage.getNpcFromCache(monsterName.toLowerCase());
+      if (cachedNpc) {
+        statsData = {
+          size: cachedNpc.size,
+          type: cachedNpc.type,
+          ac: cachedNpc.ac,
+          hp: cachedNpc.hp,
+          str: cachedNpc.str,
+          dex: cachedNpc.dex,
+          con: cachedNpc.con,
+          int: cachedNpc.int,
+          wis: cachedNpc.wis,
+          cha: cachedNpc.cha,
+          cr: cachedNpc.cr,
+          xp: cachedNpc.xp,
+          actions: cachedNpc.actions,
+          traits: cachedNpc.traits,
+        };
+        source = 'cache';
+      } else {
+        // Use generic fallback
+        statsData = {
+          size: 'Medium',
+          type: 'humanoid',
+          ac: 12,
+          hp: 10,
+          str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10,
+          cr: '0',
+          xp: 10,
+          actions: [],
+          traits: [],
+        };
+        source = 'generic';
+      }
+    }
+  }
+  
+  return await createCombatSpawn(encounterId, monsterName, instanceName, statsData, source);
+}
+
 async function detectAndCreateMonstersForCombat(
   roomId: string,
   encounterId: string,
@@ -746,7 +841,8 @@ interface ParsedGameAction {
     | "location_add"
     | "quest_add"
     | "quest_update"
-    | "reputation_change";
+    | "reputation_change"
+    | "spawn_monster";
   playerName?: string;
   characterName?: string;
   currentHp?: number;
@@ -780,6 +876,10 @@ interface ParsedGameAction {
   participants?: string; // comma-separated participant names
   // Reputation change
   change?: number;
+  // Spawn monster
+  count?: number;
+  customName?: string;
+  customStats?: any;
 }
 
 function parseDMResponseTags(response: string): ParsedGameAction[] {
@@ -1013,7 +1113,41 @@ function parseDMResponseTags(response: string): ParsedGameAction[] {
     actions.push({
       type: "reputation_change",
       npcName: match[1].trim(),
-      change: parseInt(match[2], 10),
+      change: parseInt(match[2].trim(), 10),
+    });
+  }
+
+  // Parse SPAWN tags for combat monster creation:
+  // [SPAWN: MonsterName | Count] or [SPAWN: MonsterName | Count | CustomName]
+  // [SPAWN: MonsterName | Count | {"hp":30,"ac":15,...}] for custom stats
+  const spawnPattern = /\[SPAWN:\s*([^|\]\n]+?)\s*\|\s*(\d+)(?:\s*\|\s*([^\]]+?))?\s*\]/gi;
+  while ((match = spawnPattern.exec(response)) !== null) {
+    const monsterName = match[1].trim();
+    const count = parseInt(match[2].trim(), 10);
+    const extra = match[3]?.trim();
+    
+    let customName: string | undefined;
+    let customStats: any;
+    
+    // Check if extra data is JSON (custom stats) or plain text (custom name)
+    if (extra) {
+      if (extra.startsWith('{')) {
+        try {
+          customStats = JSON.parse(extra);
+        } catch (e) {
+          console.warn('[SPAWN] Failed to parse custom stats JSON:', e);
+        }
+      } else {
+        customName = extra;
+      }
+    }
+    
+    actions.push({
+      type: "spawn_monster",
+      monsterName,
+      count,
+      customName,
+      customStats,
     });
   }
 
@@ -2434,6 +2568,43 @@ async function executeGameActions(
             console.log(`[DM Action] Created dynamic quest '${questRecord.name}' (id=${questRecord.id}) in room ${roomCode}`);
           } catch (err) {
             console.error('[DM Action] Failed to create quest:', err);
+          }
+          break;
+        }
+
+        case "spawn_monster": {
+          if (!action.monsterName || !action.count) break;
+          
+          try {
+            // Get or create combat encounter
+            const encounter = await getOrCreateCombatEncounter(room.id, roomCode);
+            
+            // Create the specified number of spawns
+            for (let i = 0; i < action.count; i++) {
+              const instanceName = action.customName 
+                ? `${action.customName} ${i + 1}` 
+                : `${action.monsterName} ${i + 1}`;
+              
+              await createMonsterSpawn(
+                encounter.id,
+                action.monsterName,
+                instanceName,
+                action.customStats // Can be undefined, will use bestiary/generic
+              );
+            }
+            
+            console.log(`[SPAWN] Created ${action.count}x ${action.monsterName} in room ${roomCode}`);
+            
+            // Broadcast combat state update
+            const combatState = await storage.getCombatStateByRoom(room.id);
+            if (combatState) {
+              broadcastFn(roomCode, {
+                type: 'combat_update',
+                combat: combatState,
+              });
+            }
+          } catch (err) {
+            console.error('[SPAWN] Error creating monster:', err);
           }
           break;
         }
