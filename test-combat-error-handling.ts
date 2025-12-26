@@ -4,6 +4,8 @@
  * This test simulates error scenarios that might cause NPC turns to hang.
  */
 
+(async () => {
+
 interface InitiativeEntry {
   id: string;
   name: string;
@@ -279,7 +281,9 @@ async function runAllTests() {
   console.log('='.repeat(60));
 }
 
-runAllTests().catch(err => {
+await runAllTests();
+
+})().catch(err => {
   console.error('\n=== TESTS FAILED ===');
   console.error(err);
 });
