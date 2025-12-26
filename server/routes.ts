@@ -1017,7 +1017,8 @@ export function _test_getInternalStorage() {
 async function executeGameActions(
   actions: ParsedGameAction[],
   roomCode: string,
-  broadcastFn: (roomCode: string, message: any) => void
+  broadcastFn: (roomCode: string, message: any) => void,
+  triggerNpcTurnFn?: () => void
 ): Promise<void> {
   // Collapse multiple currency_change actions for the same player into a single consolidated action
   const consolidatedActions: ParsedGameAction[] = [];
@@ -1250,6 +1251,11 @@ async function executeGameActions(
           console.log(`[Combat Start] Broadcasting combat_update with state:`, JSON.stringify(combatState));
           broadcastFn(roomCode, { type: "combat_update", combat: combatState });
           console.log(`[DM Action] Combat started in room ${roomCode}`);
+          
+          // Check if first actor is NPC and trigger their turn
+          if (triggerNpcTurnFn) {
+            setImmediate(() => triggerNpcTurnFn());
+          }
           break;
         }
 
@@ -2290,6 +2296,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             console.log(`[WebSocket] get_combat_state request for room ${code}, state:`, combatState ? `active=${combatState.isActive}, initiatives=${combatState.initiatives?.length || 0}` : 'null');
             if (combatState) {
               ws.send(JSON.stringify({ type: "combat_update", combat: combatState }));
+              // Check if current actor is NPC and trigger their turn
+              setImmediate(() => triggerNpcTurnIfNeeded(code));
             }
           } else if (message.type === "hold_turn") {
             // Handle hold turn request via WebSocket
@@ -2568,7 +2576,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       if (gameActions.length > 0) {
         console.log(`[DM Response] Found ${gameActions.length} game actions to execute`);
-        await executeGameActions(gameActions, roomCode, broadcastToRoom);
+        await executeGameActions(gameActions, roomCode, broadcastToRoom, () => triggerNpcTurnIfNeeded(roomCode));
       }
 
       // Detect and log story events from DM response
@@ -4126,6 +4134,89 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Helper to trigger NPC turn automatically
+  async function triggerNpcTurnIfNeeded(code: string) {
+    const state = roomFullCombatState.get(code);
+    if (!state || !state.isActive) return;
+
+    const currentActor = state.initiatives[state.currentTurnIndex];
+    if (!currentActor) return;
+
+    // Check if current actor is a monster/NPC
+    if (currentActor.controller === 'monster') {
+      console.log(`[Combat] NPC turn detected: ${currentActor.name}`);
+      
+      // Notify players it's the NPC's turn
+      broadcastToRoom(code, {
+        type: 'system',
+        content: `It's ${currentActor.name}'s turn!`,
+      });
+
+      try {
+        const room = await storage.getRoomByCode(code);
+        if (!room) return;
+
+        // Generate AI narration for what the NPC does
+        const enemyActions = await generateCombatDMTurn(openai, room, undefined, (db as any).$client);
+        
+        // Broadcast the AI's narrative of the NPC's action
+        broadcastToRoom(code, {
+          type: 'dm',
+          content: enemyActions,
+        });
+
+        // Auto-advance after a delay to give players time to see the action
+        setTimeout(async () => {
+          const currentState = roomFullCombatState.get(code);
+          if (!currentState || !currentState.isActive) return;
+
+          const actor = currentState.initiatives[currentState.currentTurnIndex];
+          if (actor && actor.id === currentActor.id) {
+            // Still the same NPC's turn, advance it
+            const prevActorId = actor.id;
+            advanceTurn(currentState);
+            const inserted = processTrigger(currentState, prevActorId);
+            if (inserted.length > 0) {
+              broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
+            }
+
+            roomFullCombatState.set(code, currentState);
+            const currentIdx = currentState.currentTurnIndex;
+            const legacyInitiatives = currentState.initiatives.map((e: any) => ({ 
+              playerId: e.id, 
+              playerName: e.name, 
+              characterName: e.name, 
+              roll: e.roll, 
+              modifier: e.modifier, 
+              total: e.total 
+            }));
+            roomCombatState.set(code, { 
+              isActive: currentState.isActive, 
+              currentTurnIndex: currentIdx, 
+              initiatives: legacyInitiatives 
+            });
+
+            // Broadcast turn update
+            broadcastToRoom(code, { type: 'combat_update', combat: roomCombatState.get(code) });
+
+            // Check if next actor is also an NPC
+            await triggerNpcTurnIfNeeded(code);
+          }
+        }, 2000); // 2 second delay for readability
+      } catch (err) {
+        console.error('[Combat] NPC turn failed:', err);
+        // Auto-advance even on error so combat doesn't get stuck
+        const currentState = roomFullCombatState.get(code);
+        if (currentState && currentState.isActive) {
+          advanceTurn(currentState);
+          roomFullCombatState.set(code, currentState);
+          broadcastToRoom(code, { type: 'combat_update', combat: roomCombatState.get(code) });
+          await triggerNpcTurnIfNeeded(code);
+        }
+      }
+    }
+  }
+
   // Structured combat actions (player or monster actions)
   // Helper used by combat action routes and suggestion confirm
   async function executeCombatAction(code: string, action: any) {
@@ -4257,6 +4348,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const legacyInitiatives = state.initiatives.map((e: any) => ({ playerId: e.id, playerName: e.name, characterName: e.name, roll: e.roll, modifier: e.modifier, total: e.total }));
       roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives });
 
+      // Broadcast turn update
+      broadcastToRoom(code, { type: 'combat_update', combat: roomCombatState.get(code) });
+
+      // Trigger NPC turn if next actor is an NPC
+      setImmediate(() => triggerNpcTurnIfNeeded(code));
+
       return { success: true, result };
     }
 
@@ -4276,6 +4373,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const currentIdx = state.currentTurnIndex;
       const legacyInitiatives2 = state.initiatives.map((e: any) => ({ playerId: e.id, playerName: e.name, characterName: e.name, roll: e.roll, modifier: e.modifier, total: e.total }));
       roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives2 });
+
+      // Broadcast turn update
+      broadcastToRoom(code, { type: 'combat_update', combat: roomCombatState.get(code) });
+
+      // Trigger NPC turn if next actor is an NPC
+      setImmediate(() => triggerNpcTurnIfNeeded(code));
 
       return { success: true };
     }
