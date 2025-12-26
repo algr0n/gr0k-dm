@@ -2641,7 +2641,7 @@ async function executeGameActions(
             console.log(`[SPAWN] Created ${action.count}x ${action.monsterName} in room ${roomCode}`);
             
             // Broadcast combat state update
-            const combatState = await storage.getCombatStateByRoom(room.id);
+            const combatState = roomCombatState.get(roomCode);
             if (combatState) {
               broadcastFn(roomCode, {
                 type: 'combat_update',
