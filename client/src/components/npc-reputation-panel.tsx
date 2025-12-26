@@ -205,11 +205,11 @@ function NpcCard({ npc }: { npc: DynamicNpc }) {
 }
 
 export function NpcReputationPanel({ roomId }: NpcReputationPanelProps) {
-  const { data: npcs, isLoading } = useQuery<DynamicNpc[]>({
+  const { data, isLoading } = useQuery<{ npcs: DynamicNpc[]; combatSpawns?: any[] } | null>({
     queryKey: ["dynamic-npcs", roomId],
     queryFn: async () => {
       const response = await apiRequest("GET", `/api/rooms/${roomId}/dynamic-npcs`);
-      return (await response.json()) as DynamicNpc[];
+      return (await response.json()) as { npcs: DynamicNpc[]; combatSpawns?: any[] };
     },
     refetchInterval: 5000, // Refresh every 5 seconds
   });
@@ -222,7 +222,9 @@ export function NpcReputationPanel({ roomId }: NpcReputationPanelProps) {
     );
   }
 
-  if (!npcs || npcs.length === 0) {
+  const npcs = data?.npcs ?? [];
+
+  if (npcs.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-center px-4">
         <Users className="h-16 w-16 text-muted-foreground/50 mb-4" />
