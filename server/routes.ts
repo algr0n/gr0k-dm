@@ -5052,8 +5052,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               content: `${currentActor.name} looks around menacingly!`,
             });
           }
-            content: enemyActions,
-          });
         }
 
         // Auto-advance after a delay to give players time to see the action
