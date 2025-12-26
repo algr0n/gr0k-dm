@@ -83,6 +83,9 @@ async function detectAndCreateMonstersForCombat(
   // Known monster names that contain words that might look like actions
   const monsterNameExceptions = /^(crawling claw|flying sword|flying snake|swimming horror)$/i;
   
+  // Common non-monster words to exclude (locations, abstract nouns, etc.)
+  const nonMonsterWords = /^(fight|battle|combat|forest|woods|cave|dungeon|town|village|city|path|trail|road|shadows|darkness|light|air|water|earth|fire|area|place|spot|thing|way)$/i;
+  
   // Action verbs that commonly appear after monster counts
   // Only filter these if they're NOT part of a known monster name
   const actionVerbs = /^(screech|screeching|charge|charging|attack|attacking|rush|rushing|leap|leaping|jump|jumping|burst|bursting|erupt|erupting|emerge|emerging|appear|appearing|lunge|lunging|swing|swinging|strike|striking|hit|hitting|slash|slashing|bite|biting|grab|grabbing|throw|throwing|speak|speaking|say|saying|yell|yelling|shout|shouting|roar|roaring|growl|growling|snarl|snarling|draw|drawing|raise|raising|drawn|raised|demand|demanding)$/i;
@@ -106,13 +109,13 @@ async function detectAndCreateMonstersForCombat(
     const isException = monsterNameExceptions.test(monsterName);
     
     if (!isException) {
-      // Split into words and check if any are action verbs
+      // Split into words and check if any are action verbs or non-monster words
       const words = monsterName.split(' ');
       const filteredWords: string[] = [];
       
       for (const word of words) {
-        if (actionVerbs.test(word)) {
-          // Stop at action verb
+        if (actionVerbs.test(word) || nonMonsterWords.test(word)) {
+          // Stop at action verb or non-monster word
           break;
         }
         filteredWords.push(word);

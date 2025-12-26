@@ -80,10 +80,10 @@ export async function getMonsterByName(
   name: string
 ): Promise<MonsterDetail | null> {
   try {
-    // Get base monster data
+    // Get base monster data (case-insensitive search)
     const result = await client.execute({
       sql: `
-        SELECT * FROM bestiary_monsters WHERE name = ? LIMIT 1
+        SELECT * FROM bestiary_monsters WHERE LOWER(name) = LOWER(?) LIMIT 1
       `,
       args: [name]
     });
