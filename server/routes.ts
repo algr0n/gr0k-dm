@@ -78,59 +78,58 @@ async function detectAndCreateMonstersForCombat(
 ): Promise<any[]> {
   const createdMonsters: any[] = [];
   
-  // Common monster patterns to detect (add more as needed)
-  const monsterPatterns = [
-    // Match "X [adjective] monster(s)" patterns - e.g., "three giant crabs", "two goblins", "a dragon"
-    /(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:massive|giant|huge|large|small|tiny)?\s*([a-z]+(?:\s+[a-z]+)?(?:\s+[a-z]+)?)(?:s)?(?:\s+(?:erupt|emerge|attack|appear|charge|rush|leap|crawl))?/gi,
-  ];
-
-  const potentialMonsters = new Set<string>();
+  console.log(`[Monster Detection] Analyzing message: ${dmMessage.substring(0, 150)}...`);
   
-  for (const pattern of monsterPatterns) {
-    let match;
-    while ((match = pattern.exec(dmMessage)) !== null) {
-      if (match[1]) {
-        // Clean up the monster name
-        let monsterName = match[1].trim();
-        // Remove trailing 's' for plurals
-        if (monsterName.endsWith('s') && monsterName.length > 3) {
-          monsterName = monsterName.slice(0, -1);
-        }
-        // Capitalize first letter of each word
-        monsterName = monsterName
-          .split(' ')
-          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(' ');
-        potentialMonsters.add(monsterName);
-      }
+  // Simpler pattern: match "number + optional adjective + creature name"
+  // Examples: "two bandits", "a dragon", "three giant spiders", "five goblins"
+  const pattern = /(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(massive|giant|huge|large|small|young|ancient|elder)\s+)?([a-z]+(?:\s+[a-z]+)?)/gi;
+
+  const potentialMonsters = new Map<string, number>(); // Map of monsterName -> count
+  
+  let match;
+  while ((match = pattern.exec(dmMessage)) !== null) {
+    const countWord = match[1].toLowerCase();
+    const adjective = match[2] || '';
+    let monsterName = match[3].trim();
+    
+    // Remove trailing 's' for plurals
+    if (monsterName.endsWith('s') && monsterName.length > 3 && !monsterName.endsWith('ss')) {
+      monsterName = monsterName.slice(0, -1);
     }
+    
+    // Combine adjective + monster name if adjective exists
+    if (adjective) {
+      monsterName = `${adjective} ${monsterName}`;
+    }
+    
+    // Capitalize first letter of each word
+    monsterName = monsterName
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
+    
+    // Parse count
+    const countMap: Record<string, number> = {
+      'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+      'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+    };
+    const count = countMap[countWord] || parseInt(countWord, 10) || 1;
+    
+    // Accumulate counts for the same monster
+    const currentCount = potentialMonsters.get(monsterName) || 0;
+    potentialMonsters.set(monsterName, currentCount + count);
   }
 
-  console.log(`[Monster Detection] Found potential monsters:`, Array.from(potentialMonsters));
+  console.log(`[Monster Detection] Found potential monsters:`, Array.from(potentialMonsters.entries()));
 
   // Try to find each monster in the bestiary and create them
-  for (const monsterName of potentialMonsters) {
+  for (const [monsterName, count] of potentialMonsters.entries()) {
     try {
+      console.log(`[Monster Detection] Looking up "${monsterName}" in bestiary...`);
       const monsterData = await getMonsterByName(libsqlClient, monsterName);
       if (monsterData) {
-        console.log(`[Monster Detection] Found ${monsterName} in bestiary, creating as NPC...`);
+        console.log(`[Monster Detection] ✓ Found ${monsterName} in bestiary (CR ${monsterData.challenge_rating}), creating ${count} instance(s)...`);
         
-        // Extract count from the original message (default to 1)
-        const countMatch = dmMessage.toLowerCase().match(
-          new RegExp(`(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\\d+)\\s+(?:massive|giant|huge|large|small)?\\s*${monsterName.toLowerCase()}`, 'i')
-        );
-        
-        const countMap: Record<string, number> = {
-          'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
-          'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
-        };
-        
-        let count = 1;
-        if (countMatch && countMatch[1]) {
-          const countStr = countMatch[1].toLowerCase();
-          count = countMap[countStr] || parseInt(countStr, 10) || 1;
-        }
-
         // Create multiple instances if needed
         for (let i = 0; i < count; i++) {
           const instanceName = count > 1 ? `${monsterName} ${i + 1}` : monsterName;
@@ -1120,7 +1119,8 @@ async function executeGameActions(
   actions: ParsedGameAction[],
   roomCode: string,
   broadcastFn: (roomCode: string, message: any) => void,
-  triggerNpcTurnFn?: () => void
+  triggerNpcTurnFn?: () => void,
+  dmResponse?: string
 ): Promise<void> {
   // Collapse multiple currency_change actions for the same player into a single consolidated action
   const consolidatedActions: ParsedGameAction[] = [];
@@ -1289,19 +1289,16 @@ async function executeGameActions(
           // If there are no initiatives yet, roll initiatives including dynamic NPCs
           if (!combatState.initiatives || combatState.initiatives.length === 0) {
             try {
-              // Detect and create monsters from the DM's combat start message
-              const recentMessages = room.messageHistory?.slice(-2) || [];
-              const combatStartMessage = recentMessages.find((m: Message) => 
-                m.type === 'dm' && /\[COMBAT_START\]/i.test(m.content)
-              );
-              
-              if (combatStartMessage) {
-                console.log(`[Combat Start] Attempting to detect monsters in message...`);
+              // Detect and create monsters from the current DM response
+              if (dmResponse) {
+                console.log(`[Combat Start] Attempting monster detection from current response...`);
                 try {
-                  await detectAndCreateMonstersForCombat(room.id, combatStartMessage.content);
+                  await detectAndCreateMonstersForCombat(room.id, dmResponse);
                 } catch (detectErr) {
                   console.error(`[Combat Start] Monster detection failed:`, detectErr);
                 }
+              } else {
+                console.log(`[Combat Start] No DM response available for monster detection`);
               }
 
               const players = await storage.getPlayersByRoom(room.id);
@@ -2693,7 +2690,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       if (gameActions.length > 0) {
         console.log(`[DM Response] Found ${gameActions.length} game actions to execute`);
-        await executeGameActions(gameActions, roomCode, broadcastToRoom, () => triggerNpcTurnIfNeeded(roomCode));
+        await executeGameActions(gameActions, roomCode, broadcastToRoom, () => triggerNpcTurnIfNeeded(roomCode), dmResponse);
       }
 
       // Detect and log story events from DM response
