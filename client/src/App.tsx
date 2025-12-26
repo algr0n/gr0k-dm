@@ -21,6 +21,7 @@ import MyRooms from "@/pages/my-rooms";
 import NotFound from "@/pages/not-found";
 import ComponentsDemo from "@/pages/ComponentsDemo";
 import AdminCachePage from "@/pages/admin/cache";
+import AdminRoomsPage from "@/pages/admin/rooms";
 
 const Bestiary = lazy(() => import("@/pages/bestiary"));
 
@@ -37,6 +38,7 @@ function Router() {
       <Route path="/my-rooms" component={MyRooms} />
       <Route path="/bestiary" component={Bestiary} />
       <Route path="/admin/cache" component={AdminCachePage} />
+      <Route path="/admin/rooms" component={AdminRoomsPage} />
       <Route component={NotFound} />
       </Switch>
     </Suspense>
@@ -138,12 +140,20 @@ function Header() {
                   </Link>
                 </DropdownMenuItem>
                 {user?.admin && (
-                  <DropdownMenuItem asChild>
-                    <Link href="/admin/cache">
-                      <Lock className="mr-2 h-4 w-4" />
-                      Admin
-                    </Link>
-                  </DropdownMenuItem>
+                  <>
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin/cache">
+                        <Lock className="mr-2 h-4 w-4" />
+                        Admin
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin/rooms">
+                        <Lock className="mr-2 h-4 w-4" />
+                        Admin Rooms
+                      </Link>
+                    </DropdownMenuItem>
+                  </>
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} data-testid="button-logout">
