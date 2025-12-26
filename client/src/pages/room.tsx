@@ -987,18 +987,24 @@ export default function RoomPage() {
           }
 
         } else if (data.type === "npc_reputation_changed") {
-          // NPC reputation changed; refresh NPC list
-          queryClient.invalidateQueries({ queryKey: ["dynamic-npcs", roomData?.id] });
-          
-          const repChange = (data.newReputation ?? 0) - (data.oldReputation ?? 0);
-          const direction = repChange > 0 ? "improved" : "worsened";
-          const emoji = repChange > 0 ? "✨" : "⚠️";
-          
-          toast({ 
-            title: `${emoji} Reputation ${direction.charAt(0).toUpperCase() + direction.slice(1)}`,
-            description: `${data.npcName} now views you as ${data.status?.toLowerCase() || "neutral"} (${repChange > 0 ? "+" : ""}${repChange})`,
-            duration: 5000,
-          });
+          // NPC reputation changed; validate payload and refresh NPC list
+          const currentRoomId = roomData?.id ?? "";
+
+          if (!data || typeof data.newReputation !== "number" || typeof data.oldReputation !== "number") {
+            console.warn("[WebSocket] npc_reputation_changed missing fields:", data);
+          } else {
+            queryClient.invalidateQueries({ queryKey: ["dynamic-npcs", currentRoomId] });
+
+            const repChange = (data.newReputation ?? 0) - (data.oldReputation ?? 0);
+            const direction = repChange > 0 ? "improved" : "worsened";
+            const emoji = repChange > 0 ? "✨" : "⚠️";
+
+            toast({ 
+              title: `${emoji} Reputation ${direction.charAt(0).toUpperCase() + direction.slice(1)}`,
+              description: `${data.npcName || 'Someone'} now views you as ${data.status?.toLowerCase() || "neutral"} (${repChange > 0 ? "+" : ""}${repChange})`,
+              duration: 5000,
+            });
+          }
 
         } else if (data.type === "npc_created") {
           // New NPC created; refresh NPC list
