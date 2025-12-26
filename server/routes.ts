@@ -5080,7 +5080,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Structured combat actions (player or monster actions)
   // Helper used by combat action routes and suggestion confirm
   async function executeCombatAction(code: string, action: any) {
+    console.log(`[Combat Action] Executing action for room ${code}, type: ${action.type}, actorId: ${action.actorId}`);
     const state = roomCombatState.get(code);
+    console.log(`[Combat Action] Combat state exists: ${!!state}, isActive: ${state?.isActive}, roomCombatState size: ${roomCombatState.size}`);
     if (!state || !state.isActive) throw new Error('No active combat');
 
     const { actorId, type } = action;

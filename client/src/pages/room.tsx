@@ -1053,7 +1053,8 @@ export default function RoomPage() {
         wsRef.current.close();
       }
     };
-  }, [code, playerName, isAuthLoading, myCharacterData, roomData, playerId, showLoadCharacterDialog, savedCharacters?.length, user?.id]);
+  }, [code, playerName, isAuthLoading, roomData, playerId, showLoadCharacterDialog, savedCharacters?.length, user?.id]);
+  // Note: myCharacterData removed from deps to prevent WebSocket reconnection on character updates during combat
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
