@@ -4134,6 +4134,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Track which rooms are currently processing NPC turns to prevent concurrent execution
+  const npcTurnProcessing = new Set<string>();
+
   // Helper to trigger NPC turn automatically
   async function triggerNpcTurnIfNeeded(code: string) {
     const state = roomFullCombatState.get(code);
@@ -4144,6 +4147,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     // Check if current actor is a monster/NPC
     if (currentActor.controller === 'monster') {
+      // Prevent concurrent execution
+      if (npcTurnProcessing.has(code)) {
+        console.log(`[Combat] NPC turn already processing for room ${code}, skipping`);
+        return;
+      }
+      
+      npcTurnProcessing.add(code);
       console.log(`[Combat] NPC turn detected: ${currentActor.name}`);
       
       // Notify players it's the NPC's turn
@@ -4167,44 +4177,58 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
         // Auto-advance after a delay to give players time to see the action
         setTimeout(async () => {
-          const currentState = roomFullCombatState.get(code);
-          if (!currentState || !currentState.isActive) return;
-
-          const actor = currentState.initiatives[currentState.currentTurnIndex];
-          if (actor && actor.id === currentActor.id) {
-            // Still the same NPC's turn, advance it
-            const prevActorId = actor.id;
-            advanceTurn(currentState);
-            const inserted = processTrigger(currentState, prevActorId);
-            if (inserted.length > 0) {
-              broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
+          try {
+            const currentState = roomFullCombatState.get(code);
+            if (!currentState || !currentState.isActive) {
+              npcTurnProcessing.delete(code);
+              return;
             }
 
-            roomFullCombatState.set(code, currentState);
-            const currentIdx = currentState.currentTurnIndex;
-            const legacyInitiatives = currentState.initiatives.map((e: any) => ({ 
-              playerId: e.id, 
-              playerName: e.name, 
-              characterName: e.name, 
-              roll: e.roll, 
-              modifier: e.modifier, 
-              total: e.total 
-            }));
-            roomCombatState.set(code, { 
-              isActive: currentState.isActive, 
-              currentTurnIndex: currentIdx, 
-              initiatives: legacyInitiatives 
-            });
+            const actor = currentState.initiatives[currentState.currentTurnIndex];
+            if (actor && actor.id === currentActor.id) {
+              // Still the same NPC's turn, advance it
+              const prevActorId = actor.id;
+              advanceTurn(currentState);
+              const inserted = processTrigger(currentState, prevActorId);
+              if (inserted.length > 0) {
+                broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
+              }
 
-            // Broadcast turn update
-            broadcastToRoom(code, { type: 'combat_update', combat: roomCombatState.get(code) });
+              roomFullCombatState.set(code, currentState);
+              const currentIdx = currentState.currentTurnIndex;
+              const legacyInitiatives = currentState.initiatives.map((e: any) => ({ 
+                playerId: e.id, 
+                playerName: e.name, 
+                characterName: e.name, 
+                roll: e.roll, 
+                modifier: e.modifier, 
+                total: e.total 
+              }));
+              roomCombatState.set(code, { 
+                isActive: currentState.isActive, 
+                currentTurnIndex: currentIdx, 
+                initiatives: legacyInitiatives 
+              });
 
-            // Check if next actor is also an NPC
-            await triggerNpcTurnIfNeeded(code);
+              // Broadcast turn update
+              broadcastToRoom(code, { type: 'combat_update', combat: roomCombatState.get(code) });
+
+              // Clear processing flag before recursive call
+              npcTurnProcessing.delete(code);
+              
+              // Check if next actor is also an NPC
+              await triggerNpcTurnIfNeeded(code);
+            } else {
+              npcTurnProcessing.delete(code);
+            }
+          } catch (timeoutErr) {
+            console.error('[Combat] Error in NPC turn timeout:', timeoutErr);
+            npcTurnProcessing.delete(code);
           }
         }, 2000); // 2 second delay for readability
       } catch (err) {
         console.error('[Combat] NPC turn failed:', err);
+        npcTurnProcessing.delete(code);
         // Auto-advance even on error so combat doesn't get stuck
         const currentState = roomFullCombatState.get(code);
         if (currentState && currentState.isActive) {
@@ -4214,6 +4238,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           await triggerNpcTurnIfNeeded(code);
         }
       }
+    } else {
+      // Current actor is not a monster, nothing to do
+      npcTurnProcessing.delete(code);
     }
   }
 
