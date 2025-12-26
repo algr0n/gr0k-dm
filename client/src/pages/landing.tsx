@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -48,6 +48,7 @@ type HostStep = "details" | "character";
 export default function Landing() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   
   const [hostDialogOpen, setHostDialogOpen] = useState(false);
   const [browseDialogOpen, setBrowseDialogOpen] = useState(false);
@@ -219,6 +220,10 @@ export default function Landing() {
         await apiRequest("POST", `/api/rooms/${createdRoom.code}/join-with-character`, {
           savedCharacterId: selectedCharacterId,
         });
+        // Invalidate room query to ensure fresh data
+        queryClient.invalidateQueries({ queryKey: ["/api/rooms", createdRoom.code] });
+        // Small delay to allow database transaction to complete
+        await new Promise(resolve => setTimeout(resolve, 300));
       }
       return createdRoom;
     },
@@ -256,7 +261,12 @@ export default function Landing() {
       const response = await apiRequest("POST", `/api/rooms/${roomToJoin.code}/join-with-character`, {
         savedCharacterId: joinCharacterId,
       });
-      return response.json();
+      const data = await response.json();
+      // Invalidate room query to ensure fresh data
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", roomToJoin.code] });
+      // Small delay to allow database transaction to complete
+      await new Promise(resolve => setTimeout(resolve, 300));
+      return data;
     },
     onSuccess: (data) => {
       const displayName = currentUser?.username || "Player";

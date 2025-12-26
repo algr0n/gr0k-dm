@@ -31,16 +31,45 @@ export async function generateSceneDescription(
 export async function generateStartingScene(
   openaiClient: OpenAI,
   gameSystem: string, 
-  roomName: string
+  roomName: string,
+  firstCharacter?: {
+    characterName: string;
+    class?: string | null;
+    race?: string | null;
+    level?: number;
+    background?: string | null;
+  }
 ): Promise<string> {
   const systemPrompt = getSystemPrompt(gameSystem);
+
+  let userPrompt = `New adventure "${roomName}" starting.`;
+  
+  if (firstCharacter) {
+    // Include character info in the prompt
+    userPrompt += ` The first adventurer has arrived: ${firstCharacter.characterName}`;
+    if (firstCharacter.race || firstCharacter.class) {
+      const charDetails = [];
+      if (firstCharacter.level) charDetails.push(`level ${firstCharacter.level}`);
+      if (firstCharacter.race) charDetails.push(firstCharacter.race);
+      if (firstCharacter.class) charDetails.push(firstCharacter.class);
+      if (charDetails.length > 0) {
+        userPrompt += ` (${charDetails.join(' ')})`;
+      }
+    }
+    if (firstCharacter.background) {
+      userPrompt += `, background: ${firstCharacter.background}`;
+    }
+    userPrompt += `. Welcome them by name and acknowledge their character details naturally. Then ask 1-2 quick questions about the tone they prefer (serious/lighthearted) and any themes they'd like to explore. Keep it warm, conversational, and brief (2-3 sentences max).`;
+  } else {
+    userPrompt += ` Welcome the players briefly, then ask 2-3 quick questions: What kind of characters are you playing? What tone do you prefer (serious/lighthearted)? Any themes you'd like to explore or avoid? Keep it conversational and brief.`;
+  }
 
   try {
     const response = await openaiClient.chat.completions.create({
       model: "grok-4-1-fast-reasoning",
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: `New adventure "${roomName}" starting. Welcome the players briefly, then ask 2-3 quick questions: What kind of characters are you playing? What tone do you prefer (serious/lighthearted)? Any themes you'd like to explore or avoid? Keep it conversational and brief.` },
+        { role: "user", content: userPrompt },
       ],
       max_tokens: 400,
       temperature: 0.9,

@@ -3558,8 +3558,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 openingNarration = "Your adventure begins...";
               }
             } else {
-              // Dynamic game: Generate opening with AI
-              const openingScene = await generateStartingScene(openai, room.gameSystem, room.name);
+              // Dynamic game: Generate opening with AI, including first character's info
+              const openingScene = await generateStartingScene(openai, room.gameSystem, room.name, {
+                characterName: savedCharacter.characterName,
+                class: savedCharacter.class,
+                race: savedCharacter.race,
+                level: savedCharacter.level,
+                background: savedCharacter.background,
+              });
               openingNarration = openingScene;
             }
             
@@ -4087,7 +4093,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
 
       // Generate starting combat scene if needed
-      const startingScene = await generateStartingScene(openai, room.gameSystem, room.name);
+      // Note: For combat start, we don't pass character info since they're already in-game
+      const startingScene = await generateStartingScene(openai, room.gameSystem, room.name, undefined);
       broadcastToRoom(code, {
         type: "dm",
         content: startingScene,

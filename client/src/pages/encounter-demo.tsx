@@ -136,7 +136,7 @@ export default function EncounterDemoPage() {
         />
 
         <div className="mt-4 flex gap-2">
-          <input className="flex-1 rounded border p-2" value={chatText} onChange={(e)=> setChatText(e.target.value)} placeholder="Say something to the DM or type an action..." />
+          <input id="chat-input" name="chat-message" className="flex-1 rounded border p-2" value={chatText} onChange={(e)=> setChatText(e.target.value)} placeholder="Say something to the DM or type an action..." />
           <button className="px-3 py-2 bg-blue-600 text-white rounded" onClick={handleSendChat}>Send</button>
         </div>
 
@@ -175,7 +175,7 @@ export default function EncounterDemoPage() {
 
               {s.editingText !== undefined && (
                 <div className="mt-2 flex gap-2">
-                  <input className="flex-1 rounded border p-1" value={s.editingText} onChange={(e) => setSuggestions(prev => prev.map(x => x.id === s.id ? { ...x, editingText: e.target.value } : x))} />
+                  <input id={`edit-${s.id}`} name="edit-suggestion" className="flex-1 rounded border p-1" value={s.editingText} onChange={(e) => setSuggestions(prev => prev.map(x => x.id === s.id ? { ...x, editingText: e.target.value } : x))} />
                   <button className="px-2 py-1 bg-blue-600 text-white rounded" onClick={async () => {
                     const edited = s.editingText
                     const parsed = parseNaturalLanguageToAction(edited, items[0]?.id)

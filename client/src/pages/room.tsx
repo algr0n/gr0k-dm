@@ -816,6 +816,13 @@ export default function RoomPage() {
       
       if (isCleaningUp) return;
 
+      // Wait for room data to load before connecting
+      if (!roomData || isLoading) {
+        console.log("[WebSocket] Waiting for room data to load...");
+        setIsConnecting(false);
+        return;
+      }
+
       // If user is signed in but hasn't joined this room or selected a character yet,
       // defer connecting until they join / pick a character to avoid server rejecting the upgrade.
       const isMember = !!roomData && !!roomData.players && roomData.players.some((p: any) => {
@@ -825,7 +832,7 @@ export default function RoomPage() {
         return false;
       });
 
-      if (user && !isMember && !myCharacterData && roomData) {
+      if (user && !isMember && !myCharacterData) {
         console.log("[WebSocket] Deferring connection: user signed in but not a room member or has no character");
         setIsConnecting(false);
         // Prompt the user to pick or load a character so they can join
@@ -1631,6 +1638,8 @@ export default function RoomPage() {
 
             <form onSubmit={sendMessage} className="p-4 flex gap-2">
               <Input
+                id="chat-message-input"
+                name="message"
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 placeholder={
@@ -2010,12 +2019,16 @@ export default function RoomPage() {
                     <CardContent>
                       <div className="flex gap-2">
                         <Input
+                          id="new-item-name"
+                          name="item-name"
                           placeholder="Item name"
                           value={newItemName}
                           onChange={(e) => setNewItemName(e.target.value)}
                           data-testid="input-new-item-name"
                         />
                         <Input
+                          id="new-item-quantity"
+                          name="item-quantity"
                           type="number"
                           min={1}
                           value={newItemQuantity}
