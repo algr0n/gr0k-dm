@@ -3478,6 +3478,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({ ok: true, uptime: process.uptime() });
   });
 
+  // Lightweight combat debug endpoint
+  // Returns current combat state snapshot for a room without mutating anything
+  app.get('/api/rooms/:code/combat/debug', async (req, res) => {
+    try {
+      const { code } = req.params
+      const state = roomCombatState.get(code)
+      const current = state?.initiatives?.[(state?.currentTurnIndex ?? 0)]
+      const connections = roomConnections.get(code)?.size || 0
+      const processing = npcTurnProcessing.has(code)
+
+      res.json({
+        hasState: !!state,
+        isActive: state?.isActive ?? false,
+        roundNumber: state?.roundNumber ?? 0,
+        currentTurnIndex: state?.currentTurnIndex ?? -1,
+        currentActor: current ? { id: current.id, name: current.name, controller: current.controller } : null,
+        initiativesCount: state?.initiatives?.length ?? 0,
+        npcTurnProcessing: processing,
+        connections
+      })
+    } catch (err) {
+      console.error('[Debug] Failed to get combat debug state:', err)
+      res.status(500).json({ error: 'Failed to get combat debug state' })
+    }
+  })
+
   // Auth routes - get current user
   app.get("/api/auth/user", async (req, res) => {
     if (!req.isAuthenticated()) {
