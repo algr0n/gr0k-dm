@@ -1590,7 +1590,10 @@ async function executeGameActions(
                   console.warn(`[Combat Start] rollInitiativesForCombat returned empty array despite having ${chars.length} chars and ${monsters.length} monsters`);
                 }
                 
-                const combatState = createCombatState(roomCode, initiatives);
+                // Update the existing combatState instead of creating a new variable
+                combatState.initiatives = initiatives;
+                combatState.currentTurnIndex = 0;
+                combatState.roundNumber = 1;
                 roomCombatState.set(roomCode, combatState);
                 console.log(`[Combat Start] Combat state prepared with ${initiatives.length} initiatives`);
 
