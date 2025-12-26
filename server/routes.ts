@@ -6904,6 +6904,109 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // Admin: Get all AI-generated monsters (for review)
+  app.get("/api/monsters/generated", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const client = (db as any).$client;
+      const result = await client.execute({
+        sql: `
+          SELECT 
+            id, name, size, type, armor_class, hp_avg,
+            challenge_rating, cr_decimal, xp,
+            is_published, is_generated, created_by, created_at
+          FROM bestiary_monsters
+          WHERE is_generated = 1 AND is_deleted = 0
+          ORDER BY created_at DESC
+        `,
+        args: [],
+      });
+      res.json(result.rows);
+    } catch (error) {
+      console.error("[Admin] Error fetching generated monsters:", error);
+      res.status(500).json({ error: "Failed to fetch generated monsters" });
+    }
+  });
+
+  // Admin: Get single monster detail (for review before purge)
+  app.get("/api/monsters/:id", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const client = (db as any).$client;
+      const { getMonsterByName } = await import("./db/bestiary");
+      
+      // Get monster by ID first
+      const result = await client.execute({
+        sql: `SELECT name FROM bestiary_monsters WHERE id = ? AND is_deleted = 0`,
+        args: [id],
+      });
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Monster not found" });
+      }
+      
+      const monsterName = (result.rows[0] as any).name;
+      const monster = await getMonsterByName(client, monsterName);
+      
+      if (!monster) {
+        return res.status(404).json({ error: "Monster not found" });
+      }
+      
+      res.json(monster);
+    } catch (error) {
+      console.error("[Admin] Error fetching monster detail:", error);
+      res.status(500).json({ error: "Failed to fetch monster" });
+    }
+  });
+
+  // Admin: Soft-delete a monster
+  app.delete("/api/monsters/:id", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { permanent } = req.query;
+      const client = (db as any).$client;
+      
+      if (permanent === "1" || permanent === "true") {
+        // Hard delete (CASCADE will remove traits, actions, legendary actions)
+        await client.execute({
+          sql: `DELETE FROM bestiary_monsters WHERE id = ?`,
+          args: [id],
+        });
+        console.log(`[Admin] Permanently deleted monster: ${id}`);
+        res.json({ message: "Monster permanently deleted", id });
+      } else {
+        // Soft delete
+        await client.execute({
+          sql: `UPDATE bestiary_monsters SET is_deleted = 1 WHERE id = ?`,
+          args: [id],
+        });
+        console.log(`[Admin] Soft-deleted monster: ${id}`);
+        res.json({ message: "Monster soft-deleted", id });
+      }
+    } catch (error) {
+      console.error("[Admin] Error deleting monster:", error);
+      res.status(500).json({ error: "Failed to delete monster" });
+    }
+  });
+
+  // Admin: Publish a generated monster (make it official)
+  app.patch("/api/monsters/:id/publish", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const client = (db as any).$client;
+      
+      await client.execute({
+        sql: `UPDATE bestiary_monsters SET is_published = 1 WHERE id = ?`,
+        args: [id],
+      });
+      
+      console.log(`[Admin] Published monster: ${id}`);
+      res.json({ message: "Monster published", id });
+    } catch (error) {
+      console.error("[Admin] Error publishing monster:", error);
+      res.status(500).json({ error: "Failed to publish monster" });
+    }
+  });
+
   // Cache statistics API (for debugging and monitoring) - admin only
   app.get("/api/cache/stats", isAuthenticated, requireAdmin, async (req, res) => {
     try {

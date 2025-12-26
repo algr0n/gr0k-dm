@@ -60,18 +60,36 @@ export async function generateCombatDMTurn(
         console.log(`[Combat Cache HIT] ${monsterName} in room ${room.id}`);
         await builder.addMonsterContext(monsterName, client, cachedMonster);
       } else {
-        // Cache miss - fetch from DB
+        // Cache miss - fetch from DB (includes AI-generated monsters)
         console.log(`[Combat Cache MISS] ${monsterName} in room ${room.id}`);
         try {
           const { getMonsterByName } = await import("../db/bestiary");
-          const fetchedMonster = await getMonsterByName(client, monsterName);
+          let fetchedMonster = await getMonsterByName(client, monsterName);
+          
+          // If monster not found in DB, generate it with Grok and save
+          if (!fetchedMonster) {
+            console.log(`[Monster Not Found] Attempting to generate: ${monsterName}`);
+            const { generateAndSaveMonster } = await import("../grok");
+            fetchedMonster = await generateAndSaveMonster(monsterName, client, {
+              role: "combatant",
+              description: `A ${monsterName} encountered in combat`,
+              environment: room.currentScene || "dungeon",
+            });
+            
+            if (fetchedMonster) {
+              console.log(`[Monster Generated] Successfully created: ${monsterName}`);
+            } else {
+              console.warn(`[Monster Generation Failed] Could not generate: ${monsterName}`);
+            }
+          }
+          
           if (fetchedMonster) {
             // Store in cache for next time
             cache.set(monsterName, fetchedMonster);
             await builder.addMonsterContext(monsterName, client, fetchedMonster);
           }
         } catch (error) {
-          console.warn(`Failed to fetch monster ${monsterName}:`, error);
+          console.warn(`Failed to fetch/generate monster ${monsterName}:`, error);
         }
       }
     }
@@ -82,7 +100,6 @@ export async function generateCombatDMTurn(
   }
 
   const messages = builder.build();
-
   try {
     const response = await openaiClient.chat.completions.create({
       model: "grok-4-1-fast-reasoning",

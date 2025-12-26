@@ -60,6 +60,130 @@ export type {
 import type { NpcStatBlock } from "./npc-stats";
 // Import the JSON extraction utility
 import { extractJsonFromResponse } from "./npc-stats";
+import type { Client } from "@libsql/client";
+
+/**
+ * Generate and save a monster to the bestiary using Grok AI
+ * Returns the created monster detail for immediate use
+ */
+export async function generateAndSaveMonster(
+  name: string,
+  client: Client,
+  context?: {
+    role?: string;
+    description?: string;
+    personality?: string;
+    environment?: string;
+  }
+): Promise<any | null> {
+  // Return null if no API key available
+  if (!openai) {
+    console.warn(`[Monster Generation] No XAI_API_KEY, cannot generate ${name}`);
+    return null;
+  }
+
+  const prompt = `Generate a D&D 5th Edition monster stat block for: ${name}
+
+Context:
+- Role: ${context?.role ?? "Unknown"}
+- Description: ${context?.description ?? "A mysterious creature"}
+- Personality: ${context?.personality ?? "Neutral"}
+- Environment: ${context?.environment ?? "Various"}
+
+Return ONLY a valid JSON object (no markdown, no extra text) with this exact structure:
+{
+  "name": "${name}",
+  "size": "<Tiny|Small|Medium|Large|Huge|Gargantuan>",
+  "type": "<aberration|beast|celestial|construct|dragon|elemental|fey|fiend|giant|humanoid|monstrosity|ooze|plant|undead>",
+  "subtype": "<optional subtype>",
+  "alignment": "<alignment>",
+  "armor_class": <number 10-20>,
+  "armor_type": "<optional, e.g., 'natural armor'>",
+  "hit_points": "<dice expression like '2d8 + 2'>",
+  "speed": "<speed string like '30 ft., fly 60 ft.'>",
+  "ability_scores": {
+    "str": <3-20>,
+    "dex": <3-20>,
+    "con": <3-20>,
+    "int": <3-20>,
+    "wis": <3-20>,
+    "cha": <3-20>
+  },
+  "saving_throws": { "<ability>": <bonus> },
+  "skills": { "<skill>": <bonus> },
+  "damage_resistances": "<optional>",
+  "damage_immunities": "<optional>",
+  "condition_immunities": "<optional>",
+  "senses": "<senses string>",
+  "languages": "<languages string>",
+  "challenge_rating": "<CR like '1/2', '3', '10'>",
+  "cr_decimal": <number 0-30>,
+  "traits": [
+    { "name": "<trait name>", "description": "<description>" }
+  ],
+  "actions": [
+    {
+      "name": "<action name>",
+      "description": "<description>",
+      "attack_bonus": <optional number>,
+      "damage": "<optional dice expression>"
+    }
+  ],
+  "legendary_actions": ["<optional legendary action text>"]
+}
+
+Make the stat block appropriate for the creature's role and description. Ensure all numbers are realistic for D&D 5e. Use the Monster Manual as a reference.`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "grok-beta",
+      messages: [
+        {
+          role: "system",
+          content: "You are a D&D 5e monster designer. Return only valid JSON with no markdown formatting, no code blocks, and no extra text. Follow the Monster Manual stat block structure.",
+        },
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      temperature: 0.4, // Balanced between consistency and creativity
+      max_tokens: 2000,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      console.warn(`[Monster Generation] Grok returned no content for ${name}`);
+      return null;
+    }
+
+    // Extract JSON from response (handles markdown wrapping)
+    const jsonStr = extractJsonFromResponse(content);
+    
+    // Parse JSON
+    const monsterPayload = JSON.parse(jsonStr);
+    
+    // Import and use createMonster
+    const { createMonster, getMonsterByName } = await import("./db/bestiary");
+    
+    // Save to database
+    const monsterId = await createMonster(client, monsterPayload, {
+      isGenerated: true,
+      isPublished: false,
+      createdBy: "grok",
+      createdByType: "grok",
+    });
+
+    // Fetch the complete monster detail (with traits, actions, etc.)
+    const savedMonster = await getMonsterByName(client, name);
+    
+    console.log(`[Monster Generation] Successfully created and saved: ${name} (id: ${monsterId})`);
+    return savedMonster;
+  } catch (error) {
+    console.error(`[Monster Generation] Error generating ${name}:`, error);
+    return null;
+  }
+}
 
 /**
  * Generate an NPC stat block using Grok AI
