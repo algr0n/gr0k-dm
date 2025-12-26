@@ -3344,10 +3344,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(400).json({ error: "Character is already in another room" });
       }
 
+      // Check if user already has a player in this room
+      const existingPlayers = await storage.getPlayersByRoom(room.id);
+      const existingPlayer = existingPlayers.find((p: any) => p.userId === userId);
+      
+      let player;
+      if (existingPlayer) {
+        player = existingPlayer;
+      } else {
+        // Create player if they don't exist yet
+        if (existingPlayers.length >= room.maxPlayers) {
+          return res.status(400).json({ error: "Room is full" });
+        }
+        
+        player = await storage.createPlayer({
+          roomId: room.id,
+          userId: userId,
+          name: playerName,
+          isHost: false,
+        });
+
+        broadcastToRoom(code, {
+          type: "system",
+          content: `${playerName} has joined the adventure!`,
+        });
+      }
+
       // Join the character to the room
       const roomCharacter = await storage.joinRoom(savedCharacterId, code);
 
-      res.json({ roomCharacter, savedCharacter: roomCharacter });
+      await storage.updateRoomActivity(room.id);
+
+      res.json({ player, roomCharacter, savedCharacter: roomCharacter });
     } catch (error) {
       console.error("Error joining room with character:", error);
       res.status(500).json({ error: "Failed to join room with character" });
