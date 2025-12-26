@@ -187,7 +187,54 @@ async function detectAndCreateMonstersForCombat(
           console.log(`[Monster Detection] Created ${instanceName} (${i + 1}/${count})`);
         }
       } else {
-        console.log(`[Monster Detection] ${monsterName} not found in bestiary`);
+        // Try fuzzy matching - remove adjectives and try again
+        console.log(`[Monster Detection] ${monsterName} not found in bestiary, trying fuzzy match...`);
+        
+        // Try removing first word (often an adjective like "Shadow", "Corrupted", "Ancient")
+        const words = monsterName.split(' ');
+        if (words.length > 1) {
+          const baseMonsterName = words.slice(1).join(' ');
+          console.log(`[Monster Detection] Trying base name: ${baseMonsterName}`);
+          
+          const baseMonsterData = await getMonsterByName(libsqlClient, baseMonsterName);
+          if (baseMonsterData) {
+            console.log(`[Monster Detection] ✓ Found similar monster: ${baseMonsterName} (using as base for ${monsterName})`);
+            
+            // Create using base monster stats but keep the custom name
+            for (let i = 0; i < count; i++) {
+              const instanceName = count > 1 ? `${monsterName} ${i + 1}` : monsterName;
+              const npcRecord = await storage.createDynamicNpc({
+                roomId,
+                name: instanceName,
+                role: 'Monster',
+                description: `${baseMonsterData.size} ${baseMonsterData.type} (variant)`,
+                personality: undefined,
+                statsBlock: {
+                  hp: baseMonsterData.hp_avg,
+                  maxHp: baseMonsterData.hp_avg,
+                  ac: baseMonsterData.armor_class,
+                  str: baseMonsterData.str,
+                  dex: baseMonsterData.dex,
+                  con: baseMonsterData.con,
+                  int: baseMonsterData.int,
+                  wis: baseMonsterData.wis,
+                  cha: baseMonsterData.cha,
+                  cr: baseMonsterData.challenge_rating,
+                  xp: baseMonsterData.xp,
+                  actions: baseMonsterData.actions,
+                  traits: baseMonsterData.traits,
+                },
+                isQuestGiver: false,
+              });
+              createdMonsters.push(npcRecord);
+              console.log(`[Monster Detection] Created ${instanceName} using ${baseMonsterName} stats (${i + 1}/${count})`);
+            }
+          } else {
+            console.log(`[Monster Detection] ⚠️ No match found for ${monsterName} or ${baseMonsterName} - combat may start without enemies`);
+          }
+        } else {
+          console.log(`[Monster Detection] ⚠️ No match found for ${monsterName} - combat may start without enemies`);
+        }
       }
     } catch (error) {
       console.error(`[Monster Detection] Error creating ${monsterName}:`, error);
