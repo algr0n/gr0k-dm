@@ -64,7 +64,7 @@ import {
   questObjectiveProgress,
 } from "@shared/adventure-schema";
 import { eq, sql, desc, inArray } from "drizzle-orm";
-import { setupAuth, isAuthenticated, getSession } from "./auth";
+import { setupAuth, isAuthenticated, getSession, requireAdmin } from "./auth";
 import passport from "passport";
 import { createItemFromReward } from "./utils/item-creation";
 
@@ -2534,6 +2534,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Auth setup - uses Replit Auth
   await setupAuth(app);
 
+  // Ensure any usernames listed in ADMIN_USERNAMES env are marked admin in the DB
+  (async () => {
+    try {
+      const adminUsernames = (process.env.ADMIN_USERNAMES || "").split(",").map(s => s.trim()).filter(Boolean);
+      if (adminUsernames.length === 0) return;
+      for (const username of adminUsernames) {
+        const user = await storage.getUserByUsername(username);
+        if (user) {
+          await db.update(users).set({ admin: 1 }).where(eq(users.id, user.id));
+          console.log(`[Admin Setup] Marked ${username} as admin`);
+        } else {
+          console.warn(`[Admin Setup] Admin username not found in DB: ${username}`);
+        }
+      }
+    } catch (err) {
+      console.error('[Admin Setup] Failed to set admin users:', err);
+    }
+  })();
+
   // Health check endpoints - return JSON to prevent HTML responses
   app.get("/health", (req, res) => {
     res.json({ ok: true, uptime: process.uptime() });
@@ -2558,6 +2577,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         return res.status(404).json({ message: "User not found" });
       }
       const { password: _, ...userWithoutPassword } = user;
+      // Include admin flag if present
+      const adminUsernames = (process.env.ADMIN_USERNAMES || "").split(",").map(s => s.trim()).filter(Boolean);
+      const includeAdmin = !!(userWithoutPassword as any).admin || adminUsernames.includes(userWithoutPassword.username || "");
+      (userWithoutPassword as any).admin = includeAdmin;
       res.json(userWithoutPassword);
     } catch (error) {
       console.error("Error fetching user:", error);
@@ -3412,7 +3435,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       await storage.updateRoomActivity(room.id);
 
       // Check if this is the first character joining (triggers opening narration)
-      const allCharacters = await storage.getCharactersByRoom(room.id);
+      const allCharacters = await storage.getCharactersByRoomCode(room.code);
       const isFirstCharacter = allCharacters.length === 1;
       
       if (isFirstCharacter) {
@@ -5628,8 +5651,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // Cache statistics API (for debugging and monitoring)
-  app.get("/api/cache/stats", async (req, res) => {
+  // Cache statistics API (for debugging and monitoring) - admin only
+  app.get("/api/cache/stats", isAuthenticated, requireAdmin, async (req, res) => {
     try {
       const { getCacheStats } = await import("./smart-cache");
       const stats = getCacheStats();
@@ -5637,6 +5660,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("[Cache Stats] Error:", error);
       res.status(500).json({ error: "Failed to fetch cache statistics" });
+    }
+  });
+
+  // Admin: promote/demote users to admin
+  app.post("/api/admin/users/:id/promote", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const userId = req.params.id;
+      await db.update(users).set({ admin: 1 }).where(eq(users.id, userId));
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('[Admin] Promote failed:', err);
+      res.status(500).json({ error: 'Failed to promote user' });
+    }
+  });
+
+  app.post("/api/admin/users/:id/demote", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const userId = req.params.id;
+      await db.update(users).set({ admin: 0 }).where(eq(users.id, userId));
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('[Admin] Demote failed:', err);
+      res.status(500).json({ error: 'Failed to demote user' });
     }
   });
 
