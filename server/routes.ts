@@ -188,16 +188,14 @@ async function detectAndCreateMonstersForCombat(
         }
       } else {
         // Try fuzzy matching - remove adjectives and try again
-        console.log(`[Monster Detection] ${monsterName} not found in bestiary, trying fuzzy match...`);
-        
-        // Try removing first word (often an adjective like "Shadow", "Corrupted", "Ancient")
         const words = monsterName.split(' ');
         if (words.length > 1) {
           const baseMonsterName = words.slice(1).join(' ');
-          console.log(`[Monster Detection] Trying base name: ${baseMonsterName}`);
+          console.log(`[Monster Detection] ${monsterName} not found, trying fuzzy match: ${baseMonsterName}...`);
           
-          const baseMonsterData = await getMonsterByName(libsqlClient, baseMonsterName);
-          if (baseMonsterData) {
+          try {
+            const baseMonsterData = await getMonsterByName(libsqlClient, baseMonsterName);
+            if (baseMonsterData) {
             console.log(`[Monster Detection] ✓ Found similar monster: ${baseMonsterName} (using as base for ${monsterName})`);
             
             // Create using base monster stats but keep the custom name
@@ -230,10 +228,13 @@ async function detectAndCreateMonstersForCombat(
               console.log(`[Monster Detection] Created ${instanceName} using ${baseMonsterName} stats (${i + 1}/${count})`);
             }
           } else {
-            console.log(`[Monster Detection] ⚠️ No match found for ${monsterName} or ${baseMonsterName} - combat may start without enemies`);
+            console.log(`[Monster Detection] ⚠️ No fuzzy match found for ${monsterName} - skipping`);
+          }
+          } catch (fuzzyErr) {
+            console.error(`[Monster Detection] Fuzzy match error for ${monsterName}:`, fuzzyErr);
           }
         } else {
-          console.log(`[Monster Detection] ⚠️ No match found for ${monsterName} - combat may start without enemies`);
+          console.log(`[Monster Detection] ⚠️ Single-word monster ${monsterName} not found in bestiary - skipping`);
         }
       }
     } catch (error) {
