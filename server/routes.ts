@@ -4142,10 +4142,36 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       err.code = 403; throw err;
     }
 
-    if (type === 'attack') {
-      const { targetId, attackBonus = 0, damageExpression = null } = action;
+    if (type === 'attack' || type === 'spell') {
+      const isSpell = type === 'spell';
+      const { targetId, attackBonus = 0, damageExpression = null, spellName, slotUsed } = action;
       const target = state.initiatives.find((i: any) => i.id === targetId);
       if (!target) { const err:any = new Error('Target not found'); err.code = 404; throw err }
+
+      // For spells with slot usage, consume the slot from the character's DB record
+      if (isSpell && slotUsed && slotUsed > 0) {
+        try {
+          // Find the character and update their spell slots
+          const character = await storage.getUnifiedCharacterById(actorId);
+          if (character && character.spellSlots) {
+            const slots = character.spellSlots as { current: number[]; max: number[] };
+            if (slots.current[slotUsed] > 0) {
+              slots.current[slotUsed]--;
+              await storage.updateUnifiedCharacter(actorId, { spellSlots: slots });
+              // Broadcast slot usage
+              broadcastToRoom(code, { 
+                type: 'spell_slot_used', 
+                characterId: actorId, 
+                slotLevel: slotUsed, 
+                remaining: slots.current[slotUsed],
+                spellName 
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('[Combat] Failed to update spell slots:', err);
+        }
+      }
 
       const result = resolveAttack(null, attackBonus, target.ac ?? 10, damageExpression);
 
@@ -4157,7 +4183,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       updateThreat(state, actorId, Math.max(1, result.damageTotal || (result.hit ? 5 : 1)));
 
       // Record action
-      state.actionHistory.push({ actorId, type: 'attack', targetId, result, timestamp: Date.now() });
+      state.actionHistory.push({ actorId, type: isSpell ? 'spell' : 'attack', targetId, result, spellName, timestamp: Date.now() });
 
       // Broadcast structured result
       broadcastToRoom(code, {
@@ -4171,6 +4197,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         damageRolls: result.damageRolls,
         damageTotal: result.damageTotal,
         targetHp: target.currentHp,
+        spellName: isSpell ? spellName : undefined,
       });
 
       // Generate AI narration for special moments (crits, kills)
@@ -4180,16 +4207,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         if (room) {
           // Generate narration asynchronously - don't block combat
           narrateCombatMoment(openai, {
-            actorName: currentActor.name,
-            targetName: target.name,
-            actionType: "attack",
-            isCritical: result.isCritical,
-            damageTotal: result.damageTotal,
-            targetHp: target.currentHp,
-            targetMaxHp: target.maxHp,
-            isKillingBlow,
-            gameSystem: room.gameSystem,
-          }).then((narration) => {
+                actorName: currentActor.name,
+                targetName: target.name,
+                actionType: isSpell ? "spell" : "attack",
+                isCritical: result.isCritical,
+                damageTotal: result.damageTotal,
+                targetHp: target.currentHp,
+                targetMaxHp: target.maxHp,
+                isKillingBlow,
+                gameSystem: room.gameSystem,
+              }).then((narration) => {
             if (narration) {
               // Send as special combat narration message
               broadcastToRoom(code, {
@@ -4270,6 +4297,149 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       roomCombatState.set(code, { isActive: state.isActive, currentTurnIndex: currentIdx, initiatives: legacyInitiatives2 });
 
       return { success: true, moveResult };
+    }
+
+    // D&D 5e bonus actions (don't end turn)
+    if (type === 'bonus_action') {
+      const { bonusActionType, bonusActionName, targetId } = action;
+      
+      // Record bonus action
+      state.actionHistory.push({ actorId, type: 'bonus_action', bonusActionType, targetId, timestamp: Date.now() });
+      
+      // Handle specific bonus action effects
+      let effect: string | null = null;
+      switch (bonusActionType) {
+        case 'second_wind':
+          // Fighter's Second Wind: heal 1d10 + level
+          const healAmount = Math.floor(Math.random() * 10) + 1 + (currentActor.metadata?.level || 1);
+          currentActor.currentHp = Math.min(
+            (currentActor.currentHp ?? 0) + healAmount,
+            currentActor.maxHp ?? 100
+          );
+          effect = `healed for ${healAmount} HP`;
+          break;
+        case 'rage':
+          // Track rage status on actor
+          currentActor.metadata = currentActor.metadata || {};
+          currentActor.metadata.raging = true;
+          effect = 'entered a rage';
+          break;
+        case 'dodge':
+          currentActor.metadata = currentActor.metadata || {};
+          currentActor.metadata.dodging = true;
+          effect = 'took the Dodge action';
+          break;
+        case 'disengage':
+          currentActor.metadata = currentActor.metadata || {};
+          currentActor.metadata.disengaged = true;
+          effect = 'disengaged';
+          break;
+        case 'dash':
+          effect = 'dashed (doubled movement)';
+          break;
+        case 'hide':
+          effect = 'attempted to hide';
+          break;
+        case 'flurry':
+          effect = 'used Flurry of Blows';
+          break;
+        case 'step':
+          currentActor.metadata = currentActor.metadata || {};
+          currentActor.metadata.disengaged = true;
+          effect = 'used Step of the Wind';
+          break;
+        default:
+          effect = `used ${bonusActionName}`;
+      }
+
+      // Broadcast bonus action event (doesn't advance turn)
+      broadcastToRoom(code, { 
+        type: 'combat_event', 
+        event: 'bonus_action', 
+        actorId, 
+        actorName: currentActor.name,
+        bonusActionType,
+        bonusActionName,
+        effect 
+      });
+
+      roomFullCombatState.set(code, state);
+      return { success: true, effect };
+    }
+
+    // D&D 5e standard actions that don't require targets (don't end turn by default)
+    if (type === 'dodge' || type === 'disengage' || type === 'dash') {
+      currentActor.metadata = currentActor.metadata || {};
+      
+      if (type === 'dodge') {
+        currentActor.metadata.dodging = true;
+      } else if (type === 'disengage') {
+        currentActor.metadata.disengaged = true;
+      }
+      // Dash is handled client-side (movement increase)
+
+      state.actionHistory.push({ actorId, type, timestamp: Date.now() });
+      
+      broadcastToRoom(code, { 
+        type: 'combat_event', 
+        event: type, 
+        actorId,
+        actorName: currentActor.name
+      });
+
+      roomFullCombatState.set(code, state);
+      return { success: true };
+    }
+
+    // Opportunity attack (reaction - can happen out of turn)
+    if (type === 'opportunity_attack') {
+      const { targetId, attackBonus = 0, damageExpression = '1d6' } = action;
+      const target = state.initiatives.find((i: any) => i.id === targetId);
+      if (!target) { const err:any = new Error('Target not found'); err.code = 404; throw err }
+
+      // Check if actor has reaction available
+      const actor = state.initiatives.find((i: any) => i.id === actorId);
+      if (!actor) { const err:any = new Error('Actor not found'); err.code = 404; throw err }
+      
+      if (actor.metadata?.reactionUsed) {
+        const err: any = new Error('Reaction already used this round');
+        err.code = 400; throw err;
+      }
+
+      const result = resolveAttack(null, attackBonus, target.ac ?? 10, damageExpression);
+
+      if (result.hit && result.damageTotal) {
+        target.currentHp = (target.currentHp ?? target.maxHp ?? 0) - result.damageTotal;
+      }
+
+      // Mark reaction as used
+      actor.metadata = actor.metadata || {};
+      actor.metadata.reactionUsed = true;
+
+      state.actionHistory.push({ actorId, type: 'opportunity_attack', targetId, result, timestamp: Date.now() });
+
+      broadcastToRoom(code, {
+        type: 'combat_result',
+        actorId,
+        targetId,
+        attackRoll: result.d20,
+        attackTotal: result.attackTotal,
+        hit: result.hit,
+        isCritical: result.isCritical,
+        damageRolls: result.damageRolls,
+        damageTotal: result.damageTotal,
+        targetHp: target.currentHp,
+        isOpportunityAttack: true,
+      });
+
+      // Check for killing blow
+      const isKillingBlow = (target.currentHp ?? 0) <= 0;
+      if (isKillingBlow) {
+        broadcastToRoom(code, { type: 'combat_event', event: 'defeated', targetId, name: target.name });
+      }
+
+      roomFullCombatState.set(code, state);
+      return { success: true, result };
     }
 
     throw new Error('Unsupported action type');
@@ -5785,6 +5955,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("[Cache Stats] Error:", error);
       res.status(500).json({ error: "Failed to fetch cache statistics" });
+    }
+  });
+
+  // Admin diagnostic endpoint to help debug admin-only routes and availability
+  app.get("/api/admin/debug", isAuthenticated, requireAdmin, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const user = await storage.getUser(userId);
+
+      // Check whether smart-cache module is available
+      let cacheAvailable = false;
+      try {
+        // dynamic import to avoid hard dependency
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mod = await import("./smart-cache");
+        cacheAvailable = !!mod && typeof mod.getCacheStats === "function";
+      } catch (err) {
+        cacheAvailable = false;
+      }
+
+      res.json({ ok: true, user: { id: user?.id, username: user?.username, admin: (user as any)?.admin }, cacheAvailable });
+    } catch (err) {
+      console.error('[Admin Debug] Error:', err);
+      res.status(500).json({ error: 'Failed to run admin debug' });
     }
   });
 

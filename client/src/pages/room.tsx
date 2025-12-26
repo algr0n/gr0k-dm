@@ -28,6 +28,7 @@ import { QuestTracker } from "@/components/quest-tracker";
 import { QuestAcceptanceModal } from "@/components/quest-acceptance-modal";
 import { CombatActionsPanel } from "@/components/combat/CombatActionsPanel";
 import { CombatResultDisplay } from "@/components/combat/CombatResultDisplay";
+import { DnD5eCombatPanel } from "@/components/combat/DnD5eCombatPanel";
 import { Heart } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -903,6 +904,14 @@ export default function RoomPage() {
         } else if (data.type === "combat_event") {
           console.log("[WebSocket] Received combat_event:", data);
           setCombatResults((prev) => [...prev, data]);
+          // Handle bonus action events with toast
+          if (data.event === "bonus_action") {
+            toast({
+              title: `${data.actorName}`,
+              description: data.effect,
+              duration: 3000,
+            });
+          }
         } else if (data.type === "combat_narration") {
           console.log("[WebSocket] Received combat_narration:", data);
           // Display AI narration as a special toast with dramatic styling
@@ -912,6 +921,15 @@ export default function RoomPage() {
             description: data.content,
             duration: 6000,
             className: "bg-gradient-to-r from-purple-900 to-indigo-900 border-2 border-purple-500",
+          });
+        } else if (data.type === "spell_slot_used") {
+          console.log("[WebSocket] Received spell_slot_used:", data);
+          // Refresh character data to update spell slots in UI
+          queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "my-character"] });
+          toast({
+            title: `🔮 ${data.spellName}`,
+            description: `Level ${data.slotLevel} spell slot used (${data.remaining} remaining)`,
+            duration: 3000,
           });
         } else if (data.type === "character_update") {
           // Check if this update is for the current user's character using ref for latest value
@@ -1500,42 +1518,72 @@ export default function RoomPage() {
               </div>
             )}
 
-            {/* Combat Actions Panel - Show when it's player's turn */}
+            {/* Combat Actions Panel - Use D&D 5e panel for dnd games */}
             {combatState?.isActive && myCharacterData && (
               <div className="px-4 pt-3">
-                <CombatActionsPanel
-                  roomCode={code!}
-                  myActorId={myCharacterData.savedCharacter.id}
-                  isMyTurn={
-                    combatState.initiatives[combatState.currentTurnIndex]?.characterName ===
-                    myCharacterData.roomCharacter.characterName
-                  }
-                  participants={combatState.initiatives.map((i) => ({
-                    id: i.playerId,
-                    name: i.characterName,
-                    currentHp: i.currentHp,
-                    maxHp: i.maxHp,
-                    ac: i.ac,
-                    controller: i.playerName === "DM" ? "monster" : "player",
-                  }))}
-                  characterData={{
-                    attackBonus: (() => {
-                      const stats = myCharacterData.savedCharacter.stats as Record<string, number> | undefined;
-                      const strMod = stats?.str ? Math.floor((stats.str - 10) / 2) : 0;
-                      const profBonus = Math.floor((myCharacterData.savedCharacter.level || 1 - 1) / 4) + 2;
-                      return strMod + profBonus;
-                    })(),
-                    primaryDamage: (() => {
-                      const charClass = myCharacterData.savedCharacter.class?.toLowerCase();
-                      if (charClass === "wizard" || charClass === "sorcerer") return "1d4";
-                      if (charClass === "rogue") return "1d6";
-                      if (charClass === "fighter" || charClass === "paladin") return "1d8";
-                      if (charClass === "barbarian") return "1d12";
-                      return "1d6";
-                    })(),
-                    class: myCharacterData.savedCharacter.class ?? undefined,
-                  }}
-                />
+                {roomData?.gameSystem === "dnd" ? (
+                  <DnD5eCombatPanel
+                    roomCode={code!}
+                    myActorId={myCharacterData.savedCharacter.id}
+                    isMyTurn={
+                      combatState.initiatives[combatState.currentTurnIndex]?.characterName ===
+                      myCharacterData.roomCharacter.characterName
+                    }
+                    compact={true}
+                    participants={combatState.initiatives.map((i) => ({
+                      id: i.playerId,
+                      name: i.characterName,
+                      currentHp: i.currentHp,
+                      maxHp: i.maxHp,
+                      ac: i.ac,
+                      controller: i.playerName === "DM" ? "monster" : "player",
+                    }))}
+                    characterData={{
+                      class: myCharacterData.savedCharacter.class ?? undefined,
+                      level: myCharacterData.savedCharacter.level ?? 1,
+                      stats: myCharacterData.savedCharacter.stats as Record<string, number> | undefined,
+                      spells: myCharacterData.savedCharacter.spells as string[] | undefined,
+                      spellSlots: myCharacterData.savedCharacter.spellSlots as { current: number[]; max: number[] } | undefined,
+                      speed: myCharacterData.savedCharacter.speed ?? 30,
+                    }}
+                    allSpells={allSpells}
+                  />
+                ) : (
+                  <CombatActionsPanel
+                    roomCode={code!}
+                    myActorId={myCharacterData.savedCharacter.id}
+                    isMyTurn={
+                      combatState.initiatives[combatState.currentTurnIndex]?.characterName ===
+                      myCharacterData.roomCharacter.characterName
+                    }
+                    compact={true}
+                    participants={combatState.initiatives.map((i) => ({
+                      id: i.playerId,
+                      name: i.characterName,
+                      currentHp: i.currentHp,
+                      maxHp: i.maxHp,
+                      ac: i.ac,
+                      controller: i.playerName === "DM" ? "monster" : "player",
+                    }))}
+                    characterData={{
+                      attackBonus: (() => {
+                        const stats = myCharacterData.savedCharacter.stats as Record<string, number> | undefined;
+                        const strMod = stats?.str ? Math.floor((stats.str - 10) / 2) : 0;
+                        const profBonus = Math.floor((myCharacterData.savedCharacter.level || 1 - 1) / 4) + 2;
+                        return strMod + profBonus;
+                      })(),
+                      primaryDamage: (() => {
+                        const charClass = myCharacterData.savedCharacter.class?.toLowerCase();
+                        if (charClass === "wizard" || charClass === "sorcerer") return "1d4";
+                        if (charClass === "rogue") return "1d6";
+                        if (charClass === "fighter" || charClass === "paladin") return "1d8";
+                        if (charClass === "barbarian") return "1d12";
+                        return "1d6";
+                      })(),
+                      class: myCharacterData.savedCharacter.class ?? undefined,
+                    }}
+                  />
+                )}
               </div>
             )}
 

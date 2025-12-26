@@ -32,6 +32,7 @@ interface CombatActionsPanelProps {
     primaryDamage?: string;
     class?: string;
   };
+  compact?: boolean;
 }
 
 export function CombatActionsPanel({
@@ -40,6 +41,7 @@ export function CombatActionsPanel({
   isMyTurn,
   participants,
   characterData,
+  compact = false,
 }: CombatActionsPanelProps) {
   const [selectedTargetId, setSelectedTargetId] = useState<string>("");
   const { toast } = useToast();
@@ -69,6 +71,11 @@ export function CombatActionsPanel({
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", roomCode] });
     },
     onError: (error: Error) => {
+      // If server says it's not your turn, refresh combat state so UI syncs
+      if (error.message && error.message.toLowerCase().includes("not actor")) {
+        queryClient.invalidateQueries({ queryKey: ["/api/rooms", roomCode] });
+        queryClient.invalidateQueries({ queryKey: ["/api/rooms", roomCode, "room-characters"] });
+      }
       toast({
         title: "Action Failed",
         description: error.message,
@@ -154,6 +161,26 @@ export function CombatActionsPanel({
     });
   };
 
+  const handleCastSpell = async () => {
+    if (!selectedTargetId) {
+      toast({ title: "No Target", description: "Select a target first", variant: "destructive" });
+      return;
+    }
+    const spellName = window.prompt("Enter spell name (for narration)", "Magic Missile");
+    if (!spellName) return;
+    const dmg = window.prompt("Damage expression (e.g. 2d6+1)", "1d6");
+    const damageExpression = dmg || "1d6";
+
+    combatActionMutation.mutate({
+      actorId: myActorId,
+      type: "spell",
+      targetId: selectedTargetId,
+      attackBonus: 0,
+      damageExpression,
+      spellName,
+    });
+  };
+
   const handlePass = () => {
     passTurnMutation.mutate();
   };
@@ -164,9 +191,9 @@ export function CombatActionsPanel({
 
   if (!isMyTurn) {
     return (
-      <Card className="p-3 bg-muted/50">
-        <div className="text-sm text-muted-foreground text-center">
-          <Clock className="h-4 w-4 inline mr-2" />
+      <Card className={`${compact ? 'p-2' : 'p-3'} bg-muted/50`}>
+        <div className={`${compact ? 'text-xs' : 'text-sm'} text-muted-foreground text-center`}>
+          <Clock className={`${compact ? 'h-3 w-3 inline mr-1' : 'h-4 w-4 inline mr-2'}`} />
           Waiting for your turn...
         </div>
       </Card>
@@ -174,11 +201,11 @@ export function CombatActionsPanel({
   }
 
   return (
-    <Card className="p-4 border-primary/50 bg-primary/5">
-      <div className="space-y-4">
-        <div className="flex items-center gap-2 mb-2">
-          <Zap className="h-5 w-5 text-primary" />
-          <h3 className="font-semibold">Your Turn</h3>
+    <Card className={`${compact ? 'p-2' : 'p-4'} border-primary/50 bg-primary/5`}>
+      <div className={`${compact ? 'space-y-2' : 'space-y-4'}`}>
+        <div className={`flex items-center ${compact ? 'gap-1 mb-1' : 'gap-2 mb-2'}`}>
+          <Zap className={`${compact ? 'h-4 w-4' : 'h-5 w-5'} text-primary`} />
+          <h3 className={`${compact ? 'font-medium text-sm' : 'font-semibold'}`}>Your Turn</h3>
           <Badge variant="default" className="ml-auto">Active</Badge>
         </div>
 
@@ -214,22 +241,37 @@ export function CombatActionsPanel({
         )}
 
         {/* Action Buttons */}
-        <div className="grid grid-cols-2 gap-2">
+        <div className={`grid ${compact ? 'grid-cols-3 gap-1' : 'grid-cols-2 gap-2'}`}>
           <Button
             onClick={handleAttack}
             disabled={!selectedTargetId || combatActionMutation.isPending}
             className="w-full"
             variant="default"
+            size={compact ? 'sm' : undefined}
           >
             <Sword className="h-4 w-4 mr-2" />
             Attack
           </Button>
 
+          {(['wizard','sorcerer','warlock','cleric','druid'] as string[]).includes((characterData?.class||'').toLowerCase()) && (
+            <Button
+              onClick={handleCastSpell}
+              disabled={!selectedTargetId || combatActionMutation.isPending}
+              className="w-full"
+              variant="secondary"
+              size={compact ? 'sm' : undefined}
+            >
+              <Zap className="h-4 w-4 mr-2" />
+              Cast Spell
+            </Button>
+          )}
+
           <Button
             onClick={handlePass}
             disabled={passTurnMutation.isPending}
             variant="outline"
-            className="w-full"
+            className="w-full col-span-1"
+            size={compact ? 'sm' : undefined}
           >
             <SkipForward className="h-4 w-4 mr-2" />
             Pass
@@ -239,7 +281,8 @@ export function CombatActionsPanel({
             onClick={handleHold}
             disabled={holdTurnMutation.isPending}
             variant="outline"
-            className="w-full col-span-2"
+            className="w-full col-span-3"
+            size={compact ? 'sm' : undefined}
           >
             <Shield className="h-4 w-4 mr-2" />
             Hold (End of Round)
