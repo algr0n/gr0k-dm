@@ -1718,11 +1718,15 @@ export const dynamicNpcs = sqliteTable("dynamic_npcs", {
   personality: text("personality"),
   statsBlock: text("stats_block"), // JSON string of monster stats
   isQuestGiver: integer("is_quest_giver", { mode: 'boolean' }).default(false),
+  reputation: integer("reputation").notNull().default(0), // -100 (hostile) to +100 (trusted ally)
+  questsCompleted: integer("quests_completed").notNull().default(0), // Track quest completion count
+  lastInteraction: integer("last_interaction", { mode: 'timestamp' }), // Track when players last interacted
   createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
 }, (table) => [
   index("idx_dynamic_npcs_room").on(table.roomId),
   index("idx_dynamic_npcs_role").on(table.role),
   index("idx_dynamic_npcs_quest_giver").on(table.isQuestGiver),
+  index("idx_dynamic_npcs_reputation").on(table.reputation),
 ]);
 
 export type DynamicNpc = typeof dynamicNpcs.$inferSelect;

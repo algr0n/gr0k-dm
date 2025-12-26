@@ -149,9 +149,12 @@ export interface Storage {
   deleteSessionSummariesByRoom(roomId: string): Promise<boolean>;
 
   // Dynamic NPCs & Locations (AI/DM-created persistent entities for a room)
-  createDynamicNpc(npc: { roomId: string; name: string; role?: string; description?: string; personality?: string; statsBlock?: any; isQuestGiver?: boolean }): Promise<any>;
+  createDynamicNpc(npc: { roomId: string; name: string; role?: string; description?: string; personality?: string; statsBlock?: any; isQuestGiver?: boolean; reputation?: number }): Promise<any>;
   getDynamicNpcsByRoom(roomId: string): Promise<any[]>;
   updateDynamicNpc(id: string, updates: any): Promise<any | undefined>;
+  updateNpcReputation(npcId: string, change: number): Promise<any | undefined>;
+  incrementNpcQuestCompletion(npcId: string): Promise<any | undefined>;
+  getReputationStatus(reputation: number): { status: string; role: string };
   createDynamicLocation(loc: { roomId: string; name: string; type?: string; description?: string; boxedText?: string; features?: string[]; connections?: string[] }): Promise<any>;
   getDynamicLocationsByRoom(roomId: string): Promise<any[]>;
 
@@ -704,14 +707,78 @@ class DatabaseStorage implements Storage {
   // ==============================================================================
   // Dynamic NPCs & Locations
   // ==============================================================================
-  async createDynamicNpc(npc: { roomId: string; name: string; role?: string; description?: string; personality?: string; statsBlock?: any; isQuestGiver?: boolean }): Promise<any> {
+  async createDynamicNpc(npc: { roomId: string; name: string; role?: string; description?: string; personality?: string; statsBlock?: any; isQuestGiver?: boolean; reputation?: number }): Promise<any> {
     const id = randomUUID();
-    const [created] = await db.insert(dynamicNpcs).values({ ...npc, id }).returning();
+    const npcData = {
+      ...npc,
+      id,
+      reputation: npc.reputation ?? 0, // Default to neutral
+      questsCompleted: 0,
+    };
+    const [created] = await db.insert(dynamicNpcs).values(npcData).returning();
     return created;
   }
 
   async getDynamicNpcsByRoom(roomId: string): Promise<any[]> {
     return await db.select().from(dynamicNpcs).where(eq(dynamicNpcs.roomId, roomId)).orderBy(dynamicNpcs.createdAt);
+  }
+
+  async updateDynamicNpc(id: string, updates: any): Promise<any | undefined> {
+    const [updated] = await db.update(dynamicNpcs).set(updates).where(eq(dynamicNpcs.id, id)).returning();
+    return updated;
+  }
+
+  /**
+   * Update NPC reputation (clamped between -100 and +100)
+   * @param npcId The NPC ID
+   * @param change Amount to change reputation by (positive or negative)
+   * @returns Updated NPC record
+   */
+  async updateNpcReputation(npcId: string, change: number): Promise<any | undefined> {
+    const [npc] = await db.select().from(dynamicNpcs).where(eq(dynamicNpcs.id, npcId)).limit(1);
+    if (!npc) return undefined;
+
+    const currentRep = npc.reputation ?? 0;
+    const newRep = Math.max(-100, Math.min(100, currentRep + change));
+    
+    return await this.updateDynamicNpc(npcId, { 
+      reputation: newRep,
+      lastInteraction: Math.floor(Date.now() / 1000),
+    });
+  }
+
+  /**
+   * Increment quest completion count for an NPC and boost reputation
+   * @param npcId The NPC ID
+   * @returns Updated NPC record
+   */
+  async incrementNpcQuestCompletion(npcId: string): Promise<any | undefined> {
+    const [npc] = await db.select().from(dynamicNpcs).where(eq(dynamicNpcs.id, npcId)).limit(1);
+    if (!npc) return undefined;
+
+    const questCount = (npc.questsCompleted ?? 0) + 1;
+    const repBonus = 10 + (questCount * 2); // Increases with each quest
+    
+    return await this.updateDynamicNpc(npcId, {
+      questsCompleted: questCount,
+      reputation: Math.min(100, (npc.reputation ?? 0) + repBonus),
+      lastInteraction: Math.floor(Date.now() / 1000),
+    });
+  }
+
+  /**
+   * Get reputation status text for display
+   * @param reputation Reputation value (-100 to +100)
+   * @returns Status text and role suggestion
+   */
+  getReputationStatus(reputation: number): { status: string; role: string } {
+    if (reputation >= 75) return { status: 'Trusted Ally', role: 'ally' };
+    if (reputation >= 50) return { status: 'Friend', role: 'ally' };
+    if (reputation >= 25) return { status: 'Friendly', role: 'neutral' };
+    if (reputation >= -25) return { status: 'Neutral', role: 'neutral' };
+    if (reputation >= -50) return { status: 'Unfriendly', role: 'enemy' };
+    if (reputation >= -75) return { status: 'Hostile', role: 'enemy' };
+    return { status: 'Enemy', role: 'enemy' };
   }
 
   // =====================
@@ -764,10 +831,6 @@ class DatabaseStorage implements Storage {
 
   async getCombatSpawnsByEncounter(encounterId: string): Promise<any[]> {
     return await db.select().from(combatSpawns).where(eq(combatSpawns.encounterId, encounterId)).orderBy(combatSpawns.createdAt);
-  }
-  async updateDynamicNpc(id: string, updates: any): Promise<any | undefined> {
-    const [updated] = await db.update(dynamicNpcs).set(updates).where(eq(dynamicNpcs.id, id)).returning();
-    return updated;
   }
 
   async createDynamicLocation(loc: { roomId: string; name: string; type?: string; description?: string; boxedText?: string; features?: string[]; connections?: string[] }): Promise<any> {

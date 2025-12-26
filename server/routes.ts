@@ -71,7 +71,7 @@ import passport from "passport";
 import { createItemFromReward } from "./utils/item-creation";
 
 // ============================================================================
-// Monster Detection Helper for Combat
+// Advanced Combat System - Encounter & Spawn Management
 // ============================================================================
 
 /**
@@ -116,9 +116,40 @@ function isCacheableNpcType(name: string): boolean {
   return false;
 }
 
-// Helper to create NPC from stat data and optionally cache it
-async function createNpcFromStats(
-  roomId: string,
+/**
+ * Get or create a combat encounter for the current room
+ * Combat encounters are persistent containers for spawns and environmental features
+ */
+async function getOrCreateCombatEncounter(roomId: string, roomCode: string): Promise<any> {
+  // Check if there's already an active encounter for this room
+  const existingEncounters = await db
+    .select()
+    .from(combatEncounters)
+    .where(eq(combatEncounters.roomId, roomId))
+    .limit(1);
+  
+  if (existingEncounters.length > 0) {
+    return existingEncounters[0];
+  }
+  
+  // Create a new encounter
+  const encounter = await storage.createCombatEncounter({
+    roomId,
+    name: `Combat in ${roomCode}`,
+    generatedBy: 'ai',
+    metadata: { roomCode },
+  });
+  
+  console.log(`[Combat Encounter] Created new encounter ${encounter.id} for room ${roomCode}`);
+  return encounter;
+}
+
+/**
+ * Create a combat spawn (monster/NPC instance) in the encounter
+ * Replaces the old createDynamicNpc - uses advanced combat system
+ */
+async function createCombatSpawn(
+  encounterId: string,
   monsterName: string,
   instanceName: string,
   statsData: {
@@ -139,30 +170,6 @@ async function createNpcFromStats(
   },
   source: string
 ): Promise<any> {
-  const npcRecord = await storage.createDynamicNpc({
-    roomId,
-    name: instanceName,
-    role: 'Monster',
-    description: `${statsData.size || 'Medium'} ${statsData.type || 'creature'}`,
-    personality: undefined,
-    statsBlock: {
-      hp: statsData.hp,
-      maxHp: statsData.hp,
-      ac: statsData.ac,
-      str: statsData.str ?? 10,
-      dex: statsData.dex ?? 10,
-      con: statsData.con ?? 10,
-      int: statsData.int ?? 10,
-      wis: statsData.wis ?? 10,
-      cha: statsData.cha ?? 10,
-      cr: statsData.cr || '0',
-      xp: statsData.xp ?? 10,
-      actions: statsData.actions || [],
-      traits: statsData.traits || [],
-    },
-    isQuestGiver: false,
-  });
-  
   // Cache the NPC stats for future reuse (only for generic types, not named characters)
   // This prevents adventure-specific NPCs from leaking into other adventures
   if (source !== 'cache' && isCacheableNpcType(monsterName)) {
@@ -186,23 +193,51 @@ async function createNpcFromStats(
         traits: statsData.traits || [],
         source,
       });
-      console.log(`[Monster Detection] Cached ${monsterName} stats for future reuse`);
+      console.log(`[Combat Spawn] Cached ${monsterName} stats for future reuse`);
     } catch (cacheErr) {
-      // Ignore cache errors - non-critical
-      console.log(`[Monster Detection] Cache save skipped (may already exist): ${monsterName}`);
+      console.log(`[Combat Spawn] Cache save skipped (may already exist): ${monsterName}`);
     }
-  } else if (source !== 'cache') {
-    console.log(`[Monster Detection] Not caching "${monsterName}" - appears to be a named character, not a generic type`);
   }
   
-  return npcRecord;
+  // Create the spawn record with embedded stats
+  const spawnData = {
+    encounterId,
+    monsterName: instanceName,
+    count: 1,
+    metadata: {
+      baseMonsterName: monsterName,
+      statsBlock: {
+        hp: statsData.hp,
+        maxHp: statsData.hp,
+        ac: statsData.ac,
+        size: statsData.size || 'Medium',
+        type: statsData.type || 'creature',
+        str: statsData.str ?? 10,
+        dex: statsData.dex ?? 10,
+        con: statsData.con ?? 10,
+        int: statsData.int ?? 10,
+        wis: statsData.wis ?? 10,
+        cha: statsData.cha ?? 10,
+        cr: statsData.cr || '0',
+        xp: statsData.xp ?? 10,
+        actions: statsData.actions || [],
+        traits: statsData.traits || [],
+      },
+      source,
+    },
+  };
+  
+  const [spawn] = await storage.addCombatSpawns(encounterId, [spawnData]);
+  console.log(`[Combat Spawn] Created ${instanceName} from ${source}`);
+  return spawn;
 }
 
 async function detectAndCreateMonstersForCombat(
   roomId: string,
+  encounterId: string,
   dmMessage: string
 ): Promise<any[]> {
-  const createdMonsters: any[] = [];
+  const createdSpawns: any[] = [];
   
   console.log(`[Monster Detection] Analyzing message: ${dmMessage.substring(0, 150)}...`);
   
@@ -214,7 +249,8 @@ async function detectAndCreateMonstersForCombat(
   
   // Action verbs that commonly appear after monster counts
   // Only filter these if they're NOT part of a known monster name
-  const actionVerbs = /^(screech|screeching|charge|charging|attack|attacking|rush|rushing|leap|leaping|jump|jumping|burst|bursting|erupt|erupting|emerge|emerging|appear|appearing|lunge|lunging|swing|swinging|strike|striking|hit|hitting|slash|slashing|bite|biting|grab|grabbing|throw|throwing|speak|speaking|say|saying|yell|yelling|shout|shouting|roar|roaring|growl|growling|snarl|snarling|draw|drawing|raise|raising|drawn|raised|demand|demanding)$/i;
+  // Note: "snarling", "growling", "roaring" removed because they're often used as adjectives
+  const actionVerbs = /^(screech|screeching|charge|charging|attack|attacking|rush|rushing|leap|leaping|jump|jumping|burst|bursting|erupt|erupting|emerge|emerging|appear|appearing|lunge|lunging|swing|swinging|strike|striking|hit|hitting|slash|slashing|bite|biting|grab|grabbing|throw|throwing|speak|speaking|say|saying|yell|yelling|shout|shouting|draw|drawing|raise|raising|drawn|raised|demand|demanding)$/i;
   
   const pattern = /(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(massive|giant|huge|large|small|young|ancient|elder|young|adult|dire)\s+)?([a-z]+(?:\s+[a-z]+)?)/gi;
 
@@ -440,19 +476,18 @@ async function detectAndCreateMonstersForCombat(
         source = 'generic';
       }
       
-      // Create instances using the found stats
+      // Create spawn instances using the found stats
       for (let i = 0; i < count; i++) {
         const instanceName = count > 1 ? `${monsterName} ${i + 1}` : monsterName;
-        const npcRecord = await createNpcFromStats(roomId, monsterName, instanceName, statsData, source);
-        createdMonsters.push(npcRecord);
-        console.log(`[Monster Detection] Created ${instanceName} from ${source} (${i + 1}/${count})`);
+        const spawn = await createCombatSpawn(encounterId, monsterName, instanceName, statsData, source);
+        createdSpawns.push(spawn);
       }
     } catch (error) {
       console.error(`[Monster Detection] Error creating ${monsterName}:`, error);
     }
   }
 
-  return createdMonsters;
+  return createdSpawns;
 }
 
 // ============================================================================
@@ -1456,23 +1491,38 @@ async function executeGameActions(
             });
             console.log(`[DM Action] Updated HP for player ${action.playerName}: ${action.currentHp}/${action.maxHp}`);
           } else {
-            // Not a player character - check if it's an NPC/monster
-            const npcs = await storage.getDynamicNpcsByRoom(room.id);
-            const npc = npcs.find((n: any) => 
-              n.name.toLowerCase() === action.playerName!.toLowerCase()
-            );
+            // Not a player character - check if it's a monster in combat
+            let updatedHp = action.currentHp;
+            let maxHp = action.maxHp ?? 10;
+            let foundSpawn = false;
             
-            if (npc) {
-              // Update NPC HP in database
-              const updatedHp = action.currentHp;
-              const maxHp = action.maxHp ?? npc.statsBlock?.maxHp ?? npc.statsBlock?.hp ?? 10;
+            try {
+              const encounter = await getOrCreateCombatEncounter(room.id, roomCode);
+              const spawns = await storage.getCombatSpawnsByEncounter(encounter.id);
+              const spawn = spawns.find((s: any) => 
+                s.monsterName.toLowerCase() === action.playerName!.toLowerCase()
+              );
               
-              if (npc.statsBlock) {
-                npc.statsBlock.hp = updatedHp;
-                npc.statsBlock.maxHp = maxHp;
-                await storage.updateDynamicNpc(npc.id, { statsBlock: npc.statsBlock });
+              if (spawn && spawn.metadata?.statsBlock) {
+                // Update spawn HP in metadata
+                updatedHp = action.currentHp;
+                maxHp = action.maxHp ?? spawn.metadata.statsBlock.maxHp ?? spawn.metadata.statsBlock.hp ?? 10;
+                
+                spawn.metadata.statsBlock.hp = updatedHp;
+                spawn.metadata.statsBlock.maxHp = maxHp;
+                
+                // Update the spawn in database
+                await db.update(combatSpawns)
+                  .set({ metadata: spawn.metadata })
+                  .where(eq(combatSpawns.id, spawn.id));
+                  
+                foundSpawn = true;
               }
-              
+            } catch (err) {
+              console.error('[HP Update] Error updating spawn HP:', err);
+            }
+            
+            if (foundSpawn) {
               // Update NPC HP in combat state
               const combatState = roomCombatState.get(roomCode);
               
@@ -1547,14 +1597,17 @@ async function executeGameActions(
             console.log(`[Combat Start] Reactivated existing combat state with ${combatState.initiatives?.length || 0} initiatives`);
           }
 
-          // If there are no initiatives yet, roll initiatives including dynamic NPCs
+          // If there are no initiatives yet, roll initiatives using combat encounter spawns
           if (!combatState.initiatives || combatState.initiatives.length === 0) {
             try {
-              // Detect and create monsters from the current DM response
+              // Get or create combat encounter for this room
+              const encounter = await getOrCreateCombatEncounter(room.id, roomCode);
+              
+              // Detect and create monster spawns from the current DM response
               if (dmResponse) {
                 console.log(`[Combat Start] Attempting monster detection from current response...`);
                 try {
-                  await detectAndCreateMonstersForCombat(room.id, dmResponse);
+                  await detectAndCreateMonstersForCombat(room.id, encounter.id, dmResponse);
                 } catch (detectErr) {
                   console.error(`[Combat Start] Monster detection failed:`, detectErr);
                 }
@@ -1566,12 +1619,79 @@ async function executeGameActions(
               const chars = await storage.getCharactersByRoomCode(roomCode);
               console.log(`[Combat Start] Found ${players.length} players and ${chars.length} characters`);
 
+              // Load monsters from combat spawns
               let monsters: any[] = [];
               try {
-                monsters = await storage.getDynamicNpcsByRoom(room.id) || [];
-                console.log(`[Combat Start] Found ${monsters.length} monsters/NPCs`);
+                const spawns = await storage.getCombatSpawnsByEncounter(encounter.id);
+                console.log(`[Combat Start] Found ${spawns.length} combat spawns`);
+                
+                // Convert spawns to monster format for initiative rolling
+                monsters = spawns.map((spawn: any) => {
+                  const stats = spawn.metadata?.statsBlock || {};
+                  return {
+                    id: spawn.id,
+                    name: spawn.monsterName,
+                    ...stats,
+                  };
+                });
               } catch (err) {
-                console.warn(`[Combat Start] Failed to load dynamic NPCs for room ${room.id}:`, err);
+                console.warn(`[Combat Start] Failed to load combat spawns for encounter ${encounter.id}:`, err);
+              }
+
+              // Check for existing dynamicNpcs that should participate in combat
+              // (any NPC with stats - including quest givers who can defend themselves)
+              try {
+                const existingNpcs = await storage.getDynamicNpcsByRoom(room.id);
+                const combatNpcs = existingNpcs.filter((npc: any) => {
+                  // Include if has stats AND (is hostile reputation OR explicitly ally/enemy)
+                  const hasStats = !!npc.statsBlock;
+                  const reputation = npc.reputation ?? 0;
+                  const isHostile = reputation < -25; // Hostile threshold
+                  const isCombatRole = npc.role === 'ally' || npc.role === 'enemy' || npc.role === 'Monster';
+                  return hasStats && (isHostile || isCombatRole);
+                });
+                
+                if (combatNpcs.length > 0) {
+                  console.log(`[Combat Start] Found ${combatNpcs.length} existing NPCs that should join combat`);
+                  
+                  // Convert each to a combat spawn
+                  for (const npc of combatNpcs) {
+                    const statsBlock = typeof npc.statsBlock === 'string' 
+                      ? JSON.parse(npc.statsBlock) 
+                      : npc.statsBlock;
+                    
+                    const statsData = {
+                      size: statsBlock.size || 'Medium',
+                      type: statsBlock.type || 'humanoid',
+                      ac: statsBlock.ac || 10,
+                      hp: statsBlock.hp || statsBlock.maxHp || 10,
+                      str: statsBlock.str || 10,
+                      dex: statsBlock.dex || 10,
+                      con: statsBlock.con || 10,
+                      int: statsBlock.int || 10,
+                      wis: statsBlock.wis || 10,
+                      cha: statsBlock.cha || 10,
+                      cr: statsBlock.cr || '0',
+                      xp: statsBlock.xp || 10,
+                      actions: statsBlock.actions || [],
+                      traits: statsBlock.traits || [],
+                    };
+                    
+                    // Check if already exists as spawn to avoid duplicates
+                    const existingSpawn = monsters.find(m => m.name === npc.name);
+                    if (!existingSpawn) {
+                      const spawn = await createCombatSpawn(encounter.id, npc.name, npc.name, statsData, 'existing_npc');
+                      monsters.push({
+                        id: spawn.id,
+                        name: spawn.monsterName,
+                        ...statsData,
+                      });
+                      console.log(`[Combat Start] Added existing NPC "${npc.name}" (${npc.role}) to combat`);
+                    }
+                  }
+                }
+              } catch (err) {
+                console.warn(`[Combat Start] Failed to check existing NPCs:`, err);
               }
 
               if (chars.length === 0 && monsters.length === 0) {
@@ -2103,11 +2223,42 @@ async function executeGameActions(
             broadcastFn(roomCode, { type: 'story_event_created', event });
             console.log(`[DM Action] Created dynamic NPC '${npcRecord.name}' (id=${npcRecord.id}) in room ${roomCode}`);
 
-            // If combat is active, roll initiative for the new NPC and insert into combat
+            // If combat is active, create a combat spawn and roll initiative
             const combat = roomCombatState.get(roomCode);
             if (combat && combat.isActive) {
               try {
-                const initiativeEntries = rollInitiativesForCombat([], [], [npcRecord]);
+                // Get or create encounter
+                const encounter = await getOrCreateCombatEncounter(room.id, roomCode);
+                
+                // Extract stats from the NPC record
+                const statsBlock = npcRecord.statsBlock || {};
+                const statsData = {
+                  size: statsBlock.size || 'Medium',
+                  type: statsBlock.type || 'humanoid',
+                  ac: statsBlock.ac || 10,
+                  hp: statsBlock.hp || statsBlock.maxHp || 10,
+                  str: statsBlock.str || 10,
+                  dex: statsBlock.dex || 10,
+                  con: statsBlock.con || 10,
+                  int: statsBlock.int || 10,
+                  wis: statsBlock.wis || 10,
+                  cha: statsBlock.cha || 10,
+                  cr: statsBlock.cr || '0',
+                  xp: statsBlock.xp || 10,
+                  actions: statsBlock.actions || [],
+                  traits: statsBlock.traits || [],
+                };
+                
+                // Create combat spawn
+                const spawn = await createCombatSpawn(encounter.id, npcRecord.name, npcRecord.name, statsData, 'manual');
+                
+                // Roll initiative using the spawn stats
+                const monsterForInit = {
+                  id: spawn.id,
+                  name: spawn.monsterName,
+                  ...statsData,
+                };
+                const initiativeEntries = rollInitiativesForCombat([], [], [monsterForInit]);
                 const entry = initiativeEntries[0];
 
                 // Add to combat initiatives and sort by total
@@ -2438,6 +2589,25 @@ async function executeGameActions(
                 });
 
                 broadcastFn(roomCode, { type: 'story_event_created', event });
+
+                // Update reputation for quest giver if they exist
+                if (quest.dynamicQuestGiverId) {
+                  try {
+                    const updatedNpc = await storage.incrementNpcQuestCompletion(quest.dynamicQuestGiverId);
+                    if (updatedNpc) {
+                      const repStatus = storage.getReputationStatus(updatedNpc.reputation);
+                      console.log(`[Quest Complete] Updated ${updatedNpc.name} reputation to ${updatedNpc.reputation} (${repStatus.status})`);
+                      
+                      // Notify players about reputation change
+                      broadcastFn(roomCode, {
+                        type: 'system',
+                        content: `Your reputation with ${updatedNpc.name} has improved! They now view you as ${repStatus.status.toLowerCase()}.`,
+                      });
+                    }
+                  } catch (repErr) {
+                    console.error('[Quest Complete] Failed to update NPC reputation:', repErr);
+                  }
+                }
               }
 
               broadcastFn(roomCode, { type: 'quest_updated', questId: quest.id, status: action.questStatus });
@@ -4382,12 +4552,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const players = await storage.getPlayersByRoom(room.id);
       const characters = await storage.getCharactersByRoomCode(code);
 
-      // Include dynamic NPCs (monsters) present in the room
+      // Include monsters from combat spawns
       let monsters: any[] = [];
       try {
-        monsters = await storage.getDynamicNpcsByRoom(room.id) || [];
+        const encounter = await getOrCreateCombatEncounter(room.id, code);
+        const spawns = await storage.getCombatSpawnsByEncounter(encounter.id);
+        monsters = spawns.map((spawn: any) => {
+          const stats = spawn.metadata?.statsBlock || {};
+          return {
+            id: spawn.id,
+            name: spawn.monsterName,
+            ...stats,
+          };
+        });
       } catch (err) {
-        console.warn(`[Combat Start] Failed to load dynamic NPCs for room ${room.id}:`, err);
+        console.warn(`[Combat Start] Failed to load combat spawns for room ${room.id}:`, err);
       }
 
       // Allow the request body to supply additional monsters (optional)
@@ -5780,12 +5959,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // GET /api/rooms/:roomId/dynamic-npcs - List dynamic NPCs created for this room
+  // GET /api/rooms/:roomId/dynamic-npcs - List NPCs and combat spawns for this room
   app.get("/api/rooms/:roomId/dynamic-npcs", async (req, res) => {
     try {
       const { roomId } = req.params;
+      
+      // Get legacy dynamic NPCs (quest givers, allies, etc.)
       const npcs = await storage.getDynamicNpcsByRoom(roomId);
-      res.json(npcs);
+      
+      // Get combat spawns from active encounters
+      let spawns: any[] = [];
+      try {
+        const [room] = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
+        if (room) {
+          const encounter = await getOrCreateCombatEncounter(roomId, room.code);
+          spawns = await storage.getCombatSpawnsByEncounter(encounter.id);
+        }
+      } catch (err) {
+        console.warn('Failed to load combat spawns:', err);
+      }
+      
+      // Combine both types
+      res.json({ npcs, combatSpawns: spawns });
     } catch (error) {
       console.error("Error fetching dynamic NPCs:", error);
       res.status(500).json({ error: "Failed to fetch dynamic NPCs" });
