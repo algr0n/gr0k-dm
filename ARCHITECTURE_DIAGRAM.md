@@ -1,124 +1,115 @@
-# Grok.ts Modular Architecture
+# Grok.ts Modular Architecture (updated: Dec 26, 2025)
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                       server/grok.ts (51 lines)                 │
-│                    Main Entry Point & Exports                   │
-│  - OpenAI client initialization                                 │
-│  - Re-exports all public APIs                                   │
-│  - Backward compatible interface                                │
-└─────────────────────────────────────────────────────────────────┘
-                                 │
-                ┌────────────────┼────────────────┐
-                │                │                │
-                ▼                ▼                ▼
-┌───────────────────────┐ ┌──────────────┐ ┌──────────────┐
-│   server/prompts/     │ │server/cache/ │ │server/utils/ │
-│   (186 lines)         │ │(116 lines)   │ │(134 lines)   │
-├───────────────────────┤ ├──────────────┤ ├──────────────┤
-│ • base.ts             │ │ • response-  │ │ • token-     │
-│ • dnd.ts              │ │   cache.ts   │ │   tracker.ts │
-│ • cyberpunk.ts        │ │              │ │ • conv-      │
-│ • index.ts            │ │ LRU Cache    │ │   summary.ts │
-│                       │ │ ResponseCache│ │              │
-│ getSystemPrompt()     │ │ class        │ │ TokenTracker │
-│                       │ │              │ │ class        │
-└───────────────────────┘ └──────────────┘ └──────────────┘
-                │
-                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    server/context/ (229 lines)                  │
-│                      context-builder.ts                         │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │            ContextBuilder (Fluent API)                   │  │
-│  │  • addSystemPrompt()     • addPartyCharacters()          │  │
-│  │  • addScene()            • addInventory()                │  │
-│  │  • addAdventureContext() • addDroppedItems()             │  │
-│  │  • addConversationSummary() • addMessageHistory()        │  │
-│  │  • addCurrentMessage()   • build()                       │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-                                 │
-                ┌────────────────┼────────────────┐
-                │                │                │
-                ▼                ▼                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  server/generators/ (285 lines)                 │
-│                All generators use ContextBuilder                │
-├─────────────────────────────────────────────────────────────────┤
-│  • dm-response.ts (79 lines)                                    │
-│    → generateDMResponse()                                       │
-│                                                                 │
-│  • batched-response.ts (87 lines)                               │
-│    → generateBatchedDMResponse()                                │
-│                                                                 │
-│  • combat.ts (59 lines)                                         │
-│    → generateCombatDMTurn()                                     │
-│                                                                 │
-│  • scene.ts (54 lines)                                          │
-│    → generateSceneDescription()                                 │
-│    → generateStartingScene()                                    │
-│                                                                 │
-│  • index.ts (6 lines) - Re-exports                              │
-└─────────────────────────────────────────────────────────────────┘
-                                 │
-                                 ▼
-                        ┌────────────────┐
-                        │  OpenAI Grok   │
-                        │  API (xAI)     │
-                        └────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                            server/grok.ts                              │
+│                     Main entry & public Grok API surface               │
+│  - Lazy-initializes xAI client (openai)                                │
+│  - Re-exports generators, cache and utility helpers                     │
+│  - NPC stat generation helpers (generateNpcWithGrok)                   │
+└────────────────────────────────────────────────────────────────────────┘
+                                   │
+                  ┌────────────────┬────────────────┬────────────────┐
+                  │                │                │                │
+                  ▼                ▼                ▼                ▼
+┌───────────────────────┐ ┌──────────────────────┐ ┌─────────────────────┐ ┌──────────────────┐
+│  server/prompts/      │ │   server/cache/      │ │  server/utils/      │ │ server/context/   │
+│  (base.ts, dnd.ts,    │ │  (response-cache.ts, │ │  (token-tracker.ts, │ │  (context-builder)│
+│   cyberpunk.ts, index) │ │   monster-cache.ts,  │ │   conversation-     │ │  • Fluent API for │
+│  • getSystemPrompt()   │ │   smart-cache.ts)    │ │   summary.ts, nl-   │ │    building OpenAI │
+│                       │ │  • response caching   │ │   parser.ts, utils  │ │   message arrays   │
+│                       │ │  • monster cache +   │ │  • token tracking,  │ │  • addMonsterContext│
+│                       │ │    eviction policies │ │    summaries, quest │ │  • addAdventureContext│
+└───────────────────────┘ └──────────────────────┘ └─────────────────────┘ └──────────────────┘
+                                   │
+                                   ▼
+                   ┌───────────────────────────────────────────┐
+                   │           server/generators/              │
+                   │   (dm-response.ts, batched-response.ts,  │
+                   │    combat.ts, scene.ts, stage.ts, index) │
+                   │  • All generators build messages via     │
+                   │    ContextBuilder                        │
+                   │  • New: `stage.ts` generates structured   │
+                   │    combat stages (JSON)                   │
+                   │  • Combat generator consults bestiary via │
+                   │    db/bestiary + monster-cache            │
+                   └───────────────────────────────────────────┘
+                                   │
+                                   ▼
+                          ┌────────────────────┐
+                          │   server/db/       │
+                          │(bestiary.ts,       │
+                          │ characters.ts, ...) │
+                          │• Bestiary queries   │
+                          │  & monster formatting│
+                          └────────────────────┘
+                                   │
+                                   ▼
+                          ┌────────────────────┐
+                          │   OpenAI Grok API   │
+                          │   (grok-4-1-fast-   │
+                          │    reasoning, grok- │
+                          │    beta)            │
+                          └────────────────────┘
 ```
 
-## Data Flow
+## Data Flow (updated)
 
 ### Single Player Request
 ```
-routes.ts → generateDMResponse(openai, ...)
-          → ContextBuilder
-          → System Prompt (from prompts/)
-          → Cache Check (response-cache)
-          → OpenAI API
-          → Token Tracking (token-tracker)
-          → Response
+routes.ts → generateDMResponse(openai, userMessage, room, ...) 
+          → ContextBuilder (system prompt, party, history)
+          → responseCache check (rules/deterministic queries)
+          → OpenAI API (grok)
+          → tokenTracker / responseCache store
+          → Response returned
 ```
 
 ### Multi-Player Batched Request
 ```
-routes.ts → generateBatchedDMResponse(openai, ...)
-          → ContextBuilder
-          → Adventure Context (if available)
-          → Conversation Summary (if >30 msgs)
-          → System Prompt + Party Info
-          → OpenAI API
-          → Token Tracking
+routes.ts → generateBatchedDMResponse(openai, batchedMessages, room, ...)
+          → ContextBuilder (adventure context, session summary when long)
+          → Optional bestiary lookups (db/bestiary + monster-cache)
+          → OpenAI API (grok)
+          → tokenTracker
           → Response
 ```
 
-## Module Dependencies
+### Combat & Stage Generation
+```
+routes.ts → generateCombatDMTurn(...) → ContextBuilder → addMonsterContext() (cached)
+          → OpenAI (combat narrative or decision-only)
 
+routes.ts → generateCombatStage(...) → stage.ts → OpenAI (returns JSON stage)
+```
+
+## Notable Changes since original doc
+
+- Added `server/generators/stage.ts` to produce structured combat stages (JSON) for encounter maps
+- Added `generateNpcWithGrok` in `server/grok.ts` for AI NPC stat block generation
+- Monster lookup now uses `server/db/bestiary.ts` + `server/cache/monster-cache.ts` with smart caching
+- Utilities expanded (`nl-parser`, `quest-detection`, `story-detection`) to improve prompt quality and story tracking
+
+## Module Dependencies (summary)
 ```
 grok.ts
-├── generators/*
-│   ├── → context-builder
-│   ├── → response-cache
-│   ├── → token-tracker
-│   └── → conversation-summary
+├── generators/* → context-builder
 ├── prompts/*
-├── cache/*
-├── context/*
-│   └── → prompts (for getSystemPrompt)
-└── utils/*
+├── cache/* → response-cache, monster-cache, smart-cache
+├── context/* → context-builder
+├── utils/* → token-tracker, conversation-summary, parsers
+└── db/* → bestiary, characters
 ```
 
-## Adding New Features
+## Adding New Features (reminder)
+- New game system: add prompt file + export in prompts/index
+- New generator: add file to `server/generators/` and export from `index.ts`
+- New context: extend `ContextBuilder` and call from generators
+- Extend caching: modify `server/cache/response-cache.ts` or `monster-cache.ts`
 
-### Add New Game System
-1. Create `server/prompts/pathfinder.ts`
-2. Export prompt constant
-3. Import in `server/prompts/index.ts`
-4. Update SYSTEM_PROMPTS record
+---
 
-### Add New Generator
+If you want, I can also add a small diagram image (SVG) and reference it here for easier reading in PRs—should I do that next?### Add New Generator
 1. Create file in `server/generators/`
 2. Import ContextBuilder, responseCache, tokenTracker
 3. Export function
