@@ -3611,10 +3611,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
         // Ensure maxHp is consistent with class/level and constitution
         try {
-          if ((!parsed.maxHp || parsed.maxHp === 0) && parsed.class) {
+          if (parsed.class) {
             const conMod = parsed.stats?.constitution ? getAbilityModifier(parsed.stats.constitution) : 0;
-            parsed.maxHp = calculateDndMaxHp(parsed.class, parsed.level || 1, conMod);
-            parsed.currentHp = parsed.maxHp;
+            const calculatedHp = calculateDndMaxHp(parsed.class, parsed.level || 1, conMod);
+            // Always set maxHp to the calculated value derived from class/level/constitution
+            parsed.maxHp = calculatedHp;
+            // Set currentHp to max unless a specific currentHp was provided
+            if (!parsed.currentHp || parsed.currentHp === 0) {
+              parsed.currentHp = calculatedHp;
+            }
           }
         } catch (err) {
           console.error('Failed to calculate initial maxHp on character creation:', err);
