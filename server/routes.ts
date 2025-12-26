@@ -3100,10 +3100,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             // Send current combat state
             const combatState = roomCombatState.get(code);
             console.log(`[WebSocket] get_combat_state request for room ${code}, state:`, combatState ? `active=${combatState.isActive}, initiatives=${combatState.initiatives?.length || 0}` : 'null');
+            console.log(`[WebSocket] Available combat state keys:`, Array.from(roomCombatState.keys()));
             if (combatState) {
               ws.send(JSON.stringify({ type: "combat_update", combat: combatState }));
               // Check if current actor is NPC and trigger their turn
               setImmediate(() => triggerNpcTurnIfNeeded(code));
+            } else {
+              console.log(`[WebSocket] No combat state found for room ${code}. Available rooms with combat:`, Array.from(roomCombatState.keys()));
             }
           } else if (message.type === "hold_turn") {
             // Handle hold turn request via WebSocket
