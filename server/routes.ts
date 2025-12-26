@@ -87,9 +87,54 @@ const CACHEABLE_NPC_TYPES = new Set([
   'commoner', 'cultist', 'cult fanatic', 'druid', 'gladiator', 'guard',
   'knight', 'mage', 'noble', 'priest', 'scout', 'spy', 'thug',
   'tribal warrior', 'veteran',
-  // Common monsters that might be AI-generated variants
-  'goblin', 'orc', 'skeleton', 'zombie', 'wolf', 'spider', 'rat',
-  'kobold', 'hobgoblin', 'bugbear', 'ogre', 'troll', 'giant',
+  // Common monsters (alphabetical by category)
+  // Beasts
+  'ape', 'giant ape', 'baboon', 'badger', 'bat', 'giant bat', 'bear', 'black bear', 
+  'brown bear', 'polar bear', 'boar', 'giant boar', 'cat', 'constrictor snake',
+  'crab', 'giant crab', 'crocodile', 'giant crocodile', 'deer', 'eagle', 'giant eagle',
+  'elephant', 'elk', 'giant elk', 'frog', 'giant frog', 'goat', 'hawk', 'hyena',
+  'jackal', 'lion', 'lizard', 'giant lizard', 'mammoth', 'mastiff', 'mule', 'octopus',
+  'giant octopus', 'owl', 'giant owl', 'panther', 'pony', 'rat', 'giant rat',
+  'raven', 'rhinoceros', 'riding horse', 'saber-toothed tiger', 'scorpion', 
+  'giant scorpion', 'spider', 'giant spider', 'tiger', 'vulture', 'warhorse',
+  'weasel', 'giant weasel', 'wolf', 'dire wolf', 'worg',
+  // Humanoids
+  'goblin', 'hobgoblin', 'bugbear', 'kobold', 'orc', 'half-orc', 'gnoll',
+  'lizardfolk', 'troglodyte', 'grimlock', 'kenku', 'yuan-ti pureblood',
+  // Undead
+  'skeleton', 'zombie', 'ghoul', 'ghast', 'wight', 'wraith', 'specter', 'ghost',
+  'mummy', 'vampire spawn', 'shadow', 'banshee', 'revenant',
+  // Fiends
+  'imp', 'quasit', 'lemure', 'dretch', 'hell hound', 'night hag', 'succubus',
+  'incubus', 'nightmare', 'barbed devil', 'bearded devil', 'bone devil',
+  // Celestials
+  'sprite', 'pegasus', 'unicorn', 'couatl',
+  // Aberrations
+  'mind flayer', 'intellect devourer', 'gibbering mouther', 'otyugh', 'rust monster',
+  'gelatinous cube', 'ochre jelly', 'black pudding', 'gray ooze',
+  // Constructs
+  'animated armor', 'flying sword', 'rug of smothering', 'helmed horror',
+  'scarecrow', 'shield guardian', 'flesh golem', 'clay golem', 'stone golem',
+  'iron golem',
+  // Dragons
+  'wyrmling', 'young dragon', 'adult dragon', 'ancient dragon', 'dragon turtle',
+  'wyvern', 'pseudodragon',
+  // Elementals
+  'air elemental', 'earth elemental', 'fire elemental', 'water elemental',
+  'magma mephit', 'steam mephit', 'dust mephit', 'ice mephit',
+  // Fey
+  'pixie', 'satyr', 'dryad', 'blink dog', 'displacer beast',
+  // Giants
+  'ogre', 'troll', 'giant', 'hill giant', 'stone giant', 'frost giant',
+  'fire giant', 'cloud giant', 'storm giant', 'ettin', 'cyclops',
+  // Monstrosities
+  'basilisk', 'behir', 'bulette', 'chimera', 'cockatrice', 'darkmantle',
+  'death dog', 'gorgon', 'grick', 'griffon', 'harpy', 'hippogriff', 'hydra',
+  'manticore', 'minotaur', 'owlbear', 'peryton', 'phase spider', 'purple worm',
+  'roper', 'rust monster', 'umber hulk', 'winter wolf', 'yeti',
+  // Plants
+  'awakened shrub', 'awakened tree', 'shambling mound', 'treant', 'vine blight',
+  'needle blight', 'twig blight',
 ]);
 
 /**

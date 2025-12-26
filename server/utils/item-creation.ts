@@ -48,6 +48,16 @@ export async function createItemFromReward(
     // If item was deleted, remove from cache
     itemCreationCache.delete(cacheKey);
   }
+  
+  // Check if this item already exists in the global items database
+  // This allows custom AI-generated items to be reused across all rooms
+  const existingItem = await storage.getItemByName(itemName);
+  if (existingItem) {
+    console.log(`[Item Creation] Found existing item in database: "${itemName}" (${existingItem.id})`);
+    // Cache it for future lookups in this session
+    itemCreationCache.set(cacheKey, existingItem.id);
+    return existingItem;
+  }
   const gameSystem = context?.gameSystem || "dnd";
   const questContext = context?.questDescription || "General adventuring reward";
 
