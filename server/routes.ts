@@ -3156,11 +3156,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       });
 
       ws.on("close", () => {
+        console.log(`[WebSocket] Connection closed for room ${code}`);
         roomConnections.get(code)?.delete(ws);
         if (roomConnections.get(code)?.size === 0) {
+          console.log(`[WebSocket] No more connections for room ${code}, cleaning up (but preserving combat state)`);
           roomConnections.delete(code);
           messageQueue.delete(code);
-          roomCombatState.delete(code);
+          // DON'T delete combat state - it should persist even if all players disconnect
+          // Combat state is only cleared when combat explicitly ends or room is deleted
+          // roomCombatState.delete(code);
           roomDroppedItems.delete(code);
         }
       });
@@ -4991,11 +4995,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           
           // Execute attack using combat engine
           try {
+            console.log(`[Combat] NPC ${currentActor.name} metadata:`, JSON.stringify(currentActor.metadata, null, 2));
             const attackBonus = currentActor.metadata?.attackBonus ?? 0;
             const damageExpression = currentActor.metadata?.damageExpression ?? '1d6';
             const targetAc = randomTarget.ac ?? 10;
             
+            console.log(`[Combat] NPC ${currentActor.name} attacking with bonus=${attackBonus}, damage=${damageExpression}, target AC=${targetAc}`);
             const result = resolveAttack(null, attackBonus, targetAc, damageExpression);
+            console.log(`[Combat] Attack result:`, result);
             
             // Build narrative
             let narrative = '';
@@ -5025,6 +5032,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             broadcastToRoom(code, { type: 'combat_update', combat: state });
           } catch (attackErr) {
             console.error('[Combat] Monster attack failed, using fallback narrative:', attackErr);
+            console.error('[Combat] Attack error stack:', attackErr instanceof Error ? attackErr.stack : 'No stack');
             // Fallback: Generate AI narration if combat engine fails
             try {
               const enemyActions = await generateCombatDMTurn(openai, room, undefined, (db as any).$client);
@@ -5059,10 +5067,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
 
         // Auto-advance after a delay to give players time to see the action
+        console.log(`[Combat] Scheduling NPC turn advance for ${currentActor.name} in 2 seconds...`);
         setTimeout(async () => {
+          console.log(`[Combat] NPC turn advance timeout fired for ${code}`);
           try {
             const currentState = roomCombatState.get(code);
+            console.log(`[Combat] Retrieved state in timeout: ${!!currentState}, isActive: ${currentState?.isActive}`);
             if (!currentState || !currentState.isActive) {
+              console.log(`[Combat] State invalid in timeout, clearing processing flag`);
               npcTurnProcessing.delete(code);
               return;
             }
@@ -5097,6 +5109,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }, 2000); // 2 second delay for readability
       } catch (err) {
         console.error('[Combat] NPC turn failed:', err);
+        console.error('[Combat] NPC turn error stack:', err instanceof Error ? err.stack : 'No stack');
+        console.error('[Combat] Failed for room:', code, 'NPC:', currentActor?.name);
         npcTurnProcessing.delete(code);
         // Auto-advance even on error so combat doesn't get stuck
         const currentState = roomCombatState.get(code);
