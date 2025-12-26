@@ -1809,17 +1809,22 @@ async function executeGameActions(
               // Get or create combat encounter for this room
               const encounter = await getOrCreateCombatEncounter(room.id, roomCode);
               
-              // Detect and create monster spawns from the current DM response
-              if (dmResponse) {
-                console.log(`[Combat Start] Attempting monster detection from current response...`);
-                try {
-                  await detectAndCreateMonstersForCombat(room.id, encounter.id, dmResponse);
-                } catch (detectErr) {
-                  console.error(`[Combat Start] Monster detection failed:`, detectErr);
+                // Detect and create monster spawns from the current DM response
+                // Only use natural language detection if no SPAWN tags were found
+                const hasSpawnTags = /\[SPAWN:/i.test(dmResponse || '');
+              
+                if (dmResponse && !hasSpawnTags) {
+                  console.log(`[Combat Start] No SPAWN tags found, attempting natural language monster detection...`);
+                  try {
+                    await detectAndCreateMonstersForCombat(room.id, encounter.id, dmResponse);
+                  } catch (detectErr) {
+                    console.error(`[Combat Start] Monster detection failed:`, detectErr);
+                  }
+                } else if (hasSpawnTags) {
+                  console.log(`[Combat Start] SPAWN tags detected, skipping natural language monster detection`);
+                } else {
+                  console.log(`[Combat Start] No DM response available for monster detection`);
                 }
-              } else {
-                console.log(`[Combat Start] No DM response available for monster detection`);
-              }
 
               const players = await storage.getPlayersByRoom(room.id);
               const chars = await storage.getCharactersByRoomCode(roomCode);
@@ -3173,6 +3178,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   function broadcastToRoom(roomCode: string, message: any) {
     const connections = roomConnections.get(roomCode);
+      console.log(`[Broadcast] Sending ${message.type} to room ${roomCode}, connections: ${connections?.size || 0}`);
     if (connections) {
       // Filter out internal AI prompts/context that should never be shown to users
       if (message.type === 'system' && typeof message.content === 'string') {
