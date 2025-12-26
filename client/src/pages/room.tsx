@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download, FolderOpen, Coins, Weight, Zap, Flame, Wand2, ScrollText } from "lucide-react";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download, FolderOpen, Coins, Weight, Zap, Flame, Wand2, ScrollText, UsersRound } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -29,6 +29,7 @@ import { QuestAcceptanceModal } from "@/components/quest-acceptance-modal";
 import { CombatActionsPanel } from "@/components/combat/CombatActionsPanel";
 import { CombatResultDisplay } from "@/components/combat/CombatResultDisplay";
 import { DnD5eCombatPanel } from "@/components/combat/DnD5eCombatPanel";
+import { NpcReputationPanel } from "@/components/npc-reputation-panel";
 import { Heart } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -985,6 +986,24 @@ export default function RoomPage() {
             toast({ title: "Quest updated", description: `${data.questName || data.questId} is now ${data.status}` });
           }
 
+        } else if (data.type === "npc_reputation_changed") {
+          // NPC reputation changed; refresh NPC list
+          queryClient.invalidateQueries({ queryKey: ["dynamic-npcs", roomData?.id] });
+          
+          const repChange = (data.newReputation ?? 0) - (data.oldReputation ?? 0);
+          const direction = repChange > 0 ? "improved" : "worsened";
+          const emoji = repChange > 0 ? "✨" : "⚠️";
+          
+          toast({ 
+            title: `${emoji} Reputation ${direction.charAt(0).toUpperCase() + direction.slice(1)}`,
+            description: `${data.npcName} now views you as ${data.status?.toLowerCase() || "neutral"} (${repChange > 0 ? "+" : ""}${repChange})`,
+            duration: 5000,
+          });
+
+        } else if (data.type === "npc_created") {
+          // New NPC created; refresh NPC list
+          queryClient.invalidateQueries({ queryKey: ["dynamic-npcs", roomData?.id] });
+
         } else if (data.type === "error") {
           toast({
             title: "Error",
@@ -1437,6 +1456,10 @@ export default function RoomPage() {
               <TabsTrigger value="quests" className="gap-2" data-testid="tab-quests">
                 <ScrollText className="h-4 w-4" />
                 Quests
+              </TabsTrigger>
+              <TabsTrigger value="npcs" className="gap-2" data-testid="tab-npcs">
+                <UsersRound className="h-4 w-4" />
+                NPCs
               </TabsTrigger>
               {roomData?.gameSystem === "dnd" && myCharacterData?.savedCharacter?.class && isSpellcaster(myCharacterData.savedCharacter.class) && (
                 <TabsTrigger value="spells" className="gap-2" data-testid="tab-spells">
@@ -2152,6 +2175,10 @@ export default function RoomPage() {
               </Button>
               <QuestTracker roomId={roomData?.id || ""} roomCode={code} />
             </div>
+          </TabsContent>
+
+          <TabsContent value="npcs" className="flex-1 mt-0 overflow-hidden data-[state=inactive]:hidden">
+            <NpcReputationPanel roomId={roomData?.id || ""} />
           </TabsContent>
 
           {/* Spells Tab - for D&D spellcasters */}

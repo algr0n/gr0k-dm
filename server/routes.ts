@@ -54,6 +54,9 @@ import {
   classSkillFeatures,
   subclassSkillFeatures,
   type DndClass,
+  combatEncounters,
+  combatSpawns,
+  dynamicNpcs,
 } from "@shared/schema";
 import { getMonsterByName } from "./db/bestiary";
 import { getNpcStatBlock } from "./npc-statblocks";

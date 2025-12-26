@@ -738,7 +738,7 @@ class DatabaseStorage implements Storage {
     const [npc] = await db.select().from(dynamicNpcs).where(eq(dynamicNpcs.id, npcId)).limit(1);
     if (!npc) return undefined;
 
-    const currentRep = npc.reputation ?? 0;
+    const currentRep = (npc as any).reputation ?? 0;
     const newRep = Math.max(-100, Math.min(100, currentRep + change));
     
     return await this.updateDynamicNpc(npcId, { 
@@ -756,12 +756,12 @@ class DatabaseStorage implements Storage {
     const [npc] = await db.select().from(dynamicNpcs).where(eq(dynamicNpcs.id, npcId)).limit(1);
     if (!npc) return undefined;
 
-    const questCount = (npc.questsCompleted ?? 0) + 1;
+    const questCount = ((npc as any).questsCompleted ?? 0) + 1;
     const repBonus = 10 + (questCount * 2); // Increases with each quest
     
     return await this.updateDynamicNpc(npcId, {
       questsCompleted: questCount,
-      reputation: Math.min(100, (npc.reputation ?? 0) + repBonus),
+      reputation: Math.min(100, ((npc as any).reputation ?? 0) + repBonus),
       lastInteraction: Math.floor(Date.now() / 1000),
     });
   }
