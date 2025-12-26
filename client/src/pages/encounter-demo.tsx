@@ -48,7 +48,7 @@ export default function EncounterDemoPage() {
       // simple sync: if combat_update contains initiatives, update active
       if (msg.combat && typeof msg.combat.currentTurnIndex === 'number') {
         const idx = msg.combat.currentTurnIndex
-        const actorId = (msg.combat.initiatives ?? [])[idx]?.playerId
+        const actorId = (msg.combat.initiatives ?? [])[idx]?.id
         if (actorId) setActiveId(actorId)
       }
     } else if (msg.type === 'chat' || msg.type === 'dm') {

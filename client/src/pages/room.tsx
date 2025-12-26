@@ -32,22 +32,29 @@ import { DnD5eCombatPanel } from "@/components/combat/DnD5eCombatPanel";
 import { Heart } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
+// InitiativeEntry matches the server's CombatState from combat.ts
 interface InitiativeEntry {
-  playerId: string;
-  playerName: string;
-  characterName: string;
+  id: string;
+  controller: "player" | "monster" | "dm";
+  name: string;
   roll: number;
   modifier: number;
   total: number;
+  ac?: number;
   currentHp?: number;
   maxHp?: number;
-  ac?: number;
+  metadata?: any;
 }
 
 interface CombatState {
   isActive: boolean;
+  roomCode?: string;
+  roundNumber?: number;
   currentTurnIndex: number;
   initiatives: InitiativeEntry[];
+  actionHistory?: any[];
+  environment?: any[];
+  heldActors?: Record<string, any>;
 }
 
 interface ParsedMessagePart {
