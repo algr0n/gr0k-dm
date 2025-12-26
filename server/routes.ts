@@ -82,8 +82,8 @@ async function detectAndCreateMonstersForCombat(
   
   // Pattern to match "number + optional adjective + creature name"
   // Examples: "two bandits", "a dragon", "three giant spiders", "five goblins"
-  // Stop before action verbs to avoid capturing "goblins screech" or "bandits charge"
-  const actionVerbs = /^(screech|charge|attack|rush|leap|jump|burst|erupt|emerge|appear|come|go|run|walk|crawl|fly|swim|strike|hit|slash|bite|claw|grab|throw|cast|speak|say|yell|shout|roar|growl|snarl)$/i;
+  // Stop before action verbs/participles to avoid capturing "snarling bandits" as "Snarling Bandit"
+  const actionVerbs = /^(screech|screeching|charge|charging|attack|attacking|rush|rushing|leap|leaping|jump|jumping|burst|bursting|erupt|erupting|emerge|emerging|appear|appearing|come|coming|go|going|run|running|walk|walking|crawl|crawling|fly|flying|swim|swimming|strike|striking|hit|hitting|slash|slashing|bite|biting|claw|clawing|grab|grabbing|throw|throwing|cast|casting|speak|speaking|say|saying|yell|yelling|shout|shouting|roar|roaring|growl|growling|snarl|snarling|draw|drawing|raise|raising|drawn|raised|demand|demanding|lunge|lunging|swing|swinging)$/i;
   
   const pattern = /(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(massive|giant|huge|large|small|young|ancient|elder|young|adult|dire)\s+)?([a-z]+(?:\s+[a-z]+)?)/gi;
 
