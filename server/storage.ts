@@ -169,6 +169,7 @@ import {
   rooms, players, diceRolls, items, spells,
   savedCharacters, characterInventoryItems, characterStatusEffects, users,
   combatEncounters, combatEnvironmentFeatures, combatSpawns,
+  npcStatCache, type NpcStatCacheEntry,
 } from "@shared/schema";
 import {
   questObjectiveProgress,
@@ -883,6 +884,101 @@ class DatabaseStorage implements Storage {
     const id = randomUUID();
     const [created] = await db.insert(questObjectiveProgress).values({ ...data, id }).returning();
     return created;
+  }
+
+  // ==============================================================================
+  // Global NPC Stat Cache - reusable NPC stat blocks
+  // ==============================================================================
+  
+  /**
+   * Look up an NPC stat block from the global cache
+   * @param name The NPC name to look up (case-insensitive)
+   * @returns The cached stat block or undefined if not found
+   */
+  async getNpcFromCache(name: string): Promise<NpcStatCacheEntry | undefined> {
+    const normalizedName = name.toLowerCase().trim();
+    const [entry] = await db
+      .select()
+      .from(npcStatCache)
+      .where(eq(npcStatCache.name, normalizedName))
+      .limit(1);
+    return entry;
+  }
+
+  /**
+   * Save an NPC stat block to the global cache for future reuse
+   * @param npc The NPC stat block to cache
+   * @returns The created cache entry
+   */
+  async saveNpcToCache(npc: {
+    name: string;
+    displayName: string;
+    size?: string;
+    type?: string;
+    alignment?: string;
+    ac: number;
+    hp: number;
+    speed?: string;
+    str?: number;
+    dex?: number;
+    con?: number;
+    int?: number;
+    wis?: number;
+    cha?: number;
+    cr?: string;
+    xp?: number;
+    traits?: { name: string; description: string }[];
+    actions?: { name: string; description: string }[];
+    reactions?: { name: string; description: string }[];
+    source?: string;
+  }): Promise<NpcStatCacheEntry> {
+    const id = randomUUID();
+    const normalizedName = npc.name.toLowerCase().trim();
+    
+    // Check if already exists
+    const existing = await this.getNpcFromCache(normalizedName);
+    if (existing) {
+      return existing;
+    }
+    
+    const [created] = await db.insert(npcStatCache).values({
+      id,
+      name: normalizedName,
+      displayName: npc.displayName || npc.name,
+      size: npc.size || 'Medium',
+      type: npc.type || 'humanoid',
+      alignment: npc.alignment,
+      ac: npc.ac,
+      hp: npc.hp,
+      speed: npc.speed || '30 ft.',
+      str: npc.str ?? 10,
+      dex: npc.dex ?? 10,
+      con: npc.con ?? 10,
+      int: npc.int ?? 10,
+      wis: npc.wis ?? 10,
+      cha: npc.cha ?? 10,
+      cr: npc.cr || '0',
+      xp: npc.xp ?? 10,
+      traits: npc.traits || [],
+      actions: npc.actions || [],
+      reactions: npc.reactions,
+      source: npc.source || 'ai',
+    }).returning();
+    return created;
+  }
+
+  /**
+   * Search the NPC cache with fuzzy matching
+   * @param searchTerm The search term (partial name match)
+   * @returns Matching NPC entries
+   */
+  async searchNpcCache(searchTerm: string): Promise<NpcStatCacheEntry[]> {
+    const normalizedTerm = searchTerm.toLowerCase().trim();
+    return await db
+      .select()
+      .from(npcStatCache)
+      .where(like(npcStatCache.name, `%${normalizedTerm}%`))
+      .limit(10);
   }
 
   // ==============================================================================

@@ -111,13 +111,53 @@ STATUS EFFECTS:
 Add these tags at the END of your response.
 
 NPC CREATION & PERSISTENCE:
-- When introducing a new important NPC, make them persistent: [NPC: Name | Role | {"personality":"...", "description":"..."}]
-- Examples:
-  * Simple: [NPC: Garrick the Barkeep | Tavern Owner]
-  * Detailed: [NPC: Lady Morgana | Noble | {"personality":"cold and calculating", "description":"A pale elf in black robes"}]
-- NPCs persist across sessions and can be referenced later by players.
-- For quest givers, add the quest tag (see QUEST section below) immediately after the NPC appears.
-- Use realistic D&D stat blocks when combat is likely (see NPC Stat Reference below).
+When introducing important NPCs, make them memorable and persistent. NPCs are cached globally - once created, their stats are reused automatically in future encounters, saving processing time.
+
+CREATING RICH NPCs:
+Use the [NPC:...] tag with these fields:
+[NPC: Name | Role | {"personality":"...", "description":"...", "motivation":"...", "quirk":"...", "statsBlock":{...}}]
+
+Required fields:
+- Name: Distinctive name (e.g., "Garrick the Scarred", "Lady Morgana Blackwood")
+- Role: Their function (Tavern Owner, Noble, Bandit Leader, Town Guard, Merchant, Priest, Mage, etc.)
+
+Optional fields in JSON:
+- personality: How they act (e.g., "paranoid and suspicious", "jovial but secretly desperate")
+- description: Physical appearance (1 sentence)
+- motivation: What drives them (Greed, Revenge, Protection, Religious zeal, Power, Knowledge, Fame, Redemption, Survival, Love, Fear)
+- quirk: A memorable habit (e.g., "always counts coins", "whispers when angry", "speaks in third person", "fidgets with holy symbol")
+- statsBlock: Combat stats (ONLY for NPCs likely to fight - see stat reference below)
+
+Examples:
+• Simple NPC: [NPC: Old Tom | Fisherman | {"personality":"grumpy but kind-hearted", "quirk":"spits before answering questions"}]
+• Quest Giver: [NPC: Sister Garaele | Priest | {"personality":"earnest and determined", "motivation":"serving her goddess", "description":"Young human with scarred hands from helping plague victims"}]
+• Combat NPC: [NPC: Grax the Bloody | Bandit Captain | {"personality":"cruel and theatrical", "motivation":"revenge against nobles", "quirk":"laughs before killing", "statsBlock":{"ac":15,"hp":65,"str":15,"dex":16,"con":14,"cr":"2","actions":[{"name":"Multiattack","description":"Makes two scimitar attacks"},{"name":"Scimitar","description":"+5 to hit, 6 (1d6+3) slashing"}]}}]
+
+IMPORTANT: For standard combat encounters (bandits, guards, wolves, goblins, etc.), you don't need [NPC:...] tags - the system auto-creates them from the bestiary when you start combat. Only use [NPC:...] with statsBlock for:
+- Named bosses with custom abilities
+- Unique variants you want to define precisely
+- NPCs that might become allies OR enemies
+
+STAT BLOCK REFERENCE (when statsBlock is needed):
+Match CR to party level:
+| Party Level | CR Range | Examples |
+|-------------|----------|----------|
+| 1-4 | 0-2 | Commoner, Guard, Bandit, Acolyte, Berserker |
+| 5-10 | 2-6 | Knight, Mage, Gladiator, Veteran, Priest |
+| 11-16 | 6-12 | Assassin, Archmage |
+
+Quick Stat Templates:
+• CR 0 (Commoner): AC 10, HP 4, +2 to hit, 2 damage
+• CR 1/8 (Guard/Bandit): AC 12-16, HP 11, +3 to hit, 4-5 damage
+• CR 1/2 (Scout/Thug): AC 12-13, HP 16-32, +4 to hit, 5-6 damage, Pack Tactics
+• CR 2 (Berserker/Priest): AC 13, HP 27-67, +5 to hit, 9 damage or spells
+• CR 3 (Knight/Veteran): AC 17-18, HP 52-58, Multiattack, Leadership/Parry
+• CR 6 (Mage): AC 12 (15), HP 40, Fireball, Counterspell
+• CR 8 (Assassin): AC 15, HP 78, Assassinate, 4d6 sneak + poison
+
+NPC Personality Generator (pick 1-2):
+Motivations: Greed | Revenge | Protect family | Religious zeal | Power | Forbidden knowledge | Survival | Fame | Redemption | Pure chaos
+Quirks: Always smiling | Whispers when angry | Counts coins | Fidgets with weapon | Third person speech | Avoids eye contact | Collects trophies | Speaks in rhymes | Terrified of mundane thing | Laughs inappropriately | Scratches old scar | Humming constantly
 
 LOCATION DISCOVERY:
 - When players discover or enter a significant new location: [LOCATION: Name | Type | {"description":"...", "features":[...]}]
@@ -134,29 +174,6 @@ QUEST CREATION:
   * [QUEST: Find the Lost Mine | Gundren Rockseeker | active | {"description":"Locate Gundren's missing map to Wave Echo Cave", "objectives":["Find Gundren's location", "Recover the map"], "rewards":{"xp":200,"gold":100}, "urgency":"high"}]
 - To update quest status: [QUEST_UPDATE: Quest Title or ID | completed]
 - Quests track objectives and show in the player's Quest Log UI.
-
-D&D 5E NPC STAT BLOCK REFERENCE (for combat NPCs):
-When creating combat NPCs, use these as templates. Match CR to party level:
-- Party Lvl 1-4: CR 0-2 (Commoner, Guard, Bandit, Acolyte, Berserker, Priest)
-- Party Lvl 5-10: CR 2-6 (Knight, Mage, Gladiator, Veteran)
-- Party Lvl 11-16: CR 6-12 (Assassin, Archmage)
-
-Common NPC Templates:
-• Commoner (CR 0): AC 10, HP 4, no combat skills
-• Guard (CR 1/8): AC 16, HP 11, Spear +3 (1d6+1 piercing)
-• Bandit (CR 1/8): AC 12, HP 11, Scimitar +3 (1d6+1 slashing)
-• Acolyte (CR 1/4): AC 10, HP 9, Spells: cure wounds, bless, sacred flame
-• Priest (CR 2): AC 13, HP 27, Spells: spirit guardians, hold person, spiritual weapon
-• Bandit Captain (CR 2): AC 15, HP 65, Multiattack, Parry reaction
-• Knight (CR 3): AC 18, HP 52, Leadership ability, Greatsword +5 (2d6+3)
-• Mage (CR 6): AC 12 (15 w/mage armor), HP 40, Spells: fireball, counterspell, fly
-• Assassin (CR 8): AC 15, HP 78, Assassinate feature, poison damage
-• Archmage (CR 12): AC 12 (15 w/mage armor), HP 99, 9th-level spells
-
-NPC Personality Quick Generator:
-Pick 1-2 traits when introducing NPCs for depth:
-- Motivations: Greed, Revenge, Protection, Religious zeal, Power, Knowledge, Fame, Redemption, Survival
-- Quirks: Always smiling, Whispers when angry, Counts coins constantly, Fidgets with holy symbol, Third person speech, Avoids eye contact, Collects trophies, Speaks in rhymes, Terrified of something mundane, Laughs inappropriately
 
 DROPPED ITEMS:
 - System messages will show when players drop items from their inventory.

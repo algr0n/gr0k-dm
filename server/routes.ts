@@ -30,7 +30,7 @@ import {
   type AdventureContext,
   getTokenUsage,
 } from "./grok";
-import { rollInitiativesForCombat, createCombatState, resolveAttack, addHold, processTrigger, advanceTurn, updateThreat, applyMoveAction, decideMonsterActions, type CombatState } from "./combat";
+import { rollInitiativesForCombat, createCombatState, resolveAttack, addHold, processTrigger, advanceTurn, updateThreat, applyMoveAction, decideMonsterActions, type CombatState, type InitiativeEntry } from "./combat";
 import { narrateCombatMoment } from "./combat-narrator";
 import {
   insertRoomSchema,
@@ -56,6 +56,7 @@ import {
   type DndClass,
 } from "@shared/schema";
 import { getMonsterByName } from "./db/bestiary";
+import { getNpcStatBlock } from "./npc-statblocks";
 import {
   adventures,
   adventureChapters,
@@ -72,6 +73,131 @@ import { createItemFromReward } from "./utils/item-creation";
 // ============================================================================
 // Monster Detection Helper for Combat
 // ============================================================================
+
+/**
+ * List of generic NPC/monster types that are safe to cache globally.
+ * These are stat block TEMPLATES that can be reused across any room/adventure.
+ * Named characters (like "Gundren Rockseeker") should NEVER be cached - they stay room-scoped.
+ */
+const CACHEABLE_NPC_TYPES = new Set([
+  'acolyte', 'archmage', 'assassin', 'bandit', 'bandit captain', 'berserker',
+  'commoner', 'cultist', 'cult fanatic', 'druid', 'gladiator', 'guard',
+  'knight', 'mage', 'noble', 'priest', 'scout', 'spy', 'thug',
+  'tribal warrior', 'veteran',
+  // Common monsters that might be AI-generated variants
+  'goblin', 'orc', 'skeleton', 'zombie', 'wolf', 'spider', 'rat',
+  'kobold', 'hobgoblin', 'bugbear', 'ogre', 'troll', 'giant',
+]);
+
+/**
+ * Check if a monster name is a generic type safe to cache globally.
+ * Returns false for named characters to prevent adventure NPC leakage.
+ */
+function isCacheableNpcType(name: string): boolean {
+  const normalized = name.toLowerCase().trim();
+  
+  // Direct match with known types
+  if (CACHEABLE_NPC_TYPES.has(normalized)) {
+    return true;
+  }
+  
+  // Check if it's a variant of a known type (e.g., "ragged bandit" → "bandit")
+  for (const type of CACHEABLE_NPC_TYPES) {
+    if (normalized.endsWith(type) || normalized.endsWith(type + 's')) {
+      return true;
+    }
+  }
+  
+  // Single lowercase word is likely a generic type
+  if (!normalized.includes(' ') && normalized === normalized.toLowerCase()) {
+    return true;
+  }
+  
+  return false;
+}
+
+// Helper to create NPC from stat data and optionally cache it
+async function createNpcFromStats(
+  roomId: string,
+  monsterName: string,
+  instanceName: string,
+  statsData: {
+    size?: string;
+    type?: string;
+    ac: number;
+    hp: number;
+    str?: number;
+    dex?: number;
+    con?: number;
+    int?: number;
+    wis?: number;
+    cha?: number;
+    cr?: string;
+    xp?: number;
+    actions?: any[];
+    traits?: any[];
+  },
+  source: string
+): Promise<any> {
+  const npcRecord = await storage.createDynamicNpc({
+    roomId,
+    name: instanceName,
+    role: 'Monster',
+    description: `${statsData.size || 'Medium'} ${statsData.type || 'creature'}`,
+    personality: undefined,
+    statsBlock: {
+      hp: statsData.hp,
+      maxHp: statsData.hp,
+      ac: statsData.ac,
+      str: statsData.str ?? 10,
+      dex: statsData.dex ?? 10,
+      con: statsData.con ?? 10,
+      int: statsData.int ?? 10,
+      wis: statsData.wis ?? 10,
+      cha: statsData.cha ?? 10,
+      cr: statsData.cr || '0',
+      xp: statsData.xp ?? 10,
+      actions: statsData.actions || [],
+      traits: statsData.traits || [],
+    },
+    isQuestGiver: false,
+  });
+  
+  // Cache the NPC stats for future reuse (only for generic types, not named characters)
+  // This prevents adventure-specific NPCs from leaking into other adventures
+  if (source !== 'cache' && isCacheableNpcType(monsterName)) {
+    try {
+      await storage.saveNpcToCache({
+        name: monsterName.toLowerCase(),
+        displayName: monsterName,
+        size: statsData.size || 'Medium',
+        type: statsData.type || 'creature',
+        ac: statsData.ac,
+        hp: statsData.hp,
+        str: statsData.str ?? 10,
+        dex: statsData.dex ?? 10,
+        con: statsData.con ?? 10,
+        int: statsData.int ?? 10,
+        wis: statsData.wis ?? 10,
+        cha: statsData.cha ?? 10,
+        cr: statsData.cr || '0',
+        xp: statsData.xp ?? 10,
+        actions: statsData.actions || [],
+        traits: statsData.traits || [],
+        source,
+      });
+      console.log(`[Monster Detection] Cached ${monsterName} stats for future reuse`);
+    } catch (cacheErr) {
+      // Ignore cache errors - non-critical
+      console.log(`[Monster Detection] Cache save skipped (may already exist): ${monsterName}`);
+    }
+  } else if (source !== 'cache') {
+    console.log(`[Monster Detection] Not caching "${monsterName}" - appears to be a named character, not a generic type`);
+  }
+  
+  return npcRecord;
+}
+
 async function detectAndCreateMonstersForCombat(
   roomId: string,
   dmMessage: string
@@ -152,93 +278,174 @@ async function detectAndCreateMonstersForCombat(
 
   console.log(`[Monster Detection] Found potential monsters:`, Array.from(potentialMonsters.entries()));
 
-  // Try to find each monster in the bestiary and create them
+  // Try to find each monster and create them
+  // Lookup order: 1) Bestiary, 2) Global NPC Cache, 3) Hardcoded NPC Stat Blocks, 4) Fuzzy match, 5) Generic fallback
   for (const [monsterName, count] of potentialMonsters.entries()) {
     try {
-      console.log(`[Monster Detection] Looking up "${monsterName}" in bestiary...`);
+      let statsFound = false;
+      let statsData: any = null;
+      let source = 'generic';
+      
+      // 1) Try bestiary first
+      console.log(`[Monster Detection] Looking up "${monsterName}"...`);
       const monsterData = await getMonsterByName(libsqlClient, monsterName);
       if (monsterData) {
-        console.log(`[Monster Detection] ✓ Found ${monsterName} in bestiary (CR ${monsterData.challenge_rating}), creating ${count} instance(s)...`);
-        
-        // Create multiple instances if needed
-        for (let i = 0; i < count; i++) {
-          const instanceName = count > 1 ? `${monsterName} ${i + 1}` : monsterName;
-          const npcRecord = await storage.createDynamicNpc({
-            roomId,
-            name: instanceName,
-            role: 'Monster',
-            description: `${monsterData.size} ${monsterData.type}`,
-            personality: undefined,
-            statsBlock: {
-              hp: monsterData.hp_avg,
-              maxHp: monsterData.hp_avg,
-              ac: monsterData.armor_class,
-              str: monsterData.str,
-              dex: monsterData.dex,
-              con: monsterData.con,
-              int: monsterData.int,
-              wis: monsterData.wis,
-              cha: monsterData.cha,
-              cr: monsterData.challenge_rating,
-              xp: monsterData.xp,
-              actions: monsterData.actions,
-              traits: monsterData.traits,
-            },
-            isQuestGiver: false,
-          });
-          createdMonsters.push(npcRecord);
-          console.log(`[Monster Detection] Created ${instanceName} (${i + 1}/${count})`);
+        console.log(`[Monster Detection] ✓ Found in bestiary (CR ${monsterData.challenge_rating})`);
+        statsData = {
+          size: monsterData.size,
+          type: monsterData.type,
+          ac: monsterData.armor_class,
+          hp: monsterData.hp_avg,
+          str: monsterData.str,
+          dex: monsterData.dex,
+          con: monsterData.con,
+          int: monsterData.int,
+          wis: monsterData.wis,
+          cha: monsterData.cha,
+          cr: monsterData.challenge_rating,
+          xp: monsterData.xp,
+          actions: monsterData.actions,
+          traits: monsterData.traits,
+        };
+        source = 'bestiary';
+        statsFound = true;
+      }
+      
+      // 2) Try global NPC cache
+      if (!statsFound) {
+        const cachedNpc = await storage.getNpcFromCache(monsterName);
+        if (cachedNpc) {
+          console.log(`[Monster Detection] ✓ Found in NPC cache (CR ${cachedNpc.cr})`);
+          statsData = {
+            size: cachedNpc.size,
+            type: cachedNpc.type,
+            ac: cachedNpc.ac,
+            hp: cachedNpc.hp,
+            str: cachedNpc.str,
+            dex: cachedNpc.dex,
+            con: cachedNpc.con,
+            int: cachedNpc.int,
+            wis: cachedNpc.wis,
+            cha: cachedNpc.cha,
+            cr: cachedNpc.cr,
+            xp: cachedNpc.xp,
+            actions: cachedNpc.actions,
+            traits: cachedNpc.traits,
+          };
+          source = 'cache';
+          statsFound = true;
         }
-      } else {
-        // Try fuzzy matching - remove adjectives and try again
+      }
+      
+      // 3) Try hardcoded NPC stat blocks (SRD humanoids)
+      if (!statsFound) {
+        const npcStatBlock = getNpcStatBlock(monsterName);
+        if (npcStatBlock) {
+          console.log(`[Monster Detection] ✓ Found in NPC stat blocks (CR ${npcStatBlock.cr})`);
+          statsData = {
+            size: npcStatBlock.size,
+            type: npcStatBlock.type,
+            ac: npcStatBlock.ac,
+            hp: npcStatBlock.hp,
+            str: npcStatBlock.str,
+            dex: npcStatBlock.dex,
+            con: npcStatBlock.con,
+            int: npcStatBlock.int,
+            wis: npcStatBlock.wis,
+            cha: npcStatBlock.cha,
+            cr: npcStatBlock.cr,
+            xp: npcStatBlock.xp,
+            actions: npcStatBlock.actions,
+            traits: npcStatBlock.traits,
+          };
+          source = 'npc_reference';
+          statsFound = true;
+        }
+      }
+      
+      // 4) Try fuzzy matching - remove first word (adjective) and try again
+      if (!statsFound && monsterName.split(' ').length > 1) {
         const words = monsterName.split(' ');
-        if (words.length > 1) {
-          const baseMonsterName = words.slice(1).join(' ');
-          console.log(`[Monster Detection] ${monsterName} not found, trying fuzzy match: ${baseMonsterName}...`);
-          
-          try {
-            const baseMonsterData = await getMonsterByName(libsqlClient, baseMonsterName);
-            if (baseMonsterData) {
-            console.log(`[Monster Detection] ✓ Found similar monster: ${baseMonsterName} (using as base for ${monsterName})`);
-            
-            // Create using base monster stats but keep the custom name
-            for (let i = 0; i < count; i++) {
-              const instanceName = count > 1 ? `${monsterName} ${i + 1}` : monsterName;
-              const npcRecord = await storage.createDynamicNpc({
-                roomId,
-                name: instanceName,
-                role: 'Monster',
-                description: `${baseMonsterData.size} ${baseMonsterData.type} (variant)`,
-                personality: undefined,
-                statsBlock: {
-                  hp: baseMonsterData.hp_avg,
-                  maxHp: baseMonsterData.hp_avg,
-                  ac: baseMonsterData.armor_class,
-                  str: baseMonsterData.str,
-                  dex: baseMonsterData.dex,
-                  con: baseMonsterData.con,
-                  int: baseMonsterData.int,
-                  wis: baseMonsterData.wis,
-                  cha: baseMonsterData.cha,
-                  cr: baseMonsterData.challenge_rating,
-                  xp: baseMonsterData.xp,
-                  actions: baseMonsterData.actions,
-                  traits: baseMonsterData.traits,
-                },
-                isQuestGiver: false,
-              });
-              createdMonsters.push(npcRecord);
-              console.log(`[Monster Detection] Created ${instanceName} using ${baseMonsterName} stats (${i + 1}/${count})`);
-            }
-          } else {
-            console.log(`[Monster Detection] ⚠️ No fuzzy match found for ${monsterName} - skipping`);
-          }
-          } catch (fuzzyErr) {
-            console.error(`[Monster Detection] Fuzzy match error for ${monsterName}:`, fuzzyErr);
-          }
+        const baseMonsterName = words.slice(1).join(' ');
+        console.log(`[Monster Detection] Trying fuzzy match: "${baseMonsterName}"...`);
+        
+        // Try bestiary with base name
+        const baseMonsterData = await getMonsterByName(libsqlClient, baseMonsterName);
+        if (baseMonsterData) {
+          console.log(`[Monster Detection] ✓ Fuzzy match in bestiary: ${baseMonsterName}`);
+          statsData = {
+            size: baseMonsterData.size,
+            type: `${baseMonsterData.type} (variant)`,
+            ac: baseMonsterData.armor_class,
+            hp: baseMonsterData.hp_avg,
+            str: baseMonsterData.str,
+            dex: baseMonsterData.dex,
+            con: baseMonsterData.con,
+            int: baseMonsterData.int,
+            wis: baseMonsterData.wis,
+            cha: baseMonsterData.cha,
+            cr: baseMonsterData.challenge_rating,
+            xp: baseMonsterData.xp,
+            actions: baseMonsterData.actions,
+            traits: baseMonsterData.traits,
+          };
+          source = 'bestiary_fuzzy';
+          statsFound = true;
         } else {
-          console.log(`[Monster Detection] ⚠️ Single-word monster ${monsterName} not found in bestiary - skipping`);
+          // Try NPC stat blocks with base name
+          const baseNpcBlock = getNpcStatBlock(baseMonsterName);
+          if (baseNpcBlock) {
+            console.log(`[Monster Detection] ✓ Fuzzy match in NPC blocks: ${baseMonsterName}`);
+            statsData = {
+              size: baseNpcBlock.size,
+              type: `${baseNpcBlock.type} (variant)`,
+              ac: baseNpcBlock.ac,
+              hp: baseNpcBlock.hp,
+              str: baseNpcBlock.str,
+              dex: baseNpcBlock.dex,
+              con: baseNpcBlock.con,
+              int: baseNpcBlock.int,
+              wis: baseNpcBlock.wis,
+              cha: baseNpcBlock.cha,
+              cr: baseNpcBlock.cr,
+              xp: baseNpcBlock.xp,
+              actions: baseNpcBlock.actions,
+              traits: baseNpcBlock.traits,
+            };
+            source = 'npc_reference_fuzzy';
+            statsFound = true;
+          }
         }
+      }
+      
+      // 5) Generic fallback
+      if (!statsFound) {
+        console.log(`[Monster Detection] ⚠️ No match found - using generic stats`);
+        statsData = {
+          size: 'Medium',
+          type: 'humanoid',
+          ac: 12,
+          hp: 11,
+          str: 10,
+          dex: 12,
+          con: 10,
+          int: 10,
+          wis: 10,
+          cha: 10,
+          cr: '1/4',
+          xp: 50,
+          actions: [{ name: 'Melee Attack', description: 'Melee Weapon Attack: +3 to hit, reach 5 ft., one target. Hit: 4 (1d6 + 1) slashing damage.' }],
+          traits: [],
+        };
+        source = 'generic';
+      }
+      
+      // Create instances using the found stats
+      for (let i = 0; i < count; i++) {
+        const instanceName = count > 1 ? `${monsterName} ${i + 1}` : monsterName;
+        const npcRecord = await createNpcFromStats(roomId, monsterName, instanceName, statsData, source);
+        createdMonsters.push(npcRecord);
+        console.log(`[Monster Detection] Created ${instanceName} from ${source} (${i + 1}/${count})`);
       }
     } catch (error) {
       console.error(`[Monster Detection] Error creating ${monsterName}:`, error);
@@ -452,30 +659,7 @@ const batchTimers = new Map<string, NodeJS.Timeout>();
 const BATCH_DELAY_MS = 1500; // 1.5 second debounce window
 const MAX_BATCH_SIZE = 5;
 
-interface InitiativeEntry {
-  playerId: string;
-  playerName: string;
-  characterName: string;
-  roll: number;
-  modifier: number;
-  total: number;
-  currentHp?: number;
-  maxHp?: number;
-  ac?: number;
-}
-
-interface InitiativeEntry {
-  playerId: string;
-  playerName: string;
-  characterName: string;
-  roll: number;
-  modifier: number;
-  total: number;
-  currentHp?: number;
-  maxHp?: number;
-  ac?: number;
-  actorId?: string;
-}
+// InitiativeEntry is imported from ./combat.ts - do not redefine here
 
 // Use only the advanced CombatState from combat.ts
 const roomCombatState = new Map<string, CombatState>();
@@ -1289,29 +1473,17 @@ async function executeGameActions(
                 await storage.updateDynamicNpc(npc.id, { statsBlock: npc.statsBlock });
               }
               
-              // Update NPC HP in combat states
+              // Update NPC HP in combat state
               const combatState = roomCombatState.get(roomCode);
-              const fullCombatState = roomCombatState.get(roomCode);
               
               if (combatState && combatState.initiatives) {
                 const npcInitiative = combatState.initiatives.find(
-                  (i) => i.characterName.toLowerCase() === action.playerName!.toLowerCase()
+                  (i) => i.name.toLowerCase() === action.playerName!.toLowerCase()
                 );
                 if (npcInitiative) {
                   npcInitiative.currentHp = updatedHp;
                   npcInitiative.maxHp = maxHp;
                   roomCombatState.set(roomCode, combatState);
-                }
-              }
-              
-              if (fullCombatState && fullCombatState.initiatives) {
-                const npcEntry = fullCombatState.initiatives.find(
-                  (i: any) => i.name.toLowerCase() === action.playerName!.toLowerCase()
-                );
-                if (npcEntry) {
-                  npcEntry.currentHp = updatedHp;
-                  npcEntry.maxHp = maxHp;
-                  roomCombatState.set(roomCode, fullCombatState);
                 }
               }
               
@@ -1326,16 +1498,14 @@ async function executeGameActions(
               }
               
               // If NPC is at 0 HP and it's their turn, advance turn
-              if (updatedHp <= 0 && combatState && fullCombatState) {
-                const currentActor = fullCombatState.initiatives[fullCombatState.currentTurnIndex];
+              if (updatedHp <= 0 && combatState) {
+                const currentActor = combatState.initiatives[combatState.currentTurnIndex];
                 if (currentActor && currentActor.name.toLowerCase() === action.playerName.toLowerCase()) {
                   console.log(`[Combat] NPC ${action.playerName} defeated on their turn, advancing turn`);
-                  advanceTurn(fullCombatState);
+                  advanceTurn(combatState);
                   
-                  // Update legacy combat state
-                  combatState.currentTurnIndex = fullCombatState.currentTurnIndex;
+                  // Update combat state
                   roomCombatState.set(roomCode, combatState);
-                  roomCombatState.set(roomCode, fullCombatState);
                   
                   // Broadcast turn change
                   broadcastFn(roomCode, {
@@ -1343,7 +1513,7 @@ async function executeGameActions(
                     combat: combatState,
                   });
                   
-                  const newActor = fullCombatState.initiatives[fullCombatState.currentTurnIndex];
+                  const newActor = combatState.initiatives[combatState.currentTurnIndex];
                   if (newActor) {
                     broadcastFn(roomCode, {
                       type: "system",
@@ -1363,7 +1533,14 @@ async function executeGameActions(
           console.log(`[Combat Start] Processing combat_start action for room ${roomCode}`);
           let combatState = roomCombatState.get(roomCode);
           if (!combatState) {
-            combatState = { isActive: true, currentTurnIndex: 0, initiatives: [] };
+            combatState = { 
+              isActive: true, 
+              roomCode: roomCode,
+              roundNumber: 1,
+              currentTurnIndex: 0, 
+              initiatives: [],
+              actionHistory: []
+            };
             console.log(`[Combat Start] Created new combat state`);
           } else {
             combatState.isActive = true;
@@ -1642,8 +1819,8 @@ async function executeGameActions(
             if (participantChars.length === 0) {
               const combat = roomCombatState.get(roomCode);
               if (combat && combat.initiatives && combat.initiatives.length > 0) {
-                // Use unique character names from initiatives
-                const names = [...new Set(combat.initiatives.map(i => i.characterName))].filter(Boolean) as string[];
+                // Use unique character names from initiatives (use 'name' field from InitiativeEntry)
+                const names = [...new Set(combat.initiatives.map(i => i.name))].filter(Boolean) as string[];
                 for (const n of names) {
                   const c = characters.find((ch: any) => (ch.characterName || '').toLowerCase() === n.toLowerCase());
                   if (c) participantChars.push(c);
@@ -1930,25 +2107,8 @@ async function executeGameActions(
                 const initiativeEntries = rollInitiativesForCombat([], [], [npcRecord]);
                 const entry = initiativeEntries[0];
 
-                // Update full combat state
-                const full = roomCombatState.get(roomCode);
-                if (full && Array.isArray(full.initiatives)) {
-                  full.initiatives.push(entry);
-                  full.initiatives.sort((a: any, b: any) => b.total - a.total);
-                  roomCombatState.set(roomCode, full);
-                }
-
-                // Update legacy combat state
-                const newLegacy = {
-                  playerId: entry.id,
-                  playerName: entry.metadata?.playerName ?? (entry.controller === 'player' ? entry.name : 'DM'),
-                  characterName: entry.name,
-                  roll: entry.roll,
-                  modifier: entry.modifier,
-                  total: entry.total,
-                };
-
-                combat.initiatives.push(newLegacy);
+                // Add to combat initiatives and sort by total
+                combat.initiatives.push(entry);
                 combat.initiatives.sort((a, b) => b.total - a.total);
                 roomCombatState.set(roomCode, combat);
 
@@ -4270,7 +4430,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const current = state.initiatives[state.currentTurnIndex];
       broadcastToRoom(code, {
         type: "system",
-        content: `It's ${current.characterName}'s (${current.playerName}) turn!`,
+        content: `It's ${current.name}'s turn!`,
       });
 
       // If it's an enemy turn (assuming enemies are after players), generate AI turn
@@ -4336,40 +4496,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           
           // Execute attack using combat engine
           try {
-            const attackAction = {
-              actorId: currentActor.id,
-              type: 'attack',
-              targetId: randomTarget.id,
-              attackBonus: currentActor.attackBonus || 0,
-              damageExpression: currentActor.damageExpression || '1d6',
-            };
+            const attackBonus = currentActor.metadata?.attackBonus ?? 0;
+            const damageExpression = currentActor.metadata?.damageExpression ?? '1d6';
+            const targetAc = randomTarget.ac ?? 10;
             
-            const result = resolveAttack(state, attackAction);
+            const result = resolveAttack(null, attackBonus, targetAc, damageExpression);
+            
+            // Build narrative
+            let narrative = '';
+            if (result.isFumble) {
+              narrative = `The attack misses completely! (Rolled 1)`;
+            } else if (result.isCritical) {
+              narrative = `Critical hit! Rolled ${result.d20} + ${attackBonus} = ${result.attackTotal} vs AC ${targetAc}. ${result.damageTotal} damage!`;
+            } else if (result.hit) {
+              narrative = `Hit! Rolled ${result.d20} + ${attackBonus} = ${result.attackTotal} vs AC ${targetAc}. ${result.damageTotal} damage!`;
+            } else {
+              narrative = `Miss! Rolled ${result.d20} + ${attackBonus} = ${result.attackTotal} vs AC ${targetAc}.`;
+            }
+            
+            // Apply damage to target
+            if (result.hit && randomTarget.currentHp !== undefined) {
+              randomTarget.currentHp = Math.max(0, randomTarget.currentHp - result.damageTotal);
+            }
             
             // Broadcast combat result with narrative
             broadcastToRoom(code, {
               type: 'dm',
-              content: `${currentActor.name} attacks ${randomTarget.name}! ${result.narrative || ''}`,
+              content: `${currentActor.name} attacks ${randomTarget.name}! ${narrative}`,
             });
             
-            // Update combat state with damage
+            // Update combat state with damage (state was mutated when we updated randomTarget.currentHp)
             roomCombatState.set(code, state);
-            roomCombatState.set(code, {
-              isActive: state.isActive,
-              currentTurnIndex: state.currentTurnIndex,
-              initiatives: state.initiatives.map((e: any) => ({
-                playerId: e.id,
-                playerName: e.metadata?.playerName ?? e.name,
-                characterName: e.name,
-                roll: e.roll,
-                modifier: e.modifier,
-                total: e.total,
-                currentHp: e.currentHp,
-                maxHp: e.maxHp,
-                ac: e.ac,
-              }))
-            });
-            broadcastToRoom(code, { type: 'combat_update', combat: roomCombatState.get(code) });
+            broadcastToRoom(code, { type: 'combat_update', combat: state });
           } catch (attackErr) {
             console.error('[Combat] Monster attack failed, using fallback narrative:', attackErr);
             // Fallback: Generate AI narration if combat engine fails

@@ -536,9 +536,9 @@ export default function RoomPage() {
   const currentTurnEntry = combatState?.isActive 
     ? combatState.initiatives[combatState.currentTurnIndex] 
     : null;
-  const isMyTurn = !combatState?.isActive || isHost || currentTurnEntry?.playerName === playerName;
+  const isMyTurn = !combatState?.isActive || isHost || currentTurnEntry?.name === characterName || currentTurnEntry?.controller === 'dm';
   const isCombatActive = combatState?.isActive ?? false;
-  const currentTurnCharacterName = currentTurnEntry?.characterName || "another player";
+  const currentTurnCharacterName = currentTurnEntry?.name || "another player";
 
   const deleteInventoryItemMutation = useMutation({
     mutationFn: async (itemId: string) => {
