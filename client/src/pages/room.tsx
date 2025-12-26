@@ -26,6 +26,8 @@ import { DMControlsPanel } from "@/components/dm-controls-panel";
 import { InventoryLayout } from "@/components/inventory/InventoryLayout";
 import { QuestTracker } from "@/components/quest-tracker";
 import { QuestAcceptanceModal } from "@/components/quest-acceptance-modal";
+import { CombatActionsPanel } from "@/components/combat/CombatActionsPanel";
+import { CombatResultDisplay } from "@/components/combat/CombatResultDisplay";
 import { Heart } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -261,6 +263,7 @@ export default function RoomPage() {
   const [gameEnded, setGameEnded] = useState(false);
   const [isRoomPublic, setIsRoomPublic] = useState(false);
   const [combatState, setCombatState] = useState<CombatState | null>(null);
+  const [combatResults, setCombatResults] = useState<any[]>([]);
   
   // Quest acceptance modal state
   const [questToAccept, setQuestToAccept] = useState<any | null>(null);
@@ -894,6 +897,22 @@ export default function RoomPage() {
         } else if (data.type === "combat_update") {
           console.log("[WebSocket] Received combat_update:", data.combat);
           setCombatState(data.combat);
+        } else if (data.type === "combat_result") {
+          console.log("[WebSocket] Received combat_result:", data);
+          setCombatResults((prev) => [...prev, data]);
+        } else if (data.type === "combat_event") {
+          console.log("[WebSocket] Received combat_event:", data);
+          setCombatResults((prev) => [...prev, data]);
+        } else if (data.type === "combat_narration") {
+          console.log("[WebSocket] Received combat_narration:", data);
+          // Display AI narration as a special toast with dramatic styling
+          const icon = data.isCritical ? "⚔️" : data.isKillingBlow ? "💀" : "✨";
+          toast({
+            title: `${icon} ${data.actorName} vs ${data.targetName}`,
+            description: data.content,
+            duration: 6000,
+            className: "bg-gradient-to-r from-purple-900 to-indigo-900 border-2 border-purple-500",
+          });
         } else if (data.type === "character_update") {
           // Check if this update is for the current user's character using ref for latest value
           const isMyCharacter = data.playerId === userIdRef.current;
@@ -1467,6 +1486,58 @@ export default function RoomPage() {
                 <div ref={messagesEndRef} />
               </div>
             </ScrollArea>
+
+            {/* Combat Results Display - Show recent combat actions */}
+            {combatResults.length > 0 && combatState?.isActive && (
+              <div className="px-4 pt-3">
+                <CombatResultDisplay
+                  results={combatResults}
+                  participants={combatState.initiatives.map((i) => ({
+                    id: i.playerId,
+                    name: i.characterName,
+                  }))}
+                />
+              </div>
+            )}
+
+            {/* Combat Actions Panel - Show when it's player's turn */}
+            {combatState?.isActive && myCharacterData && (
+              <div className="px-4 pt-3">
+                <CombatActionsPanel
+                  roomCode={code!}
+                  myActorId={myCharacterData.savedCharacter.id}
+                  isMyTurn={
+                    combatState.initiatives[combatState.currentTurnIndex]?.characterName ===
+                    myCharacterData.roomCharacter.characterName
+                  }
+                  participants={combatState.initiatives.map((i) => ({
+                    id: i.playerId,
+                    name: i.characterName,
+                    currentHp: i.currentHp,
+                    maxHp: i.maxHp,
+                    ac: i.ac,
+                    controller: i.playerName === "DM" ? "monster" : "player",
+                  }))}
+                  characterData={{
+                    attackBonus: (() => {
+                      const stats = myCharacterData.savedCharacter.stats as Record<string, number> | undefined;
+                      const strMod = stats?.str ? Math.floor((stats.str - 10) / 2) : 0;
+                      const profBonus = Math.floor((myCharacterData.savedCharacter.level || 1 - 1) / 4) + 2;
+                      return strMod + profBonus;
+                    })(),
+                    primaryDamage: (() => {
+                      const charClass = myCharacterData.savedCharacter.class?.toLowerCase();
+                      if (charClass === "wizard" || charClass === "sorcerer") return "1d4";
+                      if (charClass === "rogue") return "1d6";
+                      if (charClass === "fighter" || charClass === "paladin") return "1d8";
+                      if (charClass === "barbarian") return "1d12";
+                      return "1d6";
+                    })(),
+                    class: myCharacterData.savedCharacter.class ?? undefined,
+                  }}
+                />
+              </div>
+            )}
 
             <Separator />
 

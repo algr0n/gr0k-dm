@@ -31,6 +31,7 @@ import {
   getTokenUsage,
 } from "./grok";
 import { rollInitiativesForCombat, createCombatState, resolveAttack, addHold, processTrigger, advanceTurn, updateThreat, applyMoveAction, decideMonsterActions, type CombatState as FullCombatState } from "./combat";
+import { narrateCombatMoment } from "./combat-narrator";
 import {
   insertRoomSchema,
   insertSavedCharacterSchema,
@@ -279,6 +280,9 @@ interface InitiativeEntry {
   roll: number;
   modifier: number;
   total: number;
+  currentHp?: number;
+  maxHp?: number;
+  ac?: number;
 }
 
 interface CombatState {
@@ -1066,6 +1070,8 @@ async function executeGameActions(
       switch (action.type) {
         case "hp_change": {
           if (!action.playerName || action.currentHp === undefined) break;
+          
+          // Try to find player character first
           const char = findCharacter(action.playerName);
           if (char) {
             await storage.updateSavedCharacter(char.id, {
@@ -1077,7 +1083,91 @@ async function executeGameActions(
               characterId: char.id,
               updates: { currentHp: action.currentHp, maxHp: action.maxHp ?? char.maxHp },
             });
-            console.log(`[DM Action] Updated HP for ${action.playerName}: ${action.currentHp}/${action.maxHp}`);
+            console.log(`[DM Action] Updated HP for player ${action.playerName}: ${action.currentHp}/${action.maxHp}`);
+          } else {
+            // Not a player character - check if it's an NPC/monster
+            const npcs = await storage.getDynamicNpcsByRoom(room.id);
+            const npc = npcs.find((n: any) => 
+              n.name.toLowerCase() === action.playerName!.toLowerCase()
+            );
+            
+            if (npc) {
+              // Update NPC HP in database
+              const updatedHp = action.currentHp;
+              const maxHp = action.maxHp ?? npc.statsBlock?.maxHp ?? npc.statsBlock?.hp ?? 10;
+              
+              if (npc.statsBlock) {
+                npc.statsBlock.hp = updatedHp;
+                npc.statsBlock.maxHp = maxHp;
+                await storage.updateDynamicNpc(npc.id, { statsBlock: npc.statsBlock });
+              }
+              
+              // Update NPC HP in combat states
+              const combatState = roomCombatState.get(roomCode);
+              const fullCombatState = roomFullCombatState.get(roomCode);
+              
+              if (combatState && combatState.initiatives) {
+                const npcInitiative = combatState.initiatives.find(
+                  (i) => i.characterName.toLowerCase() === action.playerName!.toLowerCase()
+                );
+                if (npcInitiative) {
+                  npcInitiative.currentHp = updatedHp;
+                  npcInitiative.maxHp = maxHp;
+                  roomCombatState.set(roomCode, combatState);
+                }
+              }
+              
+              if (fullCombatState && fullCombatState.initiatives) {
+                const npcEntry = fullCombatState.initiatives.find(
+                  (i: any) => i.name.toLowerCase() === action.playerName!.toLowerCase()
+                );
+                if (npcEntry) {
+                  npcEntry.currentHp = updatedHp;
+                  npcEntry.maxHp = maxHp;
+                  roomFullCombatState.set(roomCode, fullCombatState);
+                }
+              }
+              
+              console.log(`[DM Action] Updated HP for NPC ${action.playerName}: ${updatedHp}/${maxHp}`);
+              
+              // Broadcast combat state update so UI reflects HP change
+              if (combatState) {
+                broadcastFn(roomCode, {
+                  type: "combat_update",
+                  combat: combatState,
+                });
+              }
+              
+              // If NPC is at 0 HP and it's their turn, advance turn
+              if (updatedHp <= 0 && combatState && fullCombatState) {
+                const currentActor = fullCombatState.initiatives[fullCombatState.currentTurnIndex];
+                if (currentActor && currentActor.name.toLowerCase() === action.playerName.toLowerCase()) {
+                  console.log(`[Combat] NPC ${action.playerName} defeated on their turn, advancing turn`);
+                  advanceTurn(fullCombatState);
+                  
+                  // Update legacy combat state
+                  combatState.currentTurnIndex = fullCombatState.currentTurnIndex;
+                  roomCombatState.set(roomCode, combatState);
+                  roomFullCombatState.set(roomCode, fullCombatState);
+                  
+                  // Broadcast turn change
+                  broadcastFn(roomCode, {
+                    type: "combat_update",
+                    combat: combatState,
+                  });
+                  
+                  const newActor = fullCombatState.initiatives[fullCombatState.currentTurnIndex];
+                  if (newActor) {
+                    broadcastFn(roomCode, {
+                      type: "system",
+                      content: `${newActor.name}'s turn!`,
+                    });
+                  }
+                }
+              }
+            } else {
+              console.warn(`[DM Action] Could not find character or NPC named "${action.playerName}" for HP update`);
+            }
           }
           break;
         }
@@ -4083,8 +4173,43 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         targetHp: target.currentHp,
       });
 
-      // If target dies, broadcast and take cares
-      if ((target.currentHp ?? 0) <= 0) {
+      // Generate AI narration for special moments (crits, kills)
+      const isKillingBlow = (target.currentHp ?? 0) <= 0;
+      if (result.isCritical || isKillingBlow || result.isFumble) {
+        const room = await storage.getRoomByCode(code);
+        if (room) {
+          // Generate narration asynchronously - don't block combat
+          narrateCombatMoment(openai, {
+            actorName: currentActor.name,
+            targetName: target.name,
+            actionType: "attack",
+            isCritical: result.isCritical,
+            damageTotal: result.damageTotal,
+            targetHp: target.currentHp,
+            targetMaxHp: target.maxHp,
+            isKillingBlow,
+            gameSystem: room.gameSystem,
+          }).then((narration) => {
+            if (narration) {
+              // Send as special combat narration message
+              broadcastToRoom(code, {
+                type: "combat_narration",
+                content: narration,
+                actorName: currentActor.name,
+                targetName: target.name,
+                isCritical: result.isCritical,
+                isKillingBlow,
+              });
+            }
+          }).catch((err) => {
+            console.error("[Combat] Narration failed:", err);
+            // Combat continues even if narration fails
+          });
+        }
+      }
+
+      // If target dies, broadcast event
+      if (isKillingBlow) {
         broadcastToRoom(code, { type: 'combat_event', event: 'defeated', targetId, name: target.name });
       }
 
