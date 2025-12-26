@@ -276,8 +276,11 @@ async function detectAndCreateMonstersForCombat(
       monsterName = `${adjective} ${monsterName}`;
     }
     
+    // Lowercase for exception checking
+    const lowerMonsterName = monsterName.toLowerCase();
+    
     // Check if this is a known exception (like "crawling claw" or "flying sword")
-    const isException = monsterNameExceptions.test(monsterName);
+    const isException = monsterNameExceptions.test(lowerMonsterName);
     
     if (!isException) {
       // Split into words and check if any are action verbs or non-monster words
