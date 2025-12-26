@@ -70,6 +70,108 @@ import passport from "passport";
 import { createItemFromReward } from "./utils/item-creation";
 
 // ============================================================================
+// Monster Detection Helper for Combat
+// ============================================================================
+async function detectAndCreateMonstersForCombat(
+  roomId: string,
+  dmMessage: string
+): Promise<any[]> {
+  const createdMonsters: any[] = [];
+  
+  // Common monster patterns to detect (add more as needed)
+  const monsterPatterns = [
+    // Match "X [adjective] monster(s)" patterns - e.g., "three giant crabs", "two goblins", "a dragon"
+    /(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:massive|giant|huge|large|small|tiny)?\s*([a-z]+(?:\s+[a-z]+)?(?:\s+[a-z]+)?)(?:s)?(?:\s+(?:erupt|emerge|attack|appear|charge|rush|leap|crawl))?/gi,
+  ];
+
+  const potentialMonsters = new Set<string>();
+  
+  for (const pattern of monsterPatterns) {
+    let match;
+    while ((match = pattern.exec(dmMessage)) !== null) {
+      if (match[1]) {
+        // Clean up the monster name
+        let monsterName = match[1].trim();
+        // Remove trailing 's' for plurals
+        if (monsterName.endsWith('s') && monsterName.length > 3) {
+          monsterName = monsterName.slice(0, -1);
+        }
+        // Capitalize first letter of each word
+        monsterName = monsterName
+          .split(' ')
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ');
+        potentialMonsters.add(monsterName);
+      }
+    }
+  }
+
+  console.log(`[Monster Detection] Found potential monsters:`, Array.from(potentialMonsters));
+
+  // Try to find each monster in the bestiary and create them
+  for (const monsterName of potentialMonsters) {
+    try {
+      const monsterData = await getMonsterByName(libsqlClient, monsterName);
+      if (monsterData) {
+        console.log(`[Monster Detection] Found ${monsterName} in bestiary, creating as NPC...`);
+        
+        // Extract count from the original message (default to 1)
+        const countMatch = dmMessage.toLowerCase().match(
+          new RegExp(`(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\\d+)\\s+(?:massive|giant|huge|large|small)?\\s*${monsterName.toLowerCase()}`, 'i')
+        );
+        
+        const countMap: Record<string, number> = {
+          'a': 1, 'an': 1, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
+          'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10
+        };
+        
+        let count = 1;
+        if (countMatch && countMatch[1]) {
+          const countStr = countMatch[1].toLowerCase();
+          count = countMap[countStr] || parseInt(countStr, 10) || 1;
+        }
+
+        // Create multiple instances if needed
+        for (let i = 0; i < count; i++) {
+          const instanceName = count > 1 ? `${monsterName} ${i + 1}` : monsterName;
+          const npcRecord = await storage.createDynamicNpc({
+            roomId,
+            name: instanceName,
+            role: 'Monster',
+            description: `${monsterData.size} ${monsterData.type}`,
+            personality: undefined,
+            statsBlock: {
+              hp: monsterData.hp_avg,
+              maxHp: monsterData.hp_avg,
+              ac: monsterData.armor_class,
+              str: monsterData.str,
+              dex: monsterData.dex,
+              con: monsterData.con,
+              int: monsterData.int,
+              wis: monsterData.wis,
+              cha: monsterData.cha,
+              cr: monsterData.challenge_rating,
+              xp: monsterData.xp,
+              actions: monsterData.actions,
+              traits: monsterData.traits,
+            },
+            isQuestGiver: false,
+          });
+          createdMonsters.push(npcRecord);
+          console.log(`[Monster Detection] Created ${instanceName} (${i + 1}/${count})`);
+        }
+      } else {
+        console.log(`[Monster Detection] ${monsterName} not found in bestiary`);
+      }
+    } catch (error) {
+      console.error(`[Monster Detection] Error creating ${monsterName}:`, error);
+    }
+  }
+
+  return createdMonsters;
+}
+
+// ============================================================================
 // Adventure Context Helper
 // ============================================================================
 async function fetchAdventureContext(
@@ -1187,6 +1289,21 @@ async function executeGameActions(
           // If there are no initiatives yet, roll initiatives including dynamic NPCs
           if (!combatState.initiatives || combatState.initiatives.length === 0) {
             try {
+              // Detect and create monsters from the DM's combat start message
+              const recentMessages = room.messageHistory?.slice(-2) || [];
+              const combatStartMessage = recentMessages.find((m: Message) => 
+                m.type === 'dm' && /\[COMBAT_START\]/i.test(m.content)
+              );
+              
+              if (combatStartMessage) {
+                console.log(`[Combat Start] Attempting to detect monsters in message...`);
+                try {
+                  await detectAndCreateMonstersForCombat(room.id, combatStartMessage.content);
+                } catch (detectErr) {
+                  console.error(`[Combat Start] Monster detection failed:`, detectErr);
+                }
+              }
+
               const players = await storage.getPlayersByRoom(room.id);
               const chars = await storage.getCharactersByRoomCode(roomCode);
               console.log(`[Combat Start] Found ${players.length} players and ${chars.length} characters`);

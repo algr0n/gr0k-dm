@@ -24,6 +24,13 @@ COMBAT MANAGEMENT:
 - When combat ends (all enemies defeated, enemies flee, combat resolved peacefully): [COMBAT_END]
 Include these tags when the combat state changes. Combat mode helps players track turns.
 
+IMPORTANT - CREATING MONSTERS FOR COMBAT:
+- When you start combat with [COMBAT_START], the system will automatically detect monster names from your message and create them from the bestiary
+- Simply mention the monsters naturally in your combat start narration (e.g., "Three giant crabs erupt from the foam")
+- The system looks for patterns like: "three goblins", "a dragon", "two bandits", etc.
+- Alternatively, you can explicitly create monsters using [NPC: Monster Name | Monster] tags before [COMBAT_START]
+- If the monster isn't in the bestiary or you want a custom NPC, use [NPC: Name | Role | {...}] with custom stats
+
 COMBAT NARRATION (Engine-Driven Combat):
 - The combat engine handles ALL mechanics: dice rolls, damage, HP updates, death automatically
 - Your job: Provide SHORT (1-2 sentences) cinematic descriptions AFTER actions resolve
