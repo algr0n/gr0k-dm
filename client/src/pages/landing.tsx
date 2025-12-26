@@ -374,6 +374,7 @@ export default function Landing() {
                         <Label htmlFor="game-name">Game Name</Label>
                         <Input
                           id="game-name"
+                          name="gameName"
                           placeholder="e.g., The Lost Dungeon of Xor"
                           value={gameName}
                           onChange={(e) => setGameName(e.target.value)}
@@ -382,7 +383,7 @@ export default function Landing() {
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="game-system">Game System</Label>
-                        <Select value={gameSystem} onValueChange={(v) => setGameSystem(v as GameSystem)}>
+                        <Select name="gameSystem" value={gameSystem} onValueChange={(v) => setGameSystem(v as GameSystem)}>
                           <SelectTrigger id="game-system" data-testid="select-game-system">
                             <SelectValue placeholder="Select a game system" />
                           </SelectTrigger>
@@ -399,6 +400,7 @@ export default function Landing() {
                         <Label htmlFor="room-password">Room Password (Optional)</Label>
                         <Input
                           id="room-password"
+                          name="roomPassword"
                           type="password"
                           placeholder="Leave blank for public access"
                           value={roomPassword}
@@ -415,6 +417,7 @@ export default function Landing() {
                         <div className="flex items-center space-x-2">
                           <Checkbox
                             id="use-adventure"
+                            name="useAdventure"
                             checked={useAdventureMode}
                             onCheckedChange={(checked) => {
                               setUseAdventureMode(checked === true);
@@ -432,7 +435,8 @@ export default function Landing() {
                         {useAdventureMode && (
                           <div className="space-y-2 ml-6">
                             <Label htmlFor="adventure-select">Select Adventure</Label>
-                            <Select 
+                            <Select
+                              name="adventureId"
                               value={selectedAdventureId || undefined} 
                               onValueChange={(value) => setSelectedAdventureId(value)}
                               disabled={availableAdventures.length === 0}
@@ -481,6 +485,7 @@ export default function Landing() {
                       <div className="flex items-center space-x-2">
                         <Checkbox
                           id="is-public"
+                          name="isPublic"
                           checked={isPublic}
                           onCheckedChange={(checked) => setIsPublic(checked === true)}
                           data-testid="checkbox-public"
