@@ -247,12 +247,12 @@ async function detectAndCreateMonstersForCombat(
   // Known monster names that contain words that might look like actions
   const monsterNameExceptions = /^(crawling claw|flying sword|flying snake|swimming horror)$/i;
   
-  // Common non-monster words to exclude (locations, abstract nouns, damage terms, etc.)
-  const nonMonsterWords = /^(fight|battle|combat|forest|woods|cave|dungeon|town|village|city|path|trail|road|shadows|darkness|light|air|water|earth|fire|area|place|spot|thing|way|damage|stone|blade|weapon|sword|arrow|spear|shield)$/i;
+  // Common non-monster words to exclude (locations, buildings, furniture, abstract nouns, damage terms, etc.)
+  const nonMonsterWords = /^(fight|battle|combat|forest|woods|cave|dungeon|town|village|city|path|trail|road|shadows|darkness|light|air|water|earth|fire|area|place|spot|thing|way|damage|stone|blade|weapon|sword|arrow|spear|shield|tavern|inn|cabin|house|building|shop|store|church|temple|tower|castle|room|hall|chamber|door|gate|window|wall|floor|ceiling|table|chair|bench|bed|chest|crate|barrel|box)$/i;
   
   // Action verbs and gerunds that commonly appear after monster counts or descriptions
   // These should trigger stopping the monster name capture
-  const actionVerbs = /^(scavenging|snarl|snarling|growl|growling|roar|roaring|screech|screeching|charge|charging|attack|attacking|rush|rushing|leap|leaping|jump|jumping|burst|bursting|erupt|erupting|emerge|emerging|appear|appearing|lunge|lunging|swing|swinging|strike|striking|hit|hitting|slash|slashing|bite|biting|grab|grabbing|grabbing|throw|throwing|hurl|hurling|speak|speaking|say|saying|yell|yelling|shout|shouting|draw|drawing|raise|raising|drawn|raised|demand|demanding|close|closing|spot|spotting|miss|missing)$/i;
+  const actionVerbs = /^(scavenging|snarl|snarls|snarling|growl|growls|growling|roar|roars|roaring|screech|screeches|screeching|charge|charges|charging|attack|attacks|attacking|rush|rushes|rushing|leap|leaps|leaping|jump|jumps|jumping|burst|bursts|bursting|erupt|erupts|erupting|emerge|emerges|emerging|appear|appears|appearing|lunge|lunges|lunging|swing|swings|swinging|strike|strikes|striking|hit|hits|hitting|slash|slashes|slashing|bite|bites|biting|grab|grabs|grabbing|throw|throws|throwing|hurl|hurls|hurling|speak|speaks|speaking|say|says|saying|yell|yells|yelling|shout|shouts|shouting|draw|draws|drawing|raise|raises|raising|drawn|raised|demand|demands|demanding|close|closes|closing|spot|spots|spotting|miss|misses|missing)$/i;
   
   const pattern = /(a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:(massive|giant|huge|large|small|young|ancient|elder|young|adult|dire)\s+)?([a-z]+(?:\s+[a-z]+)?)/gi;
 
