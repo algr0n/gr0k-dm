@@ -5030,7 +5030,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
         // Use the combat engine to execute monster actions
         const players = await storage.getPlayersByRoom(room.id);
-        const playerTargets = state.initiatives.filter((i: any) => i.controller === 'player');
+        // NPCs only target conscious players (HP > 0) - they don't attack unconscious characters
+        const playerTargets = state.initiatives.filter((i: any) => i.controller === 'player' && (i.currentHp ?? 0) > 0);
         
         if (playerTargets.length > 0) {
           // Choose random player target
@@ -5061,11 +5062,45 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             
             // Apply damage to target
             if (result.hit && randomTarget.currentHp !== undefined) {
+              const wasUnconscious = randomTarget.currentHp <= 0;
               randomTarget.currentHp = Math.max(0, randomTarget.currentHp - result.damageTotal);
+              
+              // D&D 5e Rule: Taking damage while at 0 HP causes failed death saves
+              if (wasUnconscious && result.damageTotal > 0) {
+                randomTarget.metadata = randomTarget.metadata || {};
+                const death = randomTarget.metadata.deathSaves || { successes: 0, failures: 0 };
+                
+                // Critical hits or melee attacks within 5 feet cause 2 failed death saves
+                const failuresAdded = result.isCritical ? 2 : 1;
+                death.failures += failuresAdded;
+                randomTarget.metadata.deathSaves = death;
+                
+                // Check for instant death (damage >= max HP while at 0)
+                if (result.damageTotal >= (randomTarget.maxHp ?? 0)) {
+                  death.failures = 3;
+                  broadcastToRoom(code, {
+                    type: 'system',
+                    content: `${randomTarget.name} takes massive damage and dies instantly!`,
+                  });
+                } else {
+                  broadcastToRoom(code, {
+                    type: 'system',
+                    content: `${randomTarget.name} takes ${result.damageTotal} damage while unconscious! ${failuresAdded} failed death save${failuresAdded > 1 ? 's' : ''} (${death.failures}/3).`,
+                  });
+                }
+                
+                // If 3+ failures, mark as dead
+                if (death.failures >= 3) {
+                  broadcastToRoom(code, {
+                    type: 'system',
+                    content: `${randomTarget.name} has died.`,
+                  });
+                }
+              }
             }
 
             // If a player drops to 0 HP, announce. Only end combat if every player is truly dead (3 failed saves or marked dead)
-            if (result.hit && randomTarget.controller === 'player' && (randomTarget.currentHp ?? 0) <= 0) {
+            if (result.hit && randomTarget.controller === 'player' && (randomTarget.currentHp ?? 0) <= 0 && !randomTarget.metadata?.deathSaves) {
               broadcastToRoom(code, {
                 type: 'system',
                 content: `${randomTarget.name} drops unconscious at 0 HP!`,
