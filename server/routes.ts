@@ -5441,6 +5441,82 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       return { success: true, effect };
     }
 
+    // Death saving throw (player at 0 HP)
+    if (type === 'death_save') {
+      if ((currentActor.currentHp ?? 0) > 0) {
+        throw new Error('Cannot roll death save while conscious');
+      }
+
+      // Initialize death save tracking
+      currentActor.metadata = currentActor.metadata || {};
+      const death = currentActor.metadata.deathSaves || { successes: 0, failures: 0 };
+
+      const roll = Math.floor(Math.random() * 20) + 1;
+      if (roll === 1) {
+        death.failures += 2;
+      } else if (roll === 20) {
+        death.successes = 3; // auto-stabilize with 1 HP
+        death.failures = 0;
+        currentActor.currentHp = 1;
+      } else if (roll >= 10) {
+        death.successes += 1;
+      } else {
+        death.failures += 1;
+      }
+
+      // Determine outcome
+      let outcome: 'continue' | 'stable' | 'dead' = 'continue';
+      if (death.failures >= 3) {
+        outcome = 'dead';
+        currentActor.currentHp = 0;
+      } else if (death.successes >= 3) {
+        outcome = 'stable';
+        currentActor.currentHp = roll === 20 ? 1 : 0;
+      }
+
+      currentActor.metadata.deathSaves = death;
+
+      broadcastToRoom(code, {
+        type: 'combat_event',
+        event: 'death_save',
+        actorId,
+        roll,
+        successes: death.successes,
+        failures: death.failures,
+        outcome,
+      });
+
+      // If dead, mark combat event and check end condition
+      if (outcome === 'dead') {
+        broadcastToRoom(code, { type: 'system', content: `${currentActor.name} has died.` });
+      } else if (outcome === 'stable') {
+        broadcastToRoom(code, { type: 'system', content: `${currentActor.name} is stable at ${currentActor.currentHp} HP.` });
+      }
+
+      // Advance turn unless combat ended
+      const prevActorId = currentActor.id;
+      advanceTurn(state);
+      const inserted = processTrigger(state, prevActorId);
+      if (inserted.length > 0) broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
+      roomCombatState.set(code, state);
+      broadcastToRoom(code, { type: 'combat_update', combat: state });
+
+      // End combat if no conscious players remain
+      const playersAlive = state.initiatives.some((i: any) => i.controller === 'player' && (i.currentHp ?? 0) > 0);
+      if (!playersAlive) {
+        state.isActive = false;
+        roomCombatState.set(code, state);
+        broadcastToRoom(code, { type: 'combat_update', combat: state });
+        broadcastToRoom(code, { type: 'system', content: 'All players are down. Combat ends.' });
+        return { success: true, outcome, roll };
+      }
+
+      // Trigger NPC if next is monster
+      setImmediate(() => triggerNpcTurnIfNeeded(code));
+
+      return { success: true, outcome, roll };
+    }
+
     // D&D 5e standard actions that don't require targets (don't end turn by default)
     if (type === 'dodge' || type === 'disengage' || type === 'dash') {
       currentActor.metadata = currentActor.metadata || {};

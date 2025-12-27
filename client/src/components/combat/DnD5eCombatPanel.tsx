@@ -218,6 +218,9 @@ export function DnD5eCombatPanel({
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  const myParticipant = participants.find(p => p.id === myActorId);
+  const isDown = (myParticipant?.currentHp ?? 0) <= 0;
+
   // Action economy state (resets each turn)
   const [actionEconomy, setActionEconomy] = useState<ActionEconomy>({
     action: true,
@@ -356,7 +359,18 @@ export function DnD5eCombatPanel({
   });
 
   // Handlers
+  const handleDeathSave = () => {
+    combatActionMutation.mutate({
+      actorId: myActorId,
+      type: "death_save",
+    });
+  };
+
   const handleAttack = () => {
+    if (isDown) {
+      toast({ title: "Unconscious", description: "You must roll a death save.", variant: "destructive" });
+      return;
+    }
     if (!selectedTargetId) {
       toast({ title: "No Target", description: "Select a target first", variant: "destructive" });
       return;
@@ -381,6 +395,10 @@ export function DnD5eCombatPanel({
   };
 
   const handleCastSpell = (spell: SpellData, slotLevel?: number) => {
+    if (isDown) {
+      toast({ title: "Unconscious", description: "You can't cast while at 0 HP.", variant: "destructive" });
+      return;
+    }
     if (!selectedTargetId && spell.range !== "Self") {
       toast({ title: "No Target", description: "Select a target first", variant: "destructive" });
       return;
@@ -428,6 +446,10 @@ export function DnD5eCombatPanel({
   };
 
   const handleBonusAction = (bonusAction: { name: string; type: string }) => {
+    if (isDown) {
+      toast({ title: "Unconscious", description: "You can't take actions at 0 HP.", variant: "destructive" });
+      return;
+    }
     if (!actionEconomy.bonusAction) {
       toast({ title: "No Bonus Action", description: "You've already used your bonus action", variant: "destructive" });
       return;
@@ -444,6 +466,10 @@ export function DnD5eCombatPanel({
   };
 
   const handleDodge = () => {
+    if (isDown) {
+      toast({ title: "Unconscious", description: "You can't take actions at 0 HP.", variant: "destructive" });
+      return;
+    }
     if (!actionEconomy.action) {
       toast({ title: "No Action", description: "You've already used your action this turn", variant: "destructive" });
       return;
@@ -459,6 +485,10 @@ export function DnD5eCombatPanel({
   };
 
   const handleDash = () => {
+    if (isDown) {
+      toast({ title: "Unconscious", description: "You can't take actions at 0 HP.", variant: "destructive" });
+      return;
+    }
     if (!actionEconomy.action) {
       toast({ title: "No Action", description: "You've already used your action this turn", variant: "destructive" });
       return;
@@ -474,6 +504,10 @@ export function DnD5eCombatPanel({
   };
 
   const handleDisengage = () => {
+    if (isDown) {
+      toast({ title: "Unconscious", description: "You can't take actions at 0 HP.", variant: "destructive" });
+      return;
+    }
     if (!actionEconomy.action) {
       toast({ title: "No Action", description: "You've already used your action this turn", variant: "destructive" });
       return;
@@ -499,6 +533,26 @@ export function DnD5eCombatPanel({
             <Badge variant="outline" className="ml-2">Reaction Ready</Badge>
           )}
         </div>
+      </Card>
+    );
+  }
+
+  if (isDown) {
+    return (
+      <Card className={`${compact ? 'p-2' : 'p-3'} border-destructive/50 bg-destructive/5`}>
+        <div className="flex items-center gap-2 mb-2">
+          <Heart className="h-4 w-4 text-destructive" />
+          <span className={`${compact ? 'text-sm' : 'font-semibold'}`}>You are unconscious</span>
+          <Badge variant="destructive" className="ml-auto">0 HP</Badge>
+        </div>
+        <div className="text-sm text-muted-foreground mb-3">Roll a death saving throw.</div>
+        <Button
+          onClick={handleDeathSave}
+          disabled={combatActionMutation.isPending}
+          className="w-full"
+        >
+          Roll Death Save
+        </Button>
       </Card>
     );
   }
