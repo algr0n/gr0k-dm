@@ -5,8 +5,8 @@ import { cn } from "@/lib/utils"
 
 const badgeVariants = cva(
   // Whitespace-nowrap: Badges should never wrap.
-  "whitespace-nowrap inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2" +
-  " hover-elevate " ,
+  "whitespace-nowrap inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors motion-safe:transform-gpu transition-transform duration-150 ease-out focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2" +
+  " hover-elevate hover:scale-105 " ,
   {
     variants: {
       variant: {

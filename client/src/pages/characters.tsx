@@ -788,7 +788,7 @@ export default function Characters() {
           else setCreateDialogOpen(true);
         }}>
           <DialogTrigger asChild>
-            <Button onClick={openCreateDialog} data-testid="button-create-character">
+            <Button variant="gradient" onClick={openCreateDialog} data-testid="button-create-character">
               <Plus className="mr-2 h-4 w-4" />
               New Character
             </Button>

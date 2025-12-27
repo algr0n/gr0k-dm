@@ -355,7 +355,7 @@ export default function Landing() {
             <>
             <Dialog open={hostDialogOpen} onOpenChange={handleDialogClose}>
               <DialogTrigger asChild>
-                <Button size="lg" className="bg-gradient-to-r from-purple-600 to-pink-500 text-white shadow-lg hover:from-purple-700 hover:to-pink-600" data-testid="button-host-game">
+                <Button size="lg" variant="gradient" data-testid="button-host-game">
                   <Plus className="mr-2 h-5 w-5" />
                   Host a Game
                 </Button>
