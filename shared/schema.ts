@@ -463,6 +463,8 @@ export const unifiedCharacters = sqliteTable("unified_characters", {
   // Currency stored as JSON { cp, sp, gp } - default to zeros for backward compatibility
   currency: text("currency", { mode: 'json' }).$type<{ cp: number; sp: number; gp: number }>().notNull().default(sql`'{"cp":0,"sp":0,"gp":0}'`),
   isAlive: integer("is_alive", { mode: 'boolean' }).notNull().default(true),
+  deathSaveSuccesses: integer("death_save_successes").notNull().default(0),
+  deathSaveFailures: integer("death_save_failures").notNull().default(0),
   backstory: text("backstory"),
   notes: text("notes"),
   gameSystem: text("game_system").notNull().default("dnd"),

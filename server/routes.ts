@@ -1983,11 +1983,13 @@ async function executeGameActions(
             await storage.updateSavedCharacter(char.id, {
               isAlive: false,
               currentHp: 0,
+              deathSaveSuccesses: 0,
+              deathSaveFailures: 3, // Mark as 3 failures since they died
             });
             broadcastFn(roomCode, {
               type: "character_update",
               characterId: char.id,
-              updates: { isAlive: false, currentHp: 0 },
+              updates: { isAlive: false, currentHp: 0, deathSaveSuccesses: 0, deathSaveFailures: 3 },
             });
             console.log(`[DM Action] Character ${action.playerName} has died`);
           }
@@ -2537,6 +2539,11 @@ async function executeGameActions(
           if (!action.playerName) break;
           const char = findCharacter(action.playerName);
           if (char) {
+            // Update death saves in database
+            await storage.updateSavedCharacter(char.id, {
+              deathSaveSuccesses: action.successes || 0,
+              deathSaveFailures: action.failures || 0,
+            });
             // Broadcast death save status update
             broadcastFn(roomCode, {
               type: "death_save_update",
@@ -2554,15 +2561,17 @@ async function executeGameActions(
           if (!action.playerName) break;
           const char = findCharacter(action.playerName);
           if (char) {
-            // Character stabilizes at 0 HP, alive but unconscious
+            // Character stabilizes at 0 HP, alive but unconscious, reset death saves
             await storage.updateSavedCharacter(char.id, {
               currentHp: 0,
               isAlive: true,
+              deathSaveSuccesses: 0,
+              deathSaveFailures: 0,
             });
             broadcastFn(roomCode, {
               type: "character_update",
               characterId: char.id,
-              updates: { currentHp: 0, isAlive: true, isStable: true },
+              updates: { currentHp: 0, isAlive: true, isStable: true, deathSaveSuccesses: 0, deathSaveFailures: 0 },
             });
             console.log(`[DM Action] ${action.playerName} has stabilized at 0 HP`);
           }

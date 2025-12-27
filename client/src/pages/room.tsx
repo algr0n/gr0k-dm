@@ -1818,7 +1818,7 @@ export default function RoomPage() {
                           Hit Points
                         </span>
                         <span className="text-sm font-mono" data-testid="text-hp-display">
-                          {myCharacterData.roomCharacter.currentHp} / {myCharacterData.savedCharacter.maxHp}
+                          {liveHp?.current ?? myCharacterData.roomCharacter.currentHp} / {liveHp?.max ?? myCharacterData.savedCharacter.maxHp}
                           {myCharacterData.roomCharacter.temporaryHp > 0 && (
                             <span className="text-primary ml-1">
                               (+{myCharacterData.roomCharacter.temporaryHp} temp)
@@ -1830,7 +1830,7 @@ export default function RoomPage() {
                         <div
                           className="h-full bg-destructive transition-all duration-300"
                           style={{
-                            width: `${Math.min(100, Math.max(0, (myCharacterData.roomCharacter.currentHp / myCharacterData.savedCharacter.maxHp) * 100))}%`,
+                            width: `${Math.min(100, Math.max(0, ((liveHp?.current ?? myCharacterData.roomCharacter.currentHp) / (liveHp?.max ?? myCharacterData.savedCharacter.maxHp)) * 100))}%`,
                           }}
                           data-testid="progress-hp"
                         />
