@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -74,6 +74,22 @@ export function FloatingCharacterPanel({
   const currentHp = propCurrentHp ?? roomChar?.currentHp ?? character?.currentHp ?? 0;
   const maxHp = propMaxHp ?? character?.maxHp ?? 1;
   const hpPercentage = Math.max(0, Math.min(100, (currentHp / maxHp) * 100));
+
+  // Flash indicator for HP changes (red = damage, green = heal)
+  const [hpFlashColor, setHpFlashColor] = useState<null | "red" | "green">(null);
+  const prevHpRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const prev = prevHpRef.current;
+    if (prev !== null && prev !== undefined && currentHp !== prev) {
+      if (currentHp < prev) setHpFlashColor("red");
+      else if (currentHp > prev) setHpFlashColor("green");
+      // clear after animation
+      const t = setTimeout(() => setHpFlashColor(null), 900);
+      return () => clearTimeout(t);
+    }
+    prevHpRef.current = currentHp;
+  }, [currentHp]);
 
   const stats = character?.stats as Record<string, number> | undefined;
   const skills = character?.skills as string[] ?? [];
@@ -155,11 +171,13 @@ export function FloatingCharacterPanel({
           <ScrollArea className="h-[60vh] px-4 py-4">
             {/* HP Bar */}
             <div className="mb-4">
-              <div className="flex justify-between text-sm mb-1">
-                <span>HP: {currentHp}/{maxHp}</span>
+              <div className={cn("flex justify-between text-sm mb-1 transition-all duration-300", hpFlashColor === 'red' ? 'text-destructive' : hpFlashColor === 'green' ? 'text-emerald-400' : '')}>
+                <span className={cn("font-medium", hpFlashColor === 'red' ? 'text-destructive' : hpFlashColor === 'green' ? 'text-emerald-400' : '')}>HP: {currentHp}/{maxHp}</span>
                 <span>{hpPercentage.toFixed(0)}%</span>
               </div>
-              <Progress value={hpPercentage} className="h-2" />
+              <div className={cn('relative', hpFlashColor === 'red' ? 'ring-2 ring-red-500/50 animate-pulse' : hpFlashColor === 'green' ? 'ring-2 ring-emerald-400/50 animate-pulse' : '')}>
+                <Progress value={hpPercentage} className="h-2" />
+              </div>
             </div>
 
             {/* Status Effects */}
