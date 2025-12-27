@@ -12,7 +12,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download, FolderOpen, Coins, Weight, Zap, Flame, Wand2, ScrollText, UsersRound } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download, FolderOpen, Coins, Weight, Zap, Flame, Wand2, ScrollText, UsersRound, ChevronDown, ChevronRight, Terminal } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -274,6 +275,7 @@ export default function RoomPage() {
   const [isRoomPublic, setIsRoomPublic] = useState(false);
   const [combatState, setCombatState] = useState<CombatState | null>(null);
   const [combatResults, setCombatResults] = useState<any[]>([]);
+  const [combatTrackerOpen, setCombatTrackerOpen] = useState(true);
   
   // Quest acceptance modal state
   const [questToAccept, setQuestToAccept] = useState<any | null>(null);
@@ -1239,144 +1241,177 @@ export default function RoomPage() {
           </ScrollArea>
         </div>
 
-        <div className="p-4 border-t">
-          <div className="flex items-center gap-2 mb-3">
-            <Shield className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Combat</span>
-          </div>
-          
-          {combatState?.isActive ? (
-            <div className="space-y-2">
-              {combatState.initiatives && combatState.initiatives.length > 0 ? (
-                <>
-                  <ScrollArea className="h-48">
-                    <div className="space-y-1">
-                      {combatState.initiatives.map((entry, idx) => {
-                        const isCurrentTurn = idx === combatState.currentTurnIndex;
-                        const isMyCharacter = entry.name === myCharacterData?.roomCharacter?.characterName;
-                        const canControl = isHost || isMyCharacter;
-                        
-                        return (
-                          <div
-                            key={entry.id}
-                            className={cn(
-                              "flex flex-col text-sm px-2 py-1.5 rounded gap-1",
-                              isCurrentTurn && "bg-primary/20 font-medium border-l-2 border-primary"
-                            )}
-                            data-testid={`initiative-${entry.id}`}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="truncate flex-1">
-                                {idx + 1}. {entry.name}
-                              </span>
-                              <div className="flex items-center gap-1.5">
+        {/* Compact Terminal-style Combat Tracker */}
+        <Collapsible 
+          open={combatTrackerOpen} 
+          onOpenChange={setCombatTrackerOpen}
+          className="border-t"
+        >
+          <CollapsibleTrigger asChild>
+            <div className="p-2 flex items-center justify-between cursor-pointer hover:bg-muted/50 transition-colors">
+              <div className="flex items-center gap-2">
+                {combatTrackerOpen ? (
+                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="h-3 w-3 text-muted-foreground" />
+                )}
+                <Terminal className="h-3 w-3 text-muted-foreground" />
+                <span className="text-xs font-medium font-mono">Combat</span>
+              </div>
+              {combatState?.isActive && (
+                <Badge variant="destructive" className="text-[10px] h-4 px-1.5 animate-pulse">
+                  R{combatState.roundNumber || 1}
+                </Badge>
+              )}
+            </div>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <div className="px-2 pb-2 font-mono text-[11px] bg-black/20 mx-1 mb-1 rounded">
+              {combatState?.isActive ? (
+                <div className="space-y-1">
+                  {combatState.initiatives && combatState.initiatives.length > 0 ? (
+                    <>
+                      <ScrollArea className="h-28">
+                        <div className="space-y-px pt-1">
+                          {combatState.initiatives.map((entry, idx) => {
+                            const isCurrentTurn = idx === combatState.currentTurnIndex;
+                            const isMyCharacter = entry.name === myCharacterData?.roomCharacter?.characterName;
+                            const canControl = isHost || isMyCharacter;
+                            const hpPercent = entry.maxHp ? Math.max(0, (entry.currentHp ?? 0) / entry.maxHp * 100) : 100;
+                            const hpColor = hpPercent > 50 ? "text-green-400" : hpPercent > 25 ? "text-yellow-400" : "text-red-400";
+                            
+                            return (
+                              <div
+                                key={entry.id}
+                                className={cn(
+                                  "flex items-center gap-1 px-1 py-0.5",
+                                  isCurrentTurn && "bg-primary/30 text-primary-foreground"
+                                )}
+                                data-testid={`initiative-${entry.id}`}
+                              >
+                                <span className={cn(
+                                  "w-3 text-center",
+                                  isCurrentTurn ? "text-primary" : "text-muted-foreground"
+                                )}>
+                                  {isCurrentTurn ? "▶" : idx + 1}
+                                </span>
+                                <span className={cn(
+                                  "flex-1 truncate",
+                                  isMyCharacter && "text-cyan-400"
+                                )}>
+                                  {entry.name.slice(0, 12)}{entry.name.length > 12 ? "…" : ""}
+                                </span>
                                 {entry.currentHp !== undefined && entry.maxHp !== undefined && (
-                                  <span className="text-xs text-muted-foreground font-mono">
-                                    {entry.currentHp}/{entry.maxHp} HP
-                                    {entry.temporaryHp && entry.temporaryHp > 0 && (
-                                      <span className="text-cyan-400"> (+{entry.temporaryHp} temp)</span>
-                                    )}
+                                  <span className={cn("tabular-nums", hpColor)}>
+                                    {entry.currentHp}/{entry.maxHp}
                                   </span>
                                 )}
-                                <Badge variant="outline" className="text-xs">
+                                <span className="text-muted-foreground w-4 text-right">
                                   {entry.total}
-                                </Badge>
+                                </span>
                               </div>
+                            );
+                          })}
+                        </div>
+                      </ScrollArea>
+                      
+                      {/* Inline controls for current turn */}
+                      {(() => {
+                        const currentEntry = combatState.initiatives[combatState.currentTurnIndex];
+                        const isMyTurn = currentEntry?.name === myCharacterData?.roomCharacter?.characterName;
+                        const canControl = isHost || isMyTurn;
+                        
+                        if (canControl && !gameEnded) {
+                          return (
+                            <div className="flex gap-1 pt-1 border-t border-muted-foreground/20">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-5 text-[10px] flex-1 px-1 font-mono"
+                                onClick={() => {
+                                  if (wsRef.current?.readyState === WebSocket.OPEN) {
+                                    wsRef.current.send(JSON.stringify({
+                                      type: "hold_turn",
+                                      actorId: currentEntry.id,
+                                      holdType: "end"
+                                    }));
+                                  }
+                                }}
+                                data-testid={`button-hold-${currentEntry?.id}`}
+                              >
+                                Hold
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-5 text-[10px] flex-1 px-1 font-mono"
+                                onClick={() => {
+                                  if (wsRef.current?.readyState === WebSocket.OPEN) {
+                                    wsRef.current.send(JSON.stringify({
+                                      type: "pass_turn",
+                                      actorId: currentEntry.id
+                                    }));
+                                  }
+                                }}
+                                data-testid={`button-pass-${currentEntry?.id}`}
+                              >
+                                Pass
+                              </Button>
+                              {isHost && (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-5 text-[10px] px-1 font-mono"
+                                    onClick={nextTurn}
+                                    data-testid="button-next-turn"
+                                  >
+                                    <SkipForward className="h-3 w-3" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-5 text-[10px] px-1 font-mono text-destructive"
+                                    onClick={endCombat}
+                                    data-testid="button-end-combat"
+                                  >
+                                    <StopCircle className="h-3 w-3" />
+                                  </Button>
+                                </>
+                              )}
                             </div>
-                            
-                            {isCurrentTurn && canControl && !gameEnded && (
-                              <div className="flex gap-1.5 mt-1">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-6 text-xs flex-1"
-                                  onClick={() => {
-                                    if (wsRef.current?.readyState === WebSocket.OPEN) {
-                                      wsRef.current.send(JSON.stringify({
-                                        type: "hold_turn",
-                                        actorId: entry.id,
-                                        holdType: "end"
-                                      }));
-                                    }
-                                  }}
-                                  data-testid={`button-hold-${entry.id}`}
-                                >
-                                  Hold
-                                </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-6 text-xs flex-1"
-                                  onClick={() => {
-                                    if (wsRef.current?.readyState === WebSocket.OPEN) {
-                                      wsRef.current.send(JSON.stringify({
-                                        type: "pass_turn",
-                                        actorId: entry.id
-                                      }));
-                                    }
-                                  }}
-                                  data-testid={`button-pass-${entry.id}`}
-                                >
-                                  Pass
-                                </Button>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                          );
+                        }
+                        return null;
+                      })()}
+                    </>
+                  ) : (
+                    <div className="text-muted-foreground p-1 text-center">
+                      <span className="text-yellow-500">⚠</span> No init order
                     </div>
-                  </ScrollArea>
-                </>
-              ) : (
-                <div className="text-sm text-muted-foreground p-2 bg-muted/50 rounded">
-                  <p className="font-medium mb-1">Combat Active</p>
-                  <p className="text-xs">No initiative order available. Make sure characters are in the room before starting combat.</p>
+                  )}
                 </div>
-              )}
-              
-              {isHost && !gameEnded && (
-                <div className="flex gap-2 mt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                    onClick={nextTurn}
-                    data-testid="button-next-turn"
-                    disabled={!combatState.initiatives || combatState.initiatives.length === 0}
-                  >
-                    <SkipForward className="h-4 w-4 mr-1" />
-                    Next
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={endCombat}
-                    data-testid="button-end-combat"
-                  >
-                    <StopCircle className="h-4 w-4" />
-                  </Button>
+              ) : (
+                <div className="py-1">
+                  {isHost && !gameEnded ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full h-5 text-[10px] font-mono"
+                      onClick={startCombat}
+                      data-testid="button-start-combat"
+                    >
+                      <Swords className="h-3 w-3 mr-1" />
+                      Start Combat
+                    </Button>
+                  ) : (
+                    <span className="text-muted-foreground block text-center">No combat</span>
+                  )}
                 </div>
               )}
             </div>
-          ) : (
-            isHost && !gameEnded && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                onClick={startCombat}
-                data-testid="button-start-combat"
-              >
-                <Swords className="h-4 w-4 mr-2" />
-                Start Combat
-              </Button>
-            )
-          )}
-          
-          {!combatState?.isActive && !isHost && (
-            <p className="text-xs text-muted-foreground">No active combat</p>
-          )}
-        </div>
+          </CollapsibleContent>
+        </Collapsible>
 
         <div className="p-4 border-t space-y-3">
           <div className="flex items-center gap-2 text-sm">

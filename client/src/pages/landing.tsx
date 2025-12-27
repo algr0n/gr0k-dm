@@ -370,7 +370,7 @@ export default function Landing() {
                       </DialogDescription>
                     </DialogHeader>
                     <form onSubmit={handleHostGame} className="space-y-4">
-                      <div className="space-y-2">
+                      <div className="space-y-2 animate-in slide-in-from-bottom-2 duration-200">
                         <Label htmlFor="game-name">Game Name</Label>
                         <Input
                           id="game-name"
@@ -381,7 +381,7 @@ export default function Landing() {
                           data-testid="input-game-name"
                         />
                       </div>
-                      <div className="space-y-2">
+                      <div className="space-y-2 animate-in slide-in-from-bottom-2 duration-200 delay-75">
                         <Label htmlFor="game-system">Game System</Label>
                         <Select name="gameSystem" value={gameSystem} onValueChange={(v) => setGameSystem(v as GameSystem)}>
                           <SelectTrigger id="game-system" data-testid="select-game-system">
@@ -396,7 +396,7 @@ export default function Landing() {
                           </SelectContent>
                         </Select>
                       </div>
-                      <div className="space-y-2">
+                      <div className="space-y-2 animate-in slide-in-from-bottom-2 duration-200 delay-150">
                         <Label htmlFor="room-password">Room Password (Optional)</Label>
                         <Input
                           id="room-password"
@@ -413,7 +413,7 @@ export default function Landing() {
                       </div>
                       
                       {/* Adventure Mode Selection */}
-                      <div className="space-y-3 border-t pt-4">
+                      <div className="space-y-3 border-t pt-4 animate-in slide-in-from-bottom-2 duration-200 delay-225">
                         <div className="flex items-center space-x-2">
                           <Checkbox
                             id="use-adventure"
@@ -482,7 +482,7 @@ export default function Landing() {
                         )}
                       </div>
                       
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-2 animate-in slide-in-from-bottom-2 duration-200 delay-300">
                         <Checkbox
                           id="is-public"
                           name="isPublic"
@@ -494,21 +494,25 @@ export default function Landing() {
                           List game publicly so anyone can browse and join
                         </Label>
                       </div>
-                      <Button 
-                        type="submit" 
-                        className="w-full" 
-                        disabled={createRoomMutation.isPending}
-                        data-testid="button-create-room"
-                      >
-                        {createRoomMutation.isPending ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Creating...
-                          </>
-                        ) : (
-                          "Create Game Room"
-                        )}
-                      </Button>
+                      <div className="animate-in slide-in-from-bottom-2 duration-200 delay-350">
+                        <Button 
+                          type="submit" 
+                          variant="gradient"
+                          size="lg"
+                          className="w-full mt-2"
+                          disabled={createRoomMutation.isPending}
+                          data-testid="button-create-room"
+                        >
+                          {createRoomMutation.isPending ? (
+                            <>
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              Creating...
+                            </>
+                          ) : (
+                            "Create Game Room"
+                          )}
+                        </Button>
+                      </div>
                     </form>
                   </>
                 ) : (
