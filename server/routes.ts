@@ -5060,10 +5060,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               narrative = `Miss! Rolled ${result.d20} + ${attackBonus} = ${result.attackTotal} vs AC ${targetAc}.`;
             }
             
-            // Apply damage to target
+            // Apply damage to target (D&D 5e: temp HP absorbs damage first)
             if (result.hit && randomTarget.currentHp !== undefined) {
               const wasUnconscious = randomTarget.currentHp <= 0;
-              randomTarget.currentHp = Math.max(0, randomTarget.currentHp - result.damageTotal);
+              let damageRemaining = result.damageTotal;
+              
+              // Temp HP absorbs damage first (doesn't stack, doesn't heal)
+              if (randomTarget.temporaryHp && randomTarget.temporaryHp > 0) {
+                if (randomTarget.temporaryHp >= damageRemaining) {
+                  randomTarget.temporaryHp -= damageRemaining;
+                  damageRemaining = 0;
+                } else {
+                  damageRemaining -= randomTarget.temporaryHp;
+                  randomTarget.temporaryHp = 0;
+                }
+              }
+              
+              // Apply remaining damage to actual HP
+              randomTarget.currentHp = Math.max(0, randomTarget.currentHp - damageRemaining);
               
               // D&D 5e Rule: Taking damage while at 0 HP causes failed death saves
               if (wasUnconscious && result.damageTotal > 0) {
@@ -6130,6 +6144,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const updatedCharacter = await storage.updateSavedCharacter(id, updates);
 
+      // Sync HP/Temp HP changes to combat state if combat is active
+      const combatState = roomCombatState.get(roomCode);
+      if (combatState && combatState.isActive) {
+        const combatActor = combatState.initiatives.find((i: any) => i.id === id);
+        if (combatActor) {
+          // Update HP and temp HP in combat state
+          if (updates.currentHp !== undefined) combatActor.currentHp = updates.currentHp;
+          if (updates.maxHp !== undefined) combatActor.maxHp = updates.maxHp;
+          if (updates.temporaryHp !== undefined) combatActor.temporaryHp = updates.temporaryHp;
+          
+          // Clear death saves if healing back from 0 HP
+          if (updates.currentHp > 0 && combatActor.metadata?.deathSaves) {
+            combatActor.metadata.deathSaves = { successes: 0, failures: 0 };
+          }
+          
+          roomCombatState.set(roomCode, combatState);
+          // Broadcast combat state update
+          broadcastToRoom(roomCode, { type: 'combat_update', combat: combatState });
+        }
+      }
+
       // Broadcast update to room with full character data for UI sync
       broadcastToRoom(roomCode, {
         type: "character_update",
@@ -6137,6 +6172,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         playerId: character.userId,
         currentHp: updatedCharacter?.currentHp ?? character.currentHp,
         maxHp: updatedCharacter?.maxHp ?? character.maxHp,
+        temporaryHp: updatedCharacter?.temporaryHp ?? character.temporaryHp,
         updates,
       });
 

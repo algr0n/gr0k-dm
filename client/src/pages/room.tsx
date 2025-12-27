@@ -1263,6 +1263,9 @@ export default function RoomPage() {
                                 {entry.currentHp !== undefined && entry.maxHp !== undefined && (
                                   <span className="text-xs text-muted-foreground font-mono">
                                     {entry.currentHp}/{entry.maxHp} HP
+                                    {entry.temporaryHp && entry.temporaryHp > 0 && (
+                                      <span className="text-cyan-400"> (+{entry.temporaryHp} temp)</span>
+                                    )}
                                   </span>
                                 )}
                                 <Badge variant="outline" className="text-xs">

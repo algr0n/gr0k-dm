@@ -11,6 +11,7 @@ export interface InitiativeEntry {
   ac?: number;
   currentHp?: number;
   maxHp?: number;
+  temporaryHp?: number;
   metadata?: any;
 }
 
@@ -82,6 +83,7 @@ export function rollInitiativesForCombat(characters: any[], players: any[], mons
       ac: char.ac ?? 10,
       currentHp: char.currentHp ?? char.maxHp ?? 1,
       maxHp: char.maxHp ?? 1,
+      temporaryHp: char.temporaryHp ?? 0,
       metadata: { 
         userId: player.id || char.userId, 
         playerName: player.name,
