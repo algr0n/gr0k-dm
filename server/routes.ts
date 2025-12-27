@@ -5064,24 +5064,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               randomTarget.currentHp = Math.max(0, randomTarget.currentHp - result.damageTotal);
             }
 
-            // If a player drops to 0 HP, announce and check for auto-end conditions
+            // If a player drops to 0 HP, announce. Only end combat if every player is truly dead (3 failed saves or marked dead)
             if (result.hit && randomTarget.controller === 'player' && (randomTarget.currentHp ?? 0) <= 0) {
               broadcastToRoom(code, {
                 type: 'system',
                 content: `${randomTarget.name} drops unconscious at 0 HP!`,
               });
 
-              // If no players remain conscious, end combat automatically
-              const playersAlive = state.initiatives.some((i: any) => i.controller === 'player' && (i.currentHp ?? 0) > 0);
-              if (!playersAlive) {
+              const anyStanding = state.initiatives.some(
+                (i: any) => i.controller === 'player' && (i.currentHp ?? 0) > 0
+              );
+
+              const anyNotDead = state.initiatives.some((i: any) => {
+                if (i.controller !== 'player') return false;
+                const hp = i.currentHp ?? 0;
+                const failures = i.metadata?.deathSaves?.failures ?? 0;
+                const isDead = failures >= 3 || i.isAlive === false;
+                return hp > 0 || !isDead;
+              });
+
+              // Only end if everyone is actually dead (no conscious or death-save-eligible players)
+              if (!anyStanding && !anyNotDead) {
                 state.isActive = false;
                 roomCombatState.set(code, state);
                 broadcastToRoom(code, { type: 'combat_update', combat: state });
                 broadcastToRoom(code, {
                   type: 'system',
-                  content: 'All players are down. Combat ends.',
+                  content: 'All players have died. Combat ends.',
                 });
-                // Clear processing flag and stop further NPC advancement
                 npcTurnProcessing.delete(code);
                 return; // abort further processing for this NPC turn
               }
@@ -5501,13 +5511,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       roomCombatState.set(code, state);
       broadcastToRoom(code, { type: 'combat_update', combat: state });
 
-      // End combat if no conscious players remain
-      const playersAlive = state.initiatives.some((i: any) => i.controller === 'player' && (i.currentHp ?? 0) > 0);
-      if (!playersAlive) {
+      // End combat only if all players are actually dead (no conscious or death-save-eligible characters)
+      const anyStanding = state.initiatives.some((i: any) => i.controller === 'player' && (i.currentHp ?? 0) > 0);
+      const anyNotDead = state.initiatives.some((i: any) => {
+        if (i.controller !== 'player') return false;
+        const hp = i.currentHp ?? 0;
+        const failures = i.metadata?.deathSaves?.failures ?? 0;
+        const isDead = failures >= 3 || i.isAlive === false;
+        return hp > 0 || !isDead;
+      });
+
+      if (!anyStanding && !anyNotDead) {
         state.isActive = false;
         roomCombatState.set(code, state);
         broadcastToRoom(code, { type: 'combat_update', combat: state });
-        broadcastToRoom(code, { type: 'system', content: 'All players are down. Combat ends.' });
+        broadcastToRoom(code, { type: 'system', content: 'All players have died. Combat ends.' });
         return { success: true, outcome, roll };
       }
 

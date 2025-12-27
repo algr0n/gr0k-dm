@@ -215,6 +215,9 @@ export function DnD5eCombatPanel({
   const [selectedTargetId, setSelectedTargetId] = useState<string>("");
   const [selectedSpell, setSelectedSpell] = useState<SpellData | null>(null);
   const [spellDialogOpen, setSpellDialogOpen] = useState(false);
+  const [customSpellName, setCustomSpellName] = useState("Magic Missile");
+  const [customSpellDamage, setCustomSpellDamage] = useState("1d6");
+  const [customSpellIsBonus, setCustomSpellIsBonus] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -232,13 +235,28 @@ export function DnD5eCombatPanel({
 
   // Get character's known spells with full data
   const knownSpells = useMemo(() => {
-    if (!characterData.spells || characterData.spells.length === 0) return [];
-    const knownSpellNames = new Set(characterData.spells.map(s => s.toLowerCase()));
-    return allSpells.filter(spell => 
-      knownSpellNames.has(spell.name.toLowerCase()) ||
-      knownSpellNames.has(spell.id.toLowerCase())
+    const prepared = characterData.spells || [];
+    const preparedSet = new Set(prepared.map((s) => s.toLowerCase()));
+    const charClassNormalized = (characterData.class || "").toLowerCase();
+
+    // Spells explicitly prepared/known on the character
+    const preparedSpells = allSpells.filter(
+      (spell) => preparedSet.has(spell.name.toLowerCase()) || preparedSet.has(spell.id.toLowerCase())
     );
-  }, [characterData.spells, allSpells]);
+
+    // Cantrips are always available for classes that get them, even if not prepared
+    const classCantrips = allSpells.filter(
+      (spell) =>
+        spell.level === 0 &&
+        spell.classes.some((c) => c.toLowerCase() === charClassNormalized)
+    );
+
+    const merged = new Map<string, SpellData>();
+    preparedSpells.forEach((spell) => merged.set(spell.id, spell));
+    classCantrips.forEach((spell) => merged.set(spell.id, spell));
+
+    return Array.from(merged.values());
+  }, [characterData.class, characterData.spells, allSpells]);
 
   // Group spells by level
   const spellsByLevel = useMemo(() => {
@@ -445,6 +463,44 @@ export function DnD5eCombatPanel({
     setSpellDialogOpen(false);
   };
 
+  const handleCastCustomSpell = () => {
+    if (isDown) {
+      toast({ title: "Unconscious", description: "You can't cast while at 0 HP.", variant: "destructive" });
+      return;
+    }
+
+    if (!selectedTargetId) {
+      toast({ title: "No Target", description: "Select a target first", variant: "destructive" });
+      return;
+    }
+
+    const actionType = customSpellIsBonus ? "bonus" : "action";
+    if (actionType === "action" && !actionEconomy.action) {
+      toast({ title: "No Action", description: "You've already used your action this turn", variant: "destructive" });
+      return;
+    }
+    if (actionType === "bonus" && !actionEconomy.bonusAction) {
+      toast({ title: "No Bonus Action", description: "You've already used your bonus action", variant: "destructive" });
+      return;
+    }
+
+    const damageExpression = customSpellDamage || "0";
+
+    combatActionMutation.mutate({
+      actorId: myActorId,
+      type: "spell",
+      targetId: selectedTargetId,
+      attackBonus: spellAttackBonus,
+      damageExpression,
+      spellName: customSpellName || "Custom Spell",
+      spellLevel: 0,
+      slotUsed: 0,
+      actionType,
+    });
+
+    setSpellDialogOpen(false);
+  };
+
   const handleBonusAction = (bonusAction: { name: string; type: string }) => {
     if (isDown) {
       toast({ title: "Unconscious", description: "You can't take actions at 0 HP.", variant: "destructive" });
@@ -630,11 +686,9 @@ export function DnD5eCombatPanel({
         <Tabs defaultValue="actions" className="w-full">
           <TabsList className={`grid w-full ${knownSpells.length > 0 ? 'grid-cols-3' : 'grid-cols-2'} ${compact ? 'h-7' : ''}`}>
             <TabsTrigger value="actions" className={compact ? "text-xs py-1" : ""}>Actions</TabsTrigger>
-            {knownSpells.length > 0 && (
-              <TabsTrigger value="spells" className={compact ? "text-xs py-1" : ""}>
-                Spells ({knownSpells.length})
-              </TabsTrigger>
-            )}
+            <TabsTrigger value="spells" className={compact ? "text-xs py-1" : ""}>
+              Spells {knownSpells.length > 0 ? `(${knownSpells.length})` : ''}
+            </TabsTrigger>
             <TabsTrigger value="other" className={compact ? "text-xs py-1" : ""}>Other</TabsTrigger>
           </TabsList>
 
@@ -651,23 +705,23 @@ export function DnD5eCombatPanel({
                 Attack
               </Button>
               
-              {knownSpells.length > 0 && (
-                <Dialog open={spellDialogOpen} onOpenChange={setSpellDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button
-                      variant="secondary"
-                      size={compact ? "sm" : "default"}
-                      disabled={!actionEconomy.action && !actionEconomy.bonusAction}
-                      className="w-full"
-                    >
-                      <Sparkles className="h-4 w-4 mr-1" />
-                      Cast Spell
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-md max-h-[80vh]">
-                    <DialogHeader>
-                      <DialogTitle>Cast a Spell</DialogTitle>
-                    </DialogHeader>
+              <Dialog open={spellDialogOpen} onOpenChange={setSpellDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button
+                    variant="secondary"
+                    size={compact ? "sm" : "default"}
+                    disabled={!actionEconomy.action && !actionEconomy.bonusAction}
+                    className="w-full"
+                  >
+                    <Sparkles className="h-4 w-4 mr-1" />
+                    Cast Spell
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-md max-h-[80vh]">
+                  <DialogHeader>
+                    <DialogTitle>{knownSpells.length > 0 ? "Cast a Spell" : "Cast a Custom Spell"}</DialogTitle>
+                  </DialogHeader>
+                  {knownSpells.length > 0 ? (
                     <ScrollArea className="h-[400px] pr-4">
                       {Object.entries(spellsByLevel).sort(([a], [b]) => Number(a) - Number(b)).map(([level, spells]) => (
                         <div key={level} className="mb-4">
@@ -716,9 +770,42 @@ export function DnD5eCombatPanel({
                         </div>
                       ))}
                     </ScrollArea>
-                  </DialogContent>
-                </Dialog>
-              )}
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="grid gap-2">
+                        <label className="text-sm font-medium">Spell Name</label>
+                        <input
+                          className="w-full rounded border bg-background px-3 py-2 text-sm"
+                          value={customSpellName}
+                          onChange={(e) => setCustomSpellName(e.target.value)}
+                          placeholder="Magic Missile"
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <label className="text-sm font-medium">Damage Expression (e.g. 2d6+1)</label>
+                        <input
+                          className="w-full rounded border bg-background px-3 py-2 text-sm"
+                          value={customSpellDamage}
+                          onChange={(e) => setCustomSpellDamage(e.target.value)}
+                          placeholder="1d6"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={customSpellIsBonus}
+                          onChange={(e) => setCustomSpellIsBonus(e.target.checked)}
+                        />
+                        <span className="text-sm">Cast as bonus action</span>
+                      </div>
+                      <Button onClick={handleCastCustomSpell} className="w-full">
+                        <Sparkles className="h-4 w-4 mr-2" />
+                        Cast Custom Spell
+                      </Button>
+                    </div>
+                  )}
+                </DialogContent>
+              </Dialog>
             </div>
 
             {/* Class bonus actions */}
@@ -749,8 +836,8 @@ export function DnD5eCombatPanel({
           </TabsContent>
 
           {/* Spells Tab */}
-          {knownSpells.length > 0 && (
-            <TabsContent value="spells" className="mt-2">
+          <TabsContent value="spells" className="mt-2">
+            {knownSpells.length > 0 ? (
               <ScrollArea className="h-[150px]">
                 {Object.entries(spellsByLevel).sort(([a], [b]) => Number(a) - Number(b)).map(([level, spells]) => (
                   <div key={level} className="mb-2">
@@ -778,8 +865,42 @@ export function DnD5eCombatPanel({
                   </div>
                 ))}
               </ScrollArea>
-            </TabsContent>
-          )}
+            ) : (
+              <div className="space-y-3">
+                <div className="text-sm text-muted-foreground">No prepared spells. Cast a custom spell:</div>
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium">Spell Name</label>
+                  <input
+                    className="w-full rounded border bg-background px-3 py-2 text-sm"
+                    value={customSpellName}
+                    onChange={(e) => setCustomSpellName(e.target.value)}
+                    placeholder="Magic Missile"
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium">Damage Expression (e.g. 2d6+1)</label>
+                  <input
+                    className="w-full rounded border bg-background px-3 py-2 text-sm"
+                    value={customSpellDamage}
+                    onChange={(e) => setCustomSpellDamage(e.target.value)}
+                    placeholder="1d6"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={customSpellIsBonus}
+                    onChange={(e) => setCustomSpellIsBonus(e.target.checked)}
+                  />
+                  <span className="text-sm">Cast as bonus action</span>
+                </div>
+                <Button onClick={handleCastCustomSpell} className="w-full">
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Cast Custom Spell
+                </Button>
+              </div>
+            )}
+          </TabsContent>
 
           {/* Other Actions Tab */}
           <TabsContent value="other" className="mt-2 space-y-1">
