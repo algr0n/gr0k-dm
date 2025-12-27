@@ -26,8 +26,8 @@ import { XPLevelCard } from "./character-sheet/XPLevelCard";
 import { InventoryAccordion } from "./character-sheet/InventoryAccordion";
 import { SpellsAccordion } from "./character-sheet/SpellsAccordion";
 
-// Import CSS module
-import styles from "./character-sheet/CharacterSheet.module.css";
+// Import CSS file for responsive layout
+import "./character-sheet/CharacterSheet.css";
 
 interface CharacterSheetProps {
   character: UnifiedCharacter | null;
@@ -205,9 +205,9 @@ export function CharacterSheet({ character, inventory = [], open, onOpenChange }
         </DialogHeader>
 
         <ScrollArea className="max-h-[85vh] px-6 pb-6">
-          <div className={styles.characterSheetGrid}>
+          <div className="characterSheetGrid">
             {/* Header Area - Character Name and Basic Info */}
-            <div className={styles.headerArea}>
+            <div className="headerArea">
               <div className="flex items-center gap-4 mb-4">
                 <div className="flex-1">
                   <h2 className="font-serif text-3xl mb-2">{character.characterName}</h2>
@@ -224,8 +224,8 @@ export function CharacterSheet({ character, inventory = [], open, onOpenChange }
             </div>
 
             {/* Left Column - Portrait, Quick Stats, Resources */}
-            <div className={styles.leftColumn}>
-              <div className={styles.cardSpacing}>
+            <div className="leftColumn">
+              <div className="cardSpacing">
                 <PortraitCard 
                   characterName={character.characterName}
                   initials={getInitials(character.characterName)}
@@ -246,8 +246,8 @@ export function CharacterSheet({ character, inventory = [], open, onOpenChange }
             </div>
 
             {/* Center Column - Main Stats */}
-            <div className={styles.centerColumn}>
-              <div className={styles.cardSpacing}>
+            <div className="centerColumn">
+              <div className="cardSpacing">
                 <HPBar currentHp={currentHp} maxHp={maxHp} />
                 
                 <XPLevelCard level={level} xp={xp} />
@@ -269,8 +269,8 @@ export function CharacterSheet({ character, inventory = [], open, onOpenChange }
             </div>
 
             {/* Right Column - Skills, Inventory, Spells */}
-            <div className={styles.rightColumn}>
-              <div className={styles.cardSpacing}>
+            <div className="rightColumn">
+              <div className="cardSpacing">
                 <SkillsAccordion
                   skills={skillsData}
                   proficiencyBonus={profBonus}
