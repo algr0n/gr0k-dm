@@ -4,15 +4,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SkillsList } from "./SkillsList";
 import type { LayoutBreakpoint } from "@/hooks/useLayoutBreakpoint";
-
-interface Skill {
-  name: string;
-  ability: string;
-  bonus: number;
-  isProficient: boolean;
-  hasExpertise: boolean;
-  sources?: string[];
-}
+import type { Skill } from "./types";
 
 interface SkillsAccordionProps {
   skills: Skill[];
