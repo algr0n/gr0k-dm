@@ -233,9 +233,14 @@ export function DnD5eCombatPanel({
     maxMovement: characterData.speed || 30,
   });
 
+  // Track if we've ended our turn and are waiting for the server to advance/combine NPC turns
+  const [waitingForTurn, setWaitingForTurn] = useState(false);
+
   // Ensure action economy resets when it becomes *your* turn (covers server-driven turn advances)
   useEffect(() => {
     if (isMyTurn) {
+      // Clear waiting flag and reset economy now that the server says it's your turn
+      setWaitingForTurn(false);
       setActionEconomy({
         action: true,
         bonusAction: true,
@@ -349,7 +354,10 @@ export function DnD5eCombatPanel({
       queryClient.invalidateQueries({ queryKey: ["/api/rooms", roomCode] });
     },
     onError: (error: Error) => {
+      // If the server rejected because it's not your turn, stop further attempts and refresh combat state
       if (error.message?.toLowerCase().includes("not actor")) {
+        setWaitingForTurn(true);
+        setActionEconomy(prev => ({ ...prev, action: false, bonusAction: false }));
         queryClient.invalidateQueries({ queryKey: ["/api/rooms", roomCode] });
       }
       toast({
@@ -374,8 +382,19 @@ export function DnD5eCombatPanel({
       }
       return res.json();
     },
+    onMutate: () => {
+      // Optimistically mark that we've ended our turn so UI can't send further actions
+      setWaitingForTurn(true);
+      setActionEconomy({ action: false, bonusAction: false, reaction: false, movement: 0, maxMovement: characterData.speed || 30 });
+    },
     onSuccess: () => {
-      // Reset action economy for next turn
+      // Keep waitingForTurn true until the server sends a combat update that makes isMyTurn true
+      // (we'll clear waitingForTurn in the isMyTurn useEffect when it becomes our turn again)
+      setWaitingForTurn(true);
+    },
+    onError: (error: Error) => {
+      // Revert optimistic change on error
+      setWaitingForTurn(false);
       setActionEconomy({
         action: true,
         bonusAction: true,
@@ -383,8 +402,6 @@ export function DnD5eCombatPanel({
         movement: characterData.speed || 30,
         maxMovement: characterData.speed || 30,
       });
-    },
-    onError: (error: Error) => {
       toast({ title: "Pass Failed", description: error.message, variant: "destructive" });
     },
   });
@@ -710,7 +727,7 @@ export function DnD5eCombatPanel({
             <div className="grid grid-cols-2 gap-1">
               <Button
                 onClick={handleAttack}
-                disabled={!selectedTargetId || !actionEconomy.action || combatActionMutation.isPending}
+                disabled={!selectedTargetId || !actionEconomy.action || combatActionMutation.isPending || waitingForTurn || passTurnMutation.isPending}
                 size={compact ? "sm" : "default"}
                 className="w-full"
               >
@@ -723,7 +740,7 @@ export function DnD5eCombatPanel({
                   <Button
                     variant="secondary"
                     size={compact ? "sm" : "default"}
-                    disabled={!actionEconomy.action && !actionEconomy.bonusAction}
+                    disabled={!actionEconomy.action && !actionEconomy.bonusAction || waitingForTurn || passTurnMutation.isPending}
                     className="w-full"
                   >
                     <Sparkles className="h-4 w-4 mr-1" />
@@ -759,7 +776,8 @@ export function DnD5eCombatPanel({
                                   disabled={
                                     (isBonusAction && !actionEconomy.bonusAction) ||
                                     (!isBonusAction && !actionEconomy.action) ||
-                                    (spell.level > 0 && (characterData.spellSlots?.current[spell.level] || 0) <= 0)
+                                    (spell.level > 0 && (characterData.spellSlots?.current[spell.level] || 0) <= 0) ||
+                                    waitingForTurn || passTurnMutation.isPending
                                   }
                                   onClick={() => handleCastSpell(spell)}
                                 >
@@ -834,7 +852,7 @@ export function DnD5eCombatPanel({
                           size="sm"
                           className="w-full justify-start text-xs"
                           onClick={() => handleBonusAction(ba)}
-                          disabled={!actionEconomy.bonusAction}
+                          disabled={!actionEconomy.bonusAction || waitingForTurn || passTurnMutation.isPending}
                         >
                           <ChevronRight className="h-3 w-3 mr-1" />
                           {ba.name}
@@ -924,7 +942,7 @@ export function DnD5eCombatPanel({
                     variant="outline"
                     size="sm"
                     onClick={handleDodge}
-                    disabled={!actionEconomy.action}
+                    disabled={!actionEconomy.action || waitingForTurn || passTurnMutation.isPending}
                     className="text-xs"
                   >
                     <Shield className="h-3 w-3 mr-1" />
@@ -940,7 +958,7 @@ export function DnD5eCombatPanel({
                     variant="outline"
                     size="sm"
                     onClick={handleDash}
-                    disabled={!actionEconomy.action}
+                    disabled={!actionEconomy.action || waitingForTurn || passTurnMutation.isPending}
                     className="text-xs"
                   >
                     <Footprints className="h-3 w-3 mr-1" />
@@ -956,7 +974,7 @@ export function DnD5eCombatPanel({
                     variant="outline"
                     size="sm"
                     onClick={handleDisengage}
-                    disabled={!actionEconomy.action}
+                    disabled={!actionEconomy.action || waitingForTurn || passTurnMutation.isPending}
                     className="text-xs"
                   >
                     <SkipForward className="h-3 w-3 mr-1" />
