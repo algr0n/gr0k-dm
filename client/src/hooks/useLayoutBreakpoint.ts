@@ -3,6 +3,15 @@ import { useState, useEffect } from 'react';
 export type LayoutBreakpoint = 'mobile' | 'tablet' | 'desktop';
 
 /**
+ * Determine the current breakpoint based on window width
+ */
+function getBreakpoint(width: number): LayoutBreakpoint {
+  if (width < 768) return 'mobile';
+  if (width < 1024) return 'tablet';
+  return 'desktop';
+}
+
+/**
  * Hook to detect the current layout breakpoint based on window width.
  * Uses matchMedia for efficient, event-driven updates.
  * 
@@ -15,10 +24,7 @@ export function useLayoutBreakpoint(): LayoutBreakpoint {
   const [breakpoint, setBreakpoint] = useState<LayoutBreakpoint>(() => {
     // Initialize based on current window width
     if (typeof window === 'undefined') return 'desktop';
-    const width = window.innerWidth;
-    if (width < 768) return 'mobile';
-    if (width < 1024) return 'tablet';
-    return 'desktop';
+    return getBreakpoint(window.innerWidth);
   });
 
   useEffect(() => {

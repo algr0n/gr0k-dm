@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Sparkles, ChevronDown, ChevronRight } from "lucide-react";
@@ -16,6 +16,11 @@ export function SpellsAccordion({
   className 
 }: SpellsAccordionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  
+  // Update when defaultOpen changes (e.g., breakpoint changes)
+  useEffect(() => {
+    setIsOpen(defaultOpen);
+  }, [defaultOpen]);
 
   return (
     <Card className={cn("overflow-hidden", className)} data-testid="spells-accordion">

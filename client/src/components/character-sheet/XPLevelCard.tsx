@@ -11,13 +11,14 @@ interface XPLevelCardProps {
 }
 
 export function XPLevelCard({ level, xp, className }: XPLevelCardProps) {
+  // Handle max level case (level 20)
+  const isMaxLevel = level >= 20;
+  
   const currentThreshold = xpThresholds[level] || 0;
-  const nextThreshold = xpThresholds[level + 1] || xpThresholds[20];
+  const nextThreshold = isMaxLevel ? currentThreshold : (xpThresholds[level + 1] || 0);
   const xpIntoLevel = xp - currentThreshold;
   const xpForNextLevel = nextThreshold - currentThreshold;
   
-  // Handle max level case (level 20)
-  const isMaxLevel = level >= 20;
   const xpPercentage = isMaxLevel || xpForNextLevel === 0 
     ? 100 
     : Math.min(100, Math.max(0, (xpIntoLevel / xpForNextLevel) * 100));

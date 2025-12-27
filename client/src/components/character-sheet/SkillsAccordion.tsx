@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -24,7 +24,15 @@ export function SkillsAccordion({
   className 
 }: SkillsAccordionProps) {
   // Auto-expand on desktop, collapsed on mobile/tablet
+  // Update accordion state when breakpoint changes
   const [isOpen, setIsOpen] = useState(breakpoint === 'desktop');
+  
+  // Update isOpen when breakpoint changes
+  useEffect(() => {
+    if (breakpoint === 'desktop') {
+      setIsOpen(true);
+    }
+  }, [breakpoint]);
 
   // If desktop, always show expanded without accordion behavior
   if (breakpoint === 'desktop') {
