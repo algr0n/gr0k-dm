@@ -2,6 +2,7 @@ import { openai } from "../grok";
 import { storage } from "../storage";
 import type { Item } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { DEFAULT_GROK_MODEL } from "../constants";
 
 // Simple in-memory cache to avoid duplicate AI calls for the same item name
 // Key: lowercase item name, Value: item ID
@@ -97,7 +98,7 @@ Be creative but balanced for D&D 5e. Return ONLY the JSON, no markdown, no code 
   try {
     // Call AI to generate item stats
     const response = await openai.chat.completions.create({
-      model: "grok-4-1-fast-reasoning",
+      model: DEFAULT_GROK_MODEL,
       messages: [
         {
           role: "system",

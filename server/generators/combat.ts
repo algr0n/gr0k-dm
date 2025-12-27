@@ -5,6 +5,7 @@ import type { Client } from "@libsql/client";
 import type { Room } from "@shared/schema";
 import { tokenTracker } from "../utils/token-tracker";
 import { ContextBuilder } from "../context/context-builder";
+import { DEFAULT_GROK_MODEL } from "../constants";
 import type { CharacterInfo } from "../context/context-builder";
 import { monsterCacheManager } from "../cache/monster-cache";
 
@@ -102,7 +103,7 @@ export async function generateCombatDMTurn(
   const messages = builder.build();
   try {
     const response = await openaiClient.chat.completions.create({
-      model: "grok-4-1-fast-reasoning",
+      model: DEFAULT_GROK_MODEL,
       messages,
       max_tokens: options?.decisionOnly ? 150 : 600,
       temperature: options?.decisionOnly ? 0.2 : 0.8,

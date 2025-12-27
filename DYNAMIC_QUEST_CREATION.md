@@ -15,7 +15,7 @@ All features implemented, tested, and deployed to Turso database.
 ### New Files
 1. **`server/utils/quest-detection.ts`** - Quest detection and AI extraction utility
    - Pattern-based quest language detection
-   - AI-powered quest extraction (Grok-3)
+   - AI-powered quest extraction (grok-4-1-fast-reasoning)
    - Structured quest data output
 
 2. **`test-quest-detection.ts`** - Comprehensive test suite
@@ -60,7 +60,7 @@ Detects quest-giving language in AI responses:
 
 ### 2. AI Quest Extraction ✅
 
-Uses Grok-3 to extract structured data from narrative:
+Uses grok-4-1-fast-reasoning to extract structured data from narrative:
 ```typescript
 {
   title: "Rescue from Cragmaw Cave",
@@ -214,7 +214,9 @@ CREATE INDEX idx_quests_dynamic ON adventure_quests(is_dynamic);
 Quest detection patterns are **intentionally permissive** to catch quest hooks. False positives are rare due to AI validation step.
 
 ### AI Model
-- **Model**: `grok-3` (latest stable)
+- **Model**: `grok-4-1-fast-reasoning` (preferred)  
+
+> Note: The codebase enforces using `grok-4-1-fast-reasoning` via `server/constants.ts` (DEFAULT_GROK_MODEL). Update the constant only after review if a newer/better model becomes available.
 - **Temperature**: 0.3 (structured output)
 - **Max Tokens**: 500 (sufficient for quest extraction)
 

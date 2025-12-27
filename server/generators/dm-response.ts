@@ -5,6 +5,7 @@ import type { Room } from "@shared/schema";
 import { responseCache } from "../cache/response-cache";
 import { tokenTracker } from "../utils/token-tracker";
 import { ContextBuilder } from "../context/context-builder";
+import { DEFAULT_GROK_MODEL } from "../constants";
 import type { CharacterInfo, DroppedItemInfo, DiceResult } from "../context/context-builder";
 
 export async function generateDMResponse(
@@ -55,7 +56,7 @@ export async function generateDMResponse(
 
   try {
     const response = await openaiClient.chat.completions.create({
-      model: "grok-4-1-fast-reasoning",
+      model: DEFAULT_GROK_MODEL,
       messages,
       max_tokens: 1000,
       temperature: cacheable ? 0.3 : 0.8, // Lower temperature for cacheable queries for consistency

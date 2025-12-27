@@ -135,7 +135,7 @@ interface NpcStatBlock {
 - **Trigger**: When `XAI_API_KEY` is present
 - **Method**: Structured JSON prompt to Grok API
 - **Temperature**: 0.3 (conservative for consistency)
-- **Model**: grok-beta
+- **Model**: grok-4-1-fast-reasoning
 - **Fallback**: On API failure or invalid response, uses deterministic generator
 
 ### Deterministic Generation

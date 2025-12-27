@@ -15,6 +15,7 @@ if (process.env.USE_MOCK_STORAGE === '1') {
   // This allows tests to import this file without side effects
 }
 import { db } from "./db";
+import { DEFAULT_GROK_MODEL } from "./constants";
 import { client as libsqlClient } from "./db";
 import { parseDiceExpression } from "./dice";
 import { calculateDndMaxHp, applyDndRaceBonuses, parseHitDiceString, type HitDiceInfo } from "@shared/race-class-bonuses";
@@ -5924,7 +5925,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const editPrompt = `Edit the existing encounter at ${locationName}. Changes requested: ${prompt}. Return JSON in the same format as stage generator (features, spawns, summary).`;
       const response = await openai.chat.completions.create({
-        model: 'grok-4-1-fast-reasoning',
+        model: DEFAULT_GROK_MODEL,
         messages: [{ role: 'system', content: 'You are an encounter editor. Return only JSON.' }, { role: 'user', content: editPrompt }],
         max_tokens: 300,
         temperature: 0.2,
@@ -6748,7 +6749,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }`;
 
       const summaryResponse = await openai.chat.completions.create({
-        model: "grok-4-1-fast-reasoning",
+        model: DEFAULT_GROK_MODEL,
         messages: [
           { role: "system", content: `You are summarizing a ${gameSystem} game session.` },
           { role: "user", content: summaryPrompt },

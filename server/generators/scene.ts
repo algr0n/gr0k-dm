@@ -2,6 +2,7 @@
 
 import OpenAI from "openai";
 import { getSystemPrompt } from "../prompts";
+import { DEFAULT_GROK_MODEL } from "../constants";
 
 export async function generateSceneDescription(
   openaiClient: OpenAI,
@@ -12,7 +13,7 @@ export async function generateSceneDescription(
 
   try {
     const response = await openaiClient.chat.completions.create({
-      model: "grok-4-1-fast-reasoning",
+      model: DEFAULT_GROK_MODEL,
       messages: [
         { role: "system", content: systemPrompt + "\n\nDescribe this scene vividly in 2-3 paragraphs." },
         { role: "user", content: `Describe this scene: ${prompt}` },
@@ -66,7 +67,7 @@ export async function generateStartingScene(
 
   try {
     const response = await openaiClient.chat.completions.create({
-      model: "grok-4-1-fast-reasoning",
+      model: DEFAULT_GROK_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },

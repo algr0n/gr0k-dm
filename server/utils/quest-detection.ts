@@ -6,6 +6,7 @@
  */
 
 import OpenAI from "openai";
+import { DEFAULT_GROK_MODEL } from "../constants";
 
 const openai = new OpenAI({
   apiKey: process.env.XAI_API_KEY || "",
@@ -89,7 +90,7 @@ ${contextInfo ? `Context:
 Extract quest information if present.`;
 
     const response = await openai.chat.completions.create({
-      model: "grok-4-1-fast-reasoning", // Match the model used for main DM responses
+      model: DEFAULT_GROK_MODEL, // Match the model used for main DM responses
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }

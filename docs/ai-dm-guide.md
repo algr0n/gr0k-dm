@@ -240,7 +240,7 @@ const context = new ContextBuilder(gameSystem)
   .build();
 
 const response = await openai.chat.completions.create({
-  model: "grok-beta",
+  model: "grok-4-1-fast-reasoning",
   messages: context,
 });
 ```
@@ -398,7 +398,7 @@ export const openai = new OpenAI({
 
 // In generators
 const completion = await openai.chat.completions.create({
-  model: "grok-beta",  // Fast, cost-effective
+  model: "grok-4-1-fast-reasoning",  // Fast, cost-effective
   messages: context,
   temperature: 0.8,     // Creative but coherent
   max_tokens: 500,      // Keep responses concise

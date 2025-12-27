@@ -2,6 +2,7 @@
 // This module provides a clean interface to all AI functionality
 
 import OpenAI from "openai";
+import { DEFAULT_GROK_MODEL } from "./constants";
 
 // Initialize OpenAI client for xAI Grok API lazily/safely.
 // In browser-like test environments (jsdom) the OpenAI client refuses to initialize —
@@ -136,7 +137,7 @@ Make the stat block appropriate for the creature's role and description. Ensure 
 
   try {
     const response = await openai.chat.completions.create({
-      model: "grok-4-1-fast-reasoning",
+      model: DEFAULT_GROK_MODEL,
       messages: [
         {
           role: "system",
@@ -253,7 +254,7 @@ Make the stat block appropriate for the NPC's role and description. Ensure all n
 
   try {
     const response = await openai.chat.completions.create({
-      model: "grok-4-1-fast-reasoning",
+      model: DEFAULT_GROK_MODEL,
       messages: [
         {
           role: "system",
