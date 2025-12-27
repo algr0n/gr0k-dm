@@ -2,6 +2,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Sparkles } from "lucide-react";
 import type { UnifiedCharacter, CharacterInventoryItemWithDetails } from "@shared/schema";
 import { 
@@ -9,25 +10,14 @@ import {
   getProficiencyBonus, getAbilityModifier, classSkillFeatures,
   raceDefinitions, classDefinitions, type DndClass, type DndRace, type DndSkill
 } from "@shared/schema";
-import { parseHitDiceString } from "@shared/race-class-bonuses";
-import { useLayoutBreakpoint } from "@/hooks/useLayoutBreakpoint";
+import { ResourcesPanel } from "./character-sheet/ResourcesPanel";
+import { parseHitDiceString, type HitDiceInfo } from "@shared/race-class-bonuses";
 
-// Import new responsive components
+// Import new modular components
 import { CharacterSummaryBar } from "./character-sheet/CharacterSummaryBar";
 import { AbilityScoresPanel } from "./character-sheet/AbilityScoresPanel";
 import { SkillsList } from "./character-sheet/SkillsList";
-import { SkillsAccordion } from "./character-sheet/SkillsAccordion";
-import { ResourcesPanel } from "./character-sheet/ResourcesPanel";
 import { ConditionsBadges } from "./character-sheet/ConditionsBadges";
-import { PortraitCard } from "./character-sheet/PortraitCard";
-import { CoreStatsCard } from "./character-sheet/CoreStatsCard";
-import { HPBar } from "./character-sheet/HPBar";
-import { XPLevelCard } from "./character-sheet/XPLevelCard";
-import { InventoryAccordion } from "./character-sheet/InventoryAccordion";
-import { SpellsAccordion } from "./character-sheet/SpellsAccordion";
-
-// Import CSS module
-import styles from "./character-sheet/CharacterSheet.module.css";
 
 interface CharacterSheetProps {
   character: UnifiedCharacter | null;
@@ -43,6 +33,10 @@ function getInitials(name: string): string {
     .join("")
     .toUpperCase()
     .slice(0, 2);
+}
+
+function formatModifier(mod: number): string {
+  return mod >= 0 ? `+${mod}` : `${mod}`;
 }
 
 function getSkillProficiencySources(
@@ -85,8 +79,6 @@ function getSkillProficiencySources(
 }
 
 export function CharacterSheet({ character, inventory = [], open, onOpenChange }: CharacterSheetProps) {
-  const breakpoint = useLayoutBreakpoint();
-  
   if (!character) return null;
 
   const stats = character.stats as Record<string, number | unknown> || {};
@@ -94,7 +86,6 @@ export function CharacterSheet({ character, inventory = [], open, onOpenChange }
   const characterClass = character.class || "Unknown";
   const level = character.level || 1;
   const skills = (character.skills || []) as string[];
-  const spells = (character.spells || []) as string[];
   const levelChoices = (character.levelChoices || []) as Record<string, unknown>[];
   const skillSources = (stats.skillSources as Record<string, string[]>) || undefined;
   
@@ -106,7 +97,7 @@ export function CharacterSheet({ character, inventory = [], open, onOpenChange }
     wisdom: (stats.wisdom as number) || 10,
     charisma: (stats.charisma as number) || 10,
   };
-
+  
   const expertiseSkills: string[] = [];
   levelChoices.forEach((choice) => {
     // Handle new format: { feature: "expertise", skills: [...] }
@@ -129,7 +120,7 @@ export function CharacterSheet({ character, inventory = [], open, onOpenChange }
   
   const profBonus = getProficiencyBonus(level);
 
-  // Transform skills data
+  // Transform skills data for SkillsList component
   const skillsData = dndSkills.map((skill) => {
     const ability = skillAbilityMap[skill];
     const abilityScore = abilityScores[ability as keyof typeof abilityScores] || 10;
@@ -185,111 +176,121 @@ export function CharacterSheet({ character, inventory = [], open, onOpenChange }
     },
   };
 
-  const currentHp = character.currentHp || 0;
-  const maxHp = character.maxHp || 1;
-  const ac = character.ac || 10;
-  const speed = character.speed || 30;
-  const initiative = character.initiativeModifier || 0;
-  const xp = character.xp || 0;
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-7xl max-h-[95vh] p-0" data-testid="dialog-character-sheet">
-        <DialogHeader className="px-6 pt-6 pb-4">
-          <DialogTitle className="sr-only">
-            Character sheet for {character.characterName}
+      <DialogContent className="max-w-4xl max-h-[90vh]" data-testid="dialog-character-sheet">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-4">
+            <Avatar className="h-16 w-16 border-2 border-primary/20">
+              <AvatarFallback className="bg-primary/10 text-primary font-serif font-bold text-xl">
+                {getInitials(character.characterName)}
+              </AvatarFallback>
+            </Avatar>
+            <div>
+              <h2 className="font-serif text-2xl">{character.characterName}</h2>
+              <div className="flex items-center gap-2 flex-wrap mt-1">
+                <Badge variant="outline">{race}</Badge>
+                <Badge>{characterClass}</Badge>
+                <Badge variant="secondary">
+                  <Sparkles className="h-3 w-3 mr-1" />
+                  Level {level}
+                </Badge>
+              </div>
+            </div>
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Full character details including stats, skills, inventory, and spells
+            Character sheet for {character.characterName}
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[85vh] px-6 pb-6">
-          <div className={styles.characterSheetGrid}>
-            {/* Header Area - Character Name and Basic Info */}
-            <div className={styles.headerArea}>
-              <div className="flex items-center gap-4 mb-4">
-                <div className="flex-1">
-                  <h2 className="font-serif text-3xl mb-2">{character.characterName}</h2>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <Badge variant="outline">{race}</Badge>
-                    <Badge>{characterClass}</Badge>
-                    <Badge variant="secondary">
-                      <Sparkles className="h-3 w-3 mr-1" />
-                      Level {level}
-                    </Badge>
-                  </div>
+        <ScrollArea className="max-h-[70vh] pr-4">
+          <div className="space-y-6">
+            {/* Ability Scores */}
+            <AbilityScoresPanel {...abilityScoresData} />
+
+            <Separator />
+
+            {/* Skills */}
+            <SkillsList
+              skills={skillsData}
+              proficiencyBonus={profBonus}
+              hasJackOfAllTrades={hasJackOfAllTrades}
+              hasReliableTalent={hasReliableTalent}
+            />
+
+            <Separator />
+
+            {/* Resources (Hit Dice, Death Saves) */}
+            <ResourcesPanel
+              hitDice={parseHitDiceString(character.hitDice || null, character.level || 1, character.class || undefined)}
+              deathSaves={{ successes: 0, failures: 0 }}
+            />
+
+            <Separator />
+
+            {/* Inventory Section (Keep existing simple display for now) */}
+            <div>
+              <h3 className="font-serif text-lg font-semibold mb-3">Inventory</h3>
+              {inventory.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No items in inventory
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {inventory.map((invItem) => {
+                    const props = invItem.item.properties as Record<string, unknown> | null;
+                    const damage = props?.damage as { damage_dice?: string; damage_type?: { name?: string } } | undefined;
+                    const armorClass = props?.armor_class as { base?: number; dex_bonus?: boolean; max_bonus?: number } | undefined;
+                    
+                    return (
+                      <div 
+                        key={invItem.id}
+                        className="flex items-center justify-between p-2 rounded-md bg-muted/30"
+                        data-testid={`sheet-inventory-item-${invItem.id}`}
+                      >
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <span className="font-medium truncate">{invItem.item.name}</span>
+                          {invItem.quantity > 1 && (
+                            <Badge variant="secondary" className="text-xs shrink-0">
+                              x{invItem.quantity}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {damage?.damage_dice && (
+                            <Badge variant="outline" className="text-xs">
+                              {damage.damage_dice} {damage.damage_type?.name || ""}
+                            </Badge>
+                          )}
+                          {armorClass?.base && (
+                            <Badge variant="outline" className="text-xs">
+                              AC {armorClass.base}{armorClass.dex_bonus ? (armorClass.max_bonus ? ` +Dex (max ${armorClass.max_bonus})` : " +Dex") : ""}
+                            </Badge>
+                          )}
+                          {invItem.equipped && (
+                            <Badge className="text-xs">
+                              Equipped
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
+              )}
             </div>
 
-            {/* Left Column - Portrait, Quick Stats, Resources */}
-            <div className={styles.leftColumn}>
-              <div className={styles.cardSpacing}>
-                <PortraitCard 
-                  characterName={character.characterName}
-                  initials={getInitials(character.characterName)}
-                />
-                
-                <CoreStatsCard
-                  ac={ac}
-                  speed={speed}
-                  initiative={initiative}
-                  currency={character.currency}
-                />
-
-                <ResourcesPanel
-                  hitDice={parseHitDiceString(character.hitDice || null, level, characterClass || undefined)}
-                  deathSaves={{ successes: 0, failures: 0 }}
-                />
-              </div>
-            </div>
-
-            {/* Center Column - Main Stats */}
-            <div className={styles.centerColumn}>
-              <div className={styles.cardSpacing}>
-                <HPBar currentHp={currentHp} maxHp={maxHp} />
-                
-                <XPLevelCard level={level} xp={xp} />
-
-                <AbilityScoresPanel {...abilityScoresData} />
-
-                {character.notes && (
-                  <>
-                    <Separator />
-                    <div>
-                      <h3 className="font-serif text-lg font-semibold mb-3">Notes</h3>
-                      <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                        {character.notes}
-                      </p>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Right Column - Skills, Inventory, Spells */}
-            <div className={styles.rightColumn}>
-              <div className={styles.cardSpacing}>
-                <SkillsAccordion
-                  skills={skillsData}
-                  proficiencyBonus={profBonus}
-                  hasJackOfAllTrades={hasJackOfAllTrades}
-                  hasReliableTalent={hasReliableTalent}
-                  breakpoint={breakpoint}
-                />
-
-                <SpellsAccordion 
-                  spells={spells}
-                  defaultOpen={breakpoint === 'desktop'}
-                />
-
-                <InventoryAccordion 
-                  inventory={inventory}
-                  defaultOpen={breakpoint === 'desktop'}
-                />
-              </div>
-            </div>
+            {character.notes && (
+              <>
+                <Separator />
+                <div>
+                  <h3 className="font-serif text-lg font-semibold mb-3">Notes</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                    {character.notes}
+                  </p>
+                </div>
+              </>
+            )}
           </div>
         </ScrollArea>
       </DialogContent>

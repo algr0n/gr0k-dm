@@ -3,15 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CheckCircle2, Circle, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-interface Skill {
-  name: string;
-  ability: string;
-  bonus: number;
-  isProficient: boolean;
-  hasExpertise: boolean;
-  sources?: string[];
-}
+import type { Skill } from "./types";
 
 interface SkillsListProps {
   skills: Skill[];

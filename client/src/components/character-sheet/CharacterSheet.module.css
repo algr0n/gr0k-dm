@@ -1,0 +1,186 @@
+/* Responsive Character Sheet Layout */
+/* Three-column desktop layout, two-column tablet, single-column mobile */
+
+.characterSheetGrid {
+  display: grid;
+  gap: 1.5rem;
+  width: 100%;
+}
+
+/* Mobile: Single column stacked layout (<768px) */
+@media (max-width: 767px) {
+  .characterSheetGrid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "header"
+      "left"
+      "center"
+      "right";
+  }
+  
+  .leftColumn {
+    position: relative !important;
+    top: 0 !important;
+  }
+}
+
+/* Tablet: Two columns (768-1023px) */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .characterSheetGrid {
+    grid-template-columns: 280px 1fr;
+    grid-template-areas:
+      "header header"
+      "left center"
+      "right right";
+    align-items: start;
+  }
+  
+  .leftColumn {
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100vh - 8rem);
+    overflow-y: auto;
+  }
+}
+
+/* Desktop: Three columns (>=1024px) */
+@media (min-width: 1024px) {
+  .characterSheetGrid {
+    grid-template-columns: 260px minmax(480px, 1fr) 360px;
+    grid-template-areas:
+      "left header right"
+      "left center right";
+    align-items: start;
+  }
+  
+  .leftColumn {
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100vh - 8rem);
+    overflow-y: auto;
+  }
+}
+
+/* Grid areas */
+.headerArea {
+  grid-area: header;
+}
+
+.leftColumn {
+  grid-area: left;
+}
+
+.centerColumn {
+  grid-area: center;
+}
+
+.rightColumn {
+  grid-area: right;
+}
+
+/* Collapsible section styles */
+.collapsibleSection {
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.collapsibleSection:hover {
+  border-color: hsl(var(--primary) / 0.3);
+}
+
+.collapsibleTrigger {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: hsl(var(--card));
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.2s ease;
+}
+
+.collapsibleTrigger:hover {
+  background: hsl(var(--accent));
+}
+
+.collapsibleTrigger:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.collapsibleContent {
+  padding: 1rem;
+  background: hsl(var(--card));
+}
+
+/* Skills grid - two columns on desktop */
+.skillsGrid {
+  display: grid;
+  gap: 0.5rem;
+}
+
+@media (max-width: 767px) {
+  .skillsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 768px) {
+  .skillsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Card spacing */
+.cardSpacing {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Smooth scrolling for sticky columns */
+.leftColumn {
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted)) transparent;
+}
+
+.leftColumn::-webkit-scrollbar {
+  width: 6px;
+}
+
+.leftColumn::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.leftColumn::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted));
+  border-radius: 3px;
+}
+
+.leftColumn::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* Accessibility: Focus states */
+.cardSpacing > * {
+  scroll-margin-top: 1rem;
+}
+
+/* Portrait card sizing */
+.portraitCard {
+  width: 100%;
+  aspect-ratio: 1;
+  max-width: 200px;
+  margin: 0 auto;
+}
+
+@media (min-width: 768px) {
+  .portraitCard {
+    max-width: 100%;
+  }
+}
