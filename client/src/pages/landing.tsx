@@ -326,9 +326,9 @@ export default function Landing() {
     <div className="min-h-[calc(100vh-3.5rem)] flex flex-col">
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-12">
         <div className="max-w-3xl text-center space-y-6">
-          <h1 className="text-4xl md:text-5xl font-bold font-serif tracking-tight">Welcome to Grok DM</h1>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            Your AI-powered Dungeon Master for tabletop adventures. Host a game room, invite friends, and let Grok guide your epic quest.
+          <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold font-serif tracking-tight bg-gradient-to-r from-indigo-300 to-purple-400 text-transparent bg-clip-text">Welcome to Grok DM</h1>
+          <p className="text-lg md:text-xl text-muted-foreground max-w-3xl mx-auto">
+            Your AI-powered Dungeon Master for tabletop adventures. Host a game room, invite friends, and let Grok guide your epic quest with immersive storytelling and simple tools.
           </p>
           
           <div className="flex flex-wrap justify-center gap-4 pt-4">
@@ -355,7 +355,7 @@ export default function Landing() {
             <>
             <Dialog open={hostDialogOpen} onOpenChange={handleDialogClose}>
               <DialogTrigger asChild>
-                <Button size="lg" data-testid="button-host-game">
+                <Button size="lg" className="bg-gradient-to-r from-purple-600 to-pink-500 text-white shadow-lg hover:from-purple-700 hover:to-pink-600" data-testid="button-host-game">
                   <Plus className="mr-2 h-5 w-5" />
                   Host a Game
                 </Button>
@@ -569,7 +569,7 @@ export default function Landing() {
 
             <Dialog open={browseDialogOpen} onOpenChange={setBrowseDialogOpen}>
               <DialogTrigger asChild>
-                <Button size="lg" variant="outline" data-testid="button-browse-games">
+                <Button size="lg" variant="outline" className="border-2 border-slate-700 hover:bg-slate-800" data-testid="button-browse-games">
                   <Globe className="mr-2 h-5 w-5" />
                   Browse Games
                 </Button>
@@ -740,8 +740,8 @@ export default function Landing() {
           </DialogContent>
         </Dialog>
         
-        <div className="mt-16 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 max-w-5xl w-full">
-          <Card>
+        <div className="mt-12 lg:mt-16 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-5xl w-full items-stretch">
+          <Card className="hover:shadow-2xl transform hover:-translate-y-1 transition">
             <CardHeader className="pb-2">
               <Bot className="h-8 w-8 text-muted-foreground mb-2" />
               <CardTitle className="text-lg">AI Dungeon Master</CardTitle>
@@ -753,7 +753,7 @@ export default function Landing() {
             </CardContent>
           </Card>
           
-          <Card>
+          <Card className="hover:shadow-2xl transform hover:-translate-y-1 transition">
             <CardHeader className="pb-2">
               <Swords className="h-8 w-8 text-muted-foreground mb-2" />
               <CardTitle className="text-lg">Multiple Systems</CardTitle>
@@ -765,7 +765,7 @@ export default function Landing() {
             </CardContent>
           </Card>
           
-          <Card>
+          <Card className="hover:shadow-2xl transform hover:-translate-y-1 transition">
             <CardHeader className="pb-2">
               <Users className="h-8 w-8 text-muted-foreground mb-2" />
               <CardTitle className="text-lg">Share & Play</CardTitle>
@@ -777,7 +777,7 @@ export default function Landing() {
             </CardContent>
           </Card>
           
-          <Card>
+          <Card className="hover:shadow-2xl transform hover:-translate-y-1 transition">
             <CardHeader className="pb-2">
               <Dice6 className="h-8 w-8 text-muted-foreground mb-2" />
               <CardTitle className="text-lg">Built-in Dice</CardTitle>
@@ -791,7 +791,7 @@ export default function Landing() {
         </div>
 
         <div className="mt-12 max-w-md w-full">
-          <Card>
+          <Card className="shadow-lg">
             <CardHeader className="text-center pb-2">
               <Heart className="h-8 w-8 text-muted-foreground mb-2 mx-auto" />
               <CardTitle className="text-lg">Support the Project</CardTitle>
@@ -824,7 +824,7 @@ export default function Landing() {
         </div>
       </div>
       <footer className="py-6 border-t text-center text-sm text-muted-foreground">
-        Powered by Grok AI
+        Powered by Grok AI • © 2025 Grok DM
       </footer>
     </div>
   );

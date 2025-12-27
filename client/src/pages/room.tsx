@@ -44,6 +44,7 @@ interface InitiativeEntry {
   ac?: number;
   currentHp?: number;
   maxHp?: number;
+  temporaryHp?: number;
   metadata?: any;
 }
 
