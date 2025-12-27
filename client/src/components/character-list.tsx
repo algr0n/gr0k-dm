@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Users, Plus } from "lucide-react";
 import { CharacterCard, CharacterCardSkeleton } from "./character-card";
-import { CharacterSheet } from "./character-sheet";
+import { CharacterSheet } from "./CharacterSheetDialog";
 import { CharacterCreator } from "./character-creator";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
