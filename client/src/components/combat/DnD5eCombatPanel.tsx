@@ -2,7 +2,6 @@ import { useState, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   Sword, Shield, Clock, SkipForward, Zap, Sparkles, 
@@ -777,40 +776,35 @@ export function DnD5eCombatPanel({
           </div>
         )}
 
-        <Tabs defaultValue="actions" className="w-full">
-          <TabsList className={`grid w-full ${knownSpells.length > 0 ? 'grid-cols-3' : 'grid-cols-2'} ${compact ? 'h-7' : ''}`}>
-            <TabsTrigger value="actions" className={compact ? "text-xs py-1" : ""}>Actions</TabsTrigger>
-            <TabsTrigger value="spells" className={compact ? "text-xs py-1" : ""}>
-              Spells {knownSpells.length > 0 ? `(${knownSpells.length})` : ''}
-            </TabsTrigger>
-            <TabsTrigger value="other" className={compact ? "text-xs py-1" : ""}>Other</TabsTrigger>
-          </TabsList>
+        {/* Main Action Buttons */}
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-muted-foreground mb-1">Primary Actions</div>
+          <div className="grid grid-cols-2 gap-2">
 
-          {/* Main Actions Tab */}
-          <TabsContent value="actions" className="mt-2 space-y-2">
-            <div className="grid grid-cols-2 gap-1">
-              <Button
-                onClick={handleAttack}
-                disabled={!selectedTargetId || !actionEconomy.action || combatActionMutation.isPending || waitingForTurn || passTurnMutation.isPending}
-                size={compact ? "sm" : "default"}
-                className="w-full"
-              >
-                <Sword className="h-4 w-4 mr-1" />
-                Attack
-              </Button>
-              
-              <Dialog open={spellDialogOpen} onOpenChange={setSpellDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button
-                    variant="secondary"
-                    size={compact ? "sm" : "default"}
-                    disabled={!actionEconomy.action && !actionEconomy.bonusAction || waitingForTurn || passTurnMutation.isPending}
-                    className="w-full"
-                  >
-                    <Sparkles className="h-4 w-4 mr-1" />
-                    Cast Spell
-                  </Button>
-                </DialogTrigger>
+            <Button
+              onClick={handleAttack}
+              disabled={!selectedTargetId || !actionEconomy.action || combatActionMutation.isPending || waitingForTurn || passTurnMutation.isPending}
+              size="sm"
+              variant="default"
+              className="w-full"
+            >
+              <Sword className="h-4 w-4 mr-1" />
+              Attack
+            </Button>
+            
+            <Dialog open={spellDialogOpen} onOpenChange={setSpellDialogOpen}>
+              <DialogTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={!actionEconomy.action && !actionEconomy.bonusAction || waitingForTurn || passTurnMutation.isPending}
+                  className="w-full"
+                >
+                  <Sparkles className="h-4 w-4 mr-1" />
+                  Cast Spell
+                  {knownSpells.length > 0 && <Badge variant="outline" className="ml-auto text-xs">{knownSpells.length}</Badge>}
+                </Button>
+              </DialogTrigger>
                 <DialogContent className="max-w-md max-h-[80vh]">
                   <DialogHeader>
                     <DialogTitle>{knownSpells.length > 0 ? "Cast a Spell" : "Cast a Custom Spell"}</DialogTitle>
@@ -909,166 +903,95 @@ export function DnD5eCombatPanel({
                   )}
                 </DialogContent>
               </Dialog>
-            </div>
+          </div>
 
-            {/* Class bonus actions */}
-            {classBonusActions.length > 0 && actionEconomy.bonusAction && (
-              <div className="pt-2 border-t">
-                <div className="text-xs text-muted-foreground mb-1">Bonus Actions:</div>
-                <div className="grid grid-cols-1 gap-1">
-                  {classBonusActions.map((ba) => (
-                    <Tooltip key={ba.type}>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full justify-start text-xs"
-                          onClick={() => handleBonusAction(ba)}
-                          disabled={!actionEconomy.bonusAction || waitingForTurn || passTurnMutation.isPending}
-                        >
-                          <ChevronRight className="h-3 w-3 mr-1" />
-                          {ba.name}
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{ba.description}</TooltipContent>
-                    </Tooltip>
-                  ))}
-                </div>
-              </div>
-            )}
-          </TabsContent>
-
-          {/* Spells Tab */}
-          <TabsContent value="spells" className="mt-2">
-            {knownSpells.length > 0 ? (
-              <ScrollArea className="h-[150px]">
-                {Object.entries(spellsByLevel).sort(([a], [b]) => Number(a) - Number(b)).map(([level, spells]) => (
-                  <div key={level} className="mb-2">
-                    <div className="text-xs font-medium text-muted-foreground mb-1">
-                      {level === "0" ? "Cantrips" : `Lvl ${level}`}
-                      {Number(level) > 0 && ` (${characterData.spellSlots?.current[Number(level)] || 0})`}
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {spells.map((spell) => (
-                        <Button
-                          key={spell.id}
-                          variant="outline"
-                          size="sm"
-                          className="text-xs h-6 px-2"
-                          onClick={() => handleCastSpell(spell)}
-                          disabled={
-                            (spell.level > 0 && (characterData.spellSlots?.current[spell.level] || 0) <= 0) ||
-                            (!actionEconomy.action && !BONUS_ACTION_SPELLS.includes(spell.name.toLowerCase()))
-                          }
-                        >
-                          {spell.name}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </ScrollArea>
-            ) : (
-              <div className="space-y-3">
-                <div className="text-sm text-muted-foreground">No prepared spells. Cast a custom spell:</div>
-                <div className="grid gap-2">
-                  <label className="text-sm font-medium">Spell Name</label>
-                  <input
-                    className="w-full rounded border bg-background px-3 py-2 text-sm"
-                    value={customSpellName}
-                    onChange={(e) => setCustomSpellName(e.target.value)}
-                    placeholder="Magic Missile"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <label className="text-sm font-medium">Damage Expression (e.g. 2d6+1)</label>
-                  <input
-                    className="w-full rounded border bg-background px-3 py-2 text-sm"
-                    value={customSpellDamage}
-                    onChange={(e) => setCustomSpellDamage(e.target.value)}
-                    placeholder="1d6"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={customSpellIsBonus}
-                    onChange={(e) => setCustomSpellIsBonus(e.target.checked)}
-                  />
-                  <span className="text-sm">Cast as bonus action</span>
-                </div>
-                <Button onClick={handleCastCustomSpell} className="w-full">
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Cast Custom Spell
+          {/* Utility Actions */}
+          <div className="text-xs font-medium text-muted-foreground mb-1 mt-3">Movement & Defense</div>
+          <div className="grid grid-cols-3 gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDodge}
+                  disabled={!actionEconomy.action || waitingForTurn || passTurnMutation.isPending}
+                  className="text-xs h-7"
+                >
+                  <Shield className="h-3 w-3" />
                 </Button>
+              </TooltipTrigger>
+              <TooltipContent>Dodge (disadvantage on attacks)</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDash}
+                  disabled={!actionEconomy.action || waitingForTurn || passTurnMutation.isPending}
+                  className="text-xs h-7"
+                >
+                  <Footprints className="h-3 w-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Dash (double movement)</TooltipContent>
+            </Tooltip>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDisengage}
+                  disabled={!actionEconomy.action || waitingForTurn || passTurnMutation.isPending}
+                  className="text-xs h-7"
+                >
+                  <SkipForward className="h-3 w-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Disengage (no opportunity attacks)</TooltipContent>
+            </Tooltip>
+          </div>
+
+          {/* Class bonus actions */}
+          {classBonusActions.length > 0 && actionEconomy.bonusAction && (
+            <div className="mt-3">
+              <div className="text-xs font-medium text-muted-foreground mb-1">Bonus Actions</div>
+              <div className="space-y-1">
+                {classBonusActions.map((ba) => (
+                  <Tooltip key={ba.type}>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full justify-start text-xs h-7"
+                        onClick={() => handleBonusAction(ba)}
+                        disabled={!actionEconomy.bonusAction || waitingForTurn || passTurnMutation.isPending}
+                      >
+                        <ChevronRight className="h-3 w-3 mr-1" />
+                        {ba.name}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{ba.description}</TooltipContent>
+                  </Tooltip>
+                ))}
               </div>
-            )}
-          </TabsContent>
-
-          {/* Other Actions Tab */}
-          <TabsContent value="other" className="mt-2 space-y-1">
-            <div className="grid grid-cols-3 gap-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleDodge}
-                    disabled={!actionEconomy.action || waitingForTurn || passTurnMutation.isPending}
-                    className="text-xs"
-                  >
-                    <Shield className="h-3 w-3 mr-1" />
-                    Dodge
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Attacks against you have disadvantage until your next turn</TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleDash}
-                    disabled={!actionEconomy.action || waitingForTurn || passTurnMutation.isPending}
-                    className="text-xs"
-                  >
-                    <Footprints className="h-3 w-3 mr-1" />
-                    Dash
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Double your movement this turn</TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleDisengage}
-                    disabled={!actionEconomy.action || waitingForTurn || passTurnMutation.isPending}
-                    className="text-xs"
-                  >
-                    <SkipForward className="h-3 w-3 mr-1" />
-                    Disengage
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Your movement doesn't provoke opportunity attacks</TooltipContent>
-              </Tooltip>
             </div>
+          )}
 
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full text-xs"
-              onClick={() => passTurnMutation.mutate()}
-              disabled={passTurnMutation.isPending}
-            >
-              <Clock className="h-3 w-3 mr-1" />
-              End Turn
-            </Button>
-          </TabsContent>
-        </Tabs>
+          {/* End Turn Button */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full text-xs mt-3"
+            onClick={() => passTurnMutation.mutate()}
+            disabled={passTurnMutation.isPending || waitingForTurn}
+          >
+            <Clock className="h-3 w-3 mr-1" />
+            End Turn
+          </Button>
+        </div>
 
         {/* Attack/spell stats footer */}
         <div className="mt-2 pt-2 border-t text-xs text-muted-foreground flex justify-between">

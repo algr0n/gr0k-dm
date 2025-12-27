@@ -5273,7 +5273,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     if (type === 'attack' || type === 'spell') {
       const isSpell = type === 'spell';
-      const { targetId, attackBonus = 0, damageExpression = null, spellName, slotUsed } = action;
+      const { targetId, attackBonus = 0, damageExpression = null, spellName, slotUsed, isAOE, aoeType, aoeSize } = action;
       const target = state.initiatives.find((i: any) => i.id === targetId);
       if (!target) { const err:any = new Error('Target not found'); err.code = 404; throw err }
 
@@ -5302,7 +5302,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      const result = resolveAttack(null, attackBonus, target.ac ?? 10, damageExpression);
+      // For spells, use spell attack logic
+      let result;
+      if (isSpell) {
+        // Spell attack roll (for spells that require an attack roll)
+        result = resolveAttack(null, attackBonus, target.ac ?? 10, damageExpression);
+        
+        // If it's an AOE spell, potentially hit multiple targets
+        if (isAOE && result.hit) {
+          console.log(`[Combat] AOE spell ${spellName} hits! Type: ${aoeType}, Size: ${aoeSize}`);
+          // For now, just apply to primary target. Future: apply to area
+        }
+      } else {
+        // Regular weapon attack
+        result = resolveAttack(null, attackBonus, target.ac ?? 10, damageExpression);
+      }
 
       if (result.hit && result.damageTotal) {
         target.currentHp = (target.currentHp ?? target.maxHp ?? 0) - result.damageTotal;
@@ -5312,7 +5326,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       updateThreat(state, actorId, Math.max(1, result.damageTotal || (result.hit ? 5 : 1)));
 
       // Record action
-      state.actionHistory.push({ actorId, type: isSpell ? 'spell' : 'attack', targetId, result, spellName, timestamp: Date.now() });
+      state.actionHistory.push({ actorId, type: isSpell ? 'spell' : 'attack', targetId, result, spellName, isAOE, aoeType, timestamp: Date.now() });
 
       // Broadcast structured result
       broadcastToRoom(code, {
@@ -5327,6 +5341,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         damageTotal: result.damageTotal,
         targetHp: target.currentHp,
         spellName: isSpell ? spellName : undefined,
+        isAOE: isSpell && isAOE,
+        aoeType: isSpell && isAOE ? aoeType : undefined,
       });
 
       // Generate AI narration for special moments (crits, kills)
