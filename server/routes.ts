@@ -5063,6 +5063,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             if (result.hit && randomTarget.currentHp !== undefined) {
               randomTarget.currentHp = Math.max(0, randomTarget.currentHp - result.damageTotal);
             }
+
+            // If a player drops to 0 HP, announce and check for auto-end conditions
+            if (result.hit && randomTarget.controller === 'player' && (randomTarget.currentHp ?? 0) <= 0) {
+              broadcastToRoom(code, {
+                type: 'system',
+                content: `${randomTarget.name} drops unconscious at 0 HP!`,
+              });
+
+              // If no players remain conscious, end combat automatically
+              const playersAlive = state.initiatives.some((i: any) => i.controller === 'player' && (i.currentHp ?? 0) > 0);
+              if (!playersAlive) {
+                state.isActive = false;
+                roomCombatState.set(code, state);
+                broadcastToRoom(code, { type: 'combat_update', combat: state });
+                broadcastToRoom(code, {
+                  type: 'system',
+                  content: 'All players are down. Combat ends.',
+                });
+                // Clear processing flag and stop further NPC advancement
+                npcTurnProcessing.delete(code);
+                return; // abort further processing for this NPC turn
+              }
+            }
             
             // Broadcast combat result with narrative
             broadcastToRoom(code, {
