@@ -136,7 +136,7 @@ Make the stat block appropriate for the creature's role and description. Ensure 
 
   try {
     const response = await openai.chat.completions.create({
-      model: "grok-beta",
+      model: "grok-4-1-fast-reasoning",
       messages: [
         {
           role: "system",
@@ -253,7 +253,7 @@ Make the stat block appropriate for the NPC's role and description. Ensure all n
 
   try {
     const response = await openai.chat.completions.create({
-      model: "grok-beta",
+      model: "grok-4-1-fast-reasoning",
       messages: [
         {
           role: "system",

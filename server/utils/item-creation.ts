@@ -97,7 +97,7 @@ Be creative but balanced for D&D 5e. Return ONLY the JSON, no markdown, no code 
   try {
     // Call AI to generate item stats
     const response = await openai.chat.completions.create({
-      model: "grok-beta",
+      model: "grok-4-1-fast-reasoning",
       messages: [
         {
           role: "system",

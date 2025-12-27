@@ -51,7 +51,7 @@ export async function narrateCombatMoment(
     console.log(`[Combat Narrator] Generating narration for ${context.actionType} (${context.isCritical ? "CRIT" : "normal"})`);
     
     const response = await openai.chat.completions.create({
-      model: "grok-beta",
+      model: "grok-4-1-fast-reasoning",
       messages: [
         {
           role: "system",
