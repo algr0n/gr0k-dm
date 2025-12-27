@@ -674,12 +674,12 @@ export function DnD5eCombatPanel({
   // Waiting for turn display
   if (!isMyTurn) {
     return (
-      <Card className={`${compact ? 'p-2' : 'p-3'} bg-muted/50`}>
-        <div className={`${compact ? 'text-xs' : 'text-sm'} text-muted-foreground text-center`}>
-          <Clock className={`${compact ? 'h-3 w-3' : 'h-4 w-4'} inline mr-2`} />
-          Waiting for your turn...
+      <Card className={`${compact ? 'p-2' : 'p-3'} bg-black border-2 border-yellow-500/30 shadow-lg shadow-yellow-500/20 font-mono`}>
+        <div className={`${compact ? 'text-xs' : 'text-sm'} text-yellow-500/70 text-center`}>
+          <Clock className={`${compact ? 'h-3 w-3' : 'h-4 w-4'} inline mr-2 animate-pulse`} />
+          <span className="tracking-wider">WAITING_FOR_TURN...</span>
           {actionEconomy.reaction && (
-            <Badge variant="outline" className="ml-2">Reaction Ready</Badge>
+            <Badge className="ml-2 bg-yellow-900/50 text-yellow-400 border-yellow-500/50">REACTION_READY</Badge>
           )}
         </div>
       </Card>
@@ -688,19 +688,19 @@ export function DnD5eCombatPanel({
 
   if (isDown) {
     return (
-      <Card className={`${compact ? 'p-2' : 'p-3'} border-destructive/50 bg-destructive/5`}>
+      <Card className={`${compact ? 'p-2' : 'p-3'} border-2 border-red-500/50 bg-black shadow-lg shadow-red-500/20 font-mono`}>
         <div className="flex items-center gap-2 mb-2">
-          <Heart className="h-4 w-4 text-destructive" />
-          <span className={`${compact ? 'text-sm' : 'font-semibold'}`}>You are unconscious</span>
-          <Badge variant="destructive" className="ml-auto">0 HP</Badge>
+          <Heart className="h-4 w-4 text-red-500 animate-pulse" />
+          <span className={`${compact ? 'text-sm' : 'font-semibold'} text-red-400 tracking-wider`}>SYSTEM_FAILURE</span>
+          <Badge className="ml-auto bg-red-900/50 text-red-400 border-red-500/50">0_HP</Badge>
         </div>
-        <div className="text-sm text-muted-foreground mb-3">Roll a death saving throw.</div>
+        <div className="text-sm text-red-500/70 mb-3">CRITICAL: Roll death_save();</div>
         <Button
           onClick={handleDeathSave}
           disabled={combatActionMutation.isPending}
-          className="w-full"
+          className="w-full bg-red-900/30 hover:bg-red-900/50 text-red-400 border border-red-500/50"
         >
-          Roll Death Save
+          ROLL_DEATH_SAVE
         </Button>
       </Card>
     );
@@ -708,46 +708,47 @@ export function DnD5eCombatPanel({
 
   return (
     <TooltipProvider>
-      <Card className={`${compact ? 'p-2' : 'p-3'} border-primary/50 bg-primary/5`}>
+      <Card className={`${compact ? 'p-2' : 'p-3'} bg-black border-2 border-green-500/30 shadow-lg shadow-green-500/20 font-mono`}>
         {/* Header with action economy */}
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-2 pb-2 border-b border-green-500/30">
           <div className="flex items-center gap-2">
-            <Zap className="h-4 w-4 text-primary" />
-            <span className={`${compact ? 'text-sm' : 'font-semibold'}`}>Your Turn</span>
+            <span className="text-green-400">$</span>
+            <span className={`${compact ? 'text-sm' : 'text-base'} text-green-400`}>COMBAT.SYS</span>
+            <span className="text-green-500/50 text-xs">[ACTIVE]</span>
           </div>
           <div className="flex gap-1">
             <Tooltip>
               <TooltipTrigger>
-                <Badge variant={actionEconomy.action ? "default" : "secondary"} className="text-xs">
+                <Badge className={`text-xs ${actionEconomy.action ? 'bg-green-900/50 text-green-400 border-green-500/50' : 'bg-gray-900 text-gray-600 border-gray-700'}`}>
                   A
                 </Badge>
               </TooltipTrigger>
-              <TooltipContent>Action {actionEconomy.action ? "Available" : "Used"}</TooltipContent>
+              <TooltipContent className="bg-black border-green-500/50 text-green-400">Action {actionEconomy.action ? "Available" : "Used"}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger>
-                <Badge variant={actionEconomy.bonusAction ? "default" : "secondary"} className="text-xs">
+                <Badge className={`text-xs ${actionEconomy.bonusAction ? 'bg-green-900/50 text-green-400 border-green-500/50' : 'bg-gray-900 text-gray-600 border-gray-700'}`}>
                   B
                 </Badge>
               </TooltipTrigger>
-              <TooltipContent>Bonus Action {actionEconomy.bonusAction ? "Available" : "Used"}</TooltipContent>
+              <TooltipContent className="bg-black border-green-500/50 text-green-400">Bonus Action {actionEconomy.bonusAction ? "Available" : "Used"}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger>
-                <Badge variant={actionEconomy.reaction ? "outline" : "secondary"} className="text-xs">
+                <Badge className={`text-xs ${actionEconomy.reaction ? 'bg-green-900/50 text-green-400 border-green-500/50' : 'bg-gray-900 text-gray-600 border-gray-700'}`}>
                   R
                 </Badge>
               </TooltipTrigger>
-              <TooltipContent>Reaction {actionEconomy.reaction ? "Ready" : "Used"}</TooltipContent>
+              <TooltipContent className="bg-black border-green-500/50 text-green-400">Reaction {actionEconomy.reaction ? "Ready" : "Used"}</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger>
-                <Badge variant="outline" className="text-xs">
+                <Badge className="text-xs bg-green-900/50 text-green-400 border-green-500/50">
                   <Footprints className="h-3 w-3 mr-1" />
                   {actionEconomy.movement}ft
                 </Badge>
               </TooltipTrigger>
-              <TooltipContent>Movement remaining</TooltipContent>
+              <TooltipContent className="bg-black border-green-500/50 text-green-400">Movement remaining</TooltipContent>
             </Tooltip>
           </div>
         </div>
@@ -756,8 +757,8 @@ export function DnD5eCombatPanel({
         {validTargets.length > 0 && (
           <div className="mb-2">
             <Select value={selectedTargetId} onValueChange={setSelectedTargetId}>
-              <SelectTrigger className={compact ? "h-8 text-xs" : ""}>
-                <SelectValue placeholder="Select target..." />
+              <SelectTrigger className={`${compact ? 'h-8 text-xs' : ''} bg-black border-green-500/50 text-green-400`}>
+                <SelectValue placeholder="&gt; SELECT TARGET..." />
               </SelectTrigger>
               <SelectContent>
                 {validTargets.map((target) => (
@@ -778,31 +779,29 @@ export function DnD5eCombatPanel({
 
         {/* Main Action Buttons */}
         <div className="space-y-2">
-          <div className="text-xs font-medium text-muted-foreground mb-1">Primary Actions</div>
+          <div className="text-xs font-medium text-green-500 mb-1 tracking-wider">&gt; PRIMARY_ACTIONS</div>
           <div className="grid grid-cols-2 gap-2">
 
             <Button
               onClick={handleAttack}
               disabled={!selectedTargetId || !actionEconomy.action || combatActionMutation.isPending || waitingForTurn || passTurnMutation.isPending}
               size="sm"
-              variant="default"
-              className="w-full"
+              className="w-full bg-green-900/30 hover:bg-green-900/50 text-green-400 border border-green-500/50 disabled:bg-gray-900 disabled:text-gray-600 disabled:border-gray-700"
             >
               <Sword className="h-4 w-4 mr-1" />
-              Attack
+              ATTACK
             </Button>
             
             <Dialog open={spellDialogOpen} onOpenChange={setSpellDialogOpen}>
               <DialogTrigger asChild>
                 <Button
-                  variant="secondary"
                   size="sm"
                   disabled={!actionEconomy.action && !actionEconomy.bonusAction || waitingForTurn || passTurnMutation.isPending}
-                  className="w-full"
+                  className="w-full bg-cyan-900/30 hover:bg-cyan-900/50 text-cyan-400 border border-cyan-500/50 disabled:bg-gray-900 disabled:text-gray-600 disabled:border-gray-700"
                 >
                   <Sparkles className="h-4 w-4 mr-1" />
-                  Cast Spell
-                  {knownSpells.length > 0 && <Badge variant="outline" className="ml-auto text-xs">{knownSpells.length}</Badge>}
+                  CAST_SPELL
+                  {knownSpells.length > 0 && <Badge className="ml-auto text-xs bg-cyan-900/50 text-cyan-300 border-cyan-500/50">{knownSpells.length}</Badge>}
                 </Button>
               </DialogTrigger>
                 <DialogContent className="max-w-md max-h-[80vh]">
@@ -906,74 +905,70 @@ export function DnD5eCombatPanel({
           </div>
 
           {/* Utility Actions */}
-          <div className="text-xs font-medium text-muted-foreground mb-1 mt-3">Movement & Defense</div>
+          <div className="text-xs font-medium text-amber-500 mb-1 mt-3 tracking-wider">&gt; MOVEMENT_&_DEFENSE</div>
           <div className="grid grid-cols-3 gap-1">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  variant="outline"
                   size="sm"
                   onClick={handleDodge}
                   disabled={!actionEconomy.action || waitingForTurn || passTurnMutation.isPending}
-                  className="text-xs h-7"
+                  className="text-xs h-7 bg-amber-900/30 hover:bg-amber-900/50 text-amber-400 border border-amber-500/50 disabled:bg-gray-900 disabled:text-gray-600 disabled:border-gray-700"
                 >
                   <Shield className="h-3 w-3" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Dodge (disadvantage on attacks)</TooltipContent>
+              <TooltipContent className="bg-black border-amber-500/50 text-amber-400">Dodge (disadvantage on attacks)</TooltipContent>
             </Tooltip>
 
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  variant="outline"
                   size="sm"
                   onClick={handleDash}
                   disabled={!actionEconomy.action || waitingForTurn || passTurnMutation.isPending}
-                  className="text-xs h-7"
+                  className="text-xs h-7 bg-amber-900/30 hover:bg-amber-900/50 text-amber-400 border border-amber-500/50 disabled:bg-gray-900 disabled:text-gray-600 disabled:border-gray-700"
                 >
                   <Footprints className="h-3 w-3" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Dash (double movement)</TooltipContent>
+              <TooltipContent className="bg-black border-amber-500/50 text-amber-400">Dash (double movement)</TooltipContent>
             </Tooltip>
 
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  variant="outline"
                   size="sm"
                   onClick={handleDisengage}
                   disabled={!actionEconomy.action || waitingForTurn || passTurnMutation.isPending}
-                  className="text-xs h-7"
+                  className="text-xs h-7 bg-amber-900/30 hover:bg-amber-900/50 text-amber-400 border border-amber-500/50 disabled:bg-gray-900 disabled:text-gray-600 disabled:border-gray-700"
                 >
                   <SkipForward className="h-3 w-3" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Disengage (no opportunity attacks)</TooltipContent>
+              <TooltipContent className="bg-black border-amber-500/50 text-amber-400">Disengage (no opportunity attacks)</TooltipContent>
             </Tooltip>
           </div>
 
           {/* Class bonus actions */}
           {classBonusActions.length > 0 && actionEconomy.bonusAction && (
             <div className="mt-3">
-              <div className="text-xs font-medium text-muted-foreground mb-1">Bonus Actions</div>
+              <div className="text-xs font-medium text-purple-500 mb-1 tracking-wider">&gt; BONUS_ACTIONS</div>
               <div className="space-y-1">
                 {classBonusActions.map((ba) => (
                   <Tooltip key={ba.type}>
                     <TooltipTrigger asChild>
                       <Button
-                        variant="outline"
                         size="sm"
-                        className="w-full justify-start text-xs h-7"
+                        className="w-full justify-start text-xs h-7 bg-purple-900/30 hover:bg-purple-900/50 text-purple-400 border border-purple-500/50 disabled:bg-gray-900 disabled:text-gray-600 disabled:border-gray-700"
                         onClick={() => handleBonusAction(ba)}
                         disabled={!actionEconomy.bonusAction || waitingForTurn || passTurnMutation.isPending}
                       >
                         <ChevronRight className="h-3 w-3 mr-1" />
-                        {ba.name}
+                        {ba.name.toUpperCase()}
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{ba.description}</TooltipContent>
+                    <TooltipContent className="bg-black border-purple-500/50 text-purple-400">{ba.description}</TooltipContent>
                   </Tooltip>
                 ))}
               </div>
@@ -982,22 +977,21 @@ export function DnD5eCombatPanel({
 
           {/* End Turn Button */}
           <Button
-            variant="ghost"
             size="sm"
-            className="w-full text-xs mt-3"
+            className="w-full text-xs mt-3 bg-red-900/30 hover:bg-red-900/50 text-red-400 border border-red-500/50 disabled:bg-gray-900 disabled:text-gray-600 disabled:border-gray-700"
             onClick={() => passTurnMutation.mutate()}
             disabled={passTurnMutation.isPending || waitingForTurn}
           >
             <Clock className="h-3 w-3 mr-1" />
-            End Turn
+            END_TURN
           </Button>
         </div>
 
         {/* Attack/spell stats footer */}
-        <div className="mt-2 pt-2 border-t text-xs text-muted-foreground flex justify-between">
-          <span>Attack: +{attackBonus}</span>
-          {knownSpells.length > 0 && <span>Spell Attack: +{spellAttackBonus}</span>}
-          <span>AC: {participants.find(p => p.id === myActorId)?.ac || "?"}</span>
+        <div className="mt-2 pt-2 border-t border-green-500/30 text-xs text-green-500/70 flex justify-between">
+          <span>ATK: <span className="text-green-400">+{attackBonus}</span></span>
+          {knownSpells.length > 0 && <span>SPL: <span className="text-cyan-400">+{spellAttackBonus}</span></span>}
+          <span>AC: <span className="text-amber-400">{participants.find(p => p.id === myActorId)?.ac || "?"}</span></span>
         </div>
       </Card>
     </TooltipProvider>
