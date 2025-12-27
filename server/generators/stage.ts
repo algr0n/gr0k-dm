@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { tokenTracker } from "../utils/token-tracker";
+import { DEFAULT_GROK_MODEL } from "../constants";
 
 export async function generateCombatStage(openaiClient: OpenAI, locationName: string, seed?: string) {
   const prompt = `You are generating a JSON combat stage for a location named "${locationName}". Return ONLY valid JSON.
@@ -9,7 +10,7 @@ Keep the output concise and strictly JSON.`;
 
   try {
     const response = await openaiClient.chat.completions.create({
-      model: "grok-4-1-fast-reasoning",
+      model: DEFAULT_GROK_MODEL,
       messages: [{ role: 'system', content: 'You generate structured JSON for combat stages.' }, { role: 'user', content: prompt }],
       max_tokens: 300,
       temperature: 0.0,

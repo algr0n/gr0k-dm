@@ -2,6 +2,7 @@
 
 import OpenAI from "openai";
 import type { Message } from "@shared/schema";
+import { DEFAULT_GROK_MODEL } from "../constants";
 
 // Context window management for long adventures
 interface ConversationSummary {
@@ -25,7 +26,7 @@ export async function summarizeConversation(
       .join('\n');
 
     const response = await openaiClient.chat.completions.create({
-      model: "grok-4-1-fast-reasoning",
+      model: DEFAULT_GROK_MODEL,
       messages: [
         {
           role: "system",

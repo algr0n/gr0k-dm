@@ -6,6 +6,7 @@ import type { Room } from "@shared/schema";
 import { tokenTracker } from "../utils/token-tracker";
 import { getOrCreateConversationSummary } from "../utils/conversation-summary";
 import { ContextBuilder } from "../context/context-builder";
+import { DEFAULT_GROK_MODEL } from "../constants";
 import type { CharacterInfo, DroppedItemInfo, AdventureContext, DiceResult } from "../context/context-builder";
 
 // Batched message type for multi-player responses
@@ -87,7 +88,7 @@ export async function generateBatchedDMResponse(
 
   try {
     const response = await openaiClient.chat.completions.create({
-      model: "grok-4-1-fast-reasoning",
+      model: DEFAULT_GROK_MODEL,
       messages,
       max_tokens: 1200,
       temperature: 0.8,

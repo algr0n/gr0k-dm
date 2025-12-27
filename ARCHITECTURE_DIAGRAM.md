@@ -47,9 +47,8 @@
                                    ▼
                           ┌────────────────────┐
                           │   OpenAI Grok API   │
-                          │   (grok-4-1-fast-   │
-                          │    reasoning, grok- │
-                          │    beta)            │
+                          │   (grok-4-1-fast-reasoning) │
+                          │                      │
                           └────────────────────┘
 ```
 

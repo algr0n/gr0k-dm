@@ -6,6 +6,7 @@
  */
 
 import OpenAI from "openai";
+import { DEFAULT_GROK_MODEL } from "./constants";
 
 interface NarrationContext {
   actorName: string;
@@ -51,7 +52,7 @@ export async function narrateCombatMoment(
     console.log(`[Combat Narrator] Generating narration for ${context.actionType} (${context.isCritical ? "CRIT" : "normal"})`);
     
     const response = await openai.chat.completions.create({
-      model: "grok-4-1-fast-reasoning",
+      model: DEFAULT_GROK_MODEL,
       messages: [
         {
           role: "system",
