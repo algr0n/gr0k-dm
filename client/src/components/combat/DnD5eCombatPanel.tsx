@@ -124,6 +124,72 @@ const BONUS_ACTION_SPELLS = [
   "branding smite", "swift quiver", "holy weapon"
 ];
 
+// Determine spell targeting type based on spell properties
+function getSpellTargeting(spell: SpellData): { 
+  isAOE: boolean; 
+  requiresTarget: boolean; 
+  aoeType?: "cone" | "sphere" | "line" | "cube" | "cylinder";
+  aoeSize?: string;
+} {
+  const name = spell.name.toLowerCase();
+  const range = spell.range.toLowerCase();
+  const desc = spell.description.toLowerCase();
+  
+  // Self-target spells
+  if (range === "self" || range.includes("self (")) {
+    const aoeMatch = range.match(/\((\d+)-foot (cone|sphere|radius|line|cube|cylinder)\)/i);
+    if (aoeMatch) {
+      return {
+        isAOE: true,
+        requiresTarget: false,
+        aoeType: aoeMatch[2] as any,
+        aoeSize: aoeMatch[1] + " ft"
+      };
+    }
+    return { isAOE: false, requiresTarget: false };
+  }
+  
+  // Known AOE spells by name
+  const aoeSpells: Record<string, { type: string; size: string }> = {
+    "fireball": { type: "sphere", size: "20 ft" },
+    "lightning bolt": { type: "line", size: "100 ft" },
+    "burning hands": { type: "cone", size: "15 ft" },
+    "thunderwave": { type: "cube", size: "15 ft" },
+    "ice storm": { type: "cylinder", size: "20 ft" },
+    "cone of cold": { type: "cone", size: "60 ft" },
+    "shatter": { type: "sphere", size: "10 ft" },
+    "spirit guardians": { type: "sphere", size: "15 ft" },
+    "moonbeam": { type: "cylinder", size: "5 ft" },
+    "flame strike": { type: "cylinder", size: "10 ft" },
+  };
+  
+  for (const [spellName, aoeInfo] of Object.entries(aoeSpells)) {
+    if (name.includes(spellName)) {
+      return {
+        isAOE: true,
+        requiresTarget: true, // Requires point/location
+        aoeType: aoeInfo.type as any,
+        aoeSize: aoeInfo.size
+      };
+    }
+  }
+  
+  // Check description for AOE keywords
+  if (desc.match(/(each creature|all creatures|creatures of your choice).*(within|in a|in the)/i) ||
+      desc.match(/(\d+)-foot (cone|sphere|radius|line|cube|cylinder)/i)) {
+    const aoeMatch = desc.match(/(\d+)-foot (cone|sphere|radius|line|cube|cylinder)/i);
+    return {
+      isAOE: true,
+      requiresTarget: true,
+      aoeType: aoeMatch ? aoeMatch[2] as any : undefined,
+      aoeSize: aoeMatch ? aoeMatch[1] + " ft" : undefined
+    };
+  }
+  
+  // Default: single target spell
+  return { isAOE: false, requiresTarget: true };
+}
+
 // Get spell damage expression based on spell
 function getSpellDamage(spell: SpellData, casterLevel: number): string | null {
   const name = spell.name.toLowerCase();
@@ -252,29 +318,18 @@ export function DnD5eCombatPanel({
   }, [isMyTurn, characterData.speed, myActorId]);
 
   // Get character's known spells with full data
+  // Only show spells that are explicitly in the character's spells array (known/prepared)
   const knownSpells = useMemo(() => {
     const prepared = characterData.spells || [];
+    if (prepared.length === 0) return [];
+    
     const preparedSet = new Set(prepared.map((s) => s.toLowerCase()));
-    const charClassNormalized = (characterData.class || "").toLowerCase();
 
-    // Spells explicitly prepared/known on the character
-    const preparedSpells = allSpells.filter(
+    // Only include spells explicitly in the character's prepared/known list
+    return allSpells.filter(
       (spell) => preparedSet.has(spell.name.toLowerCase()) || preparedSet.has(spell.id.toLowerCase())
     );
-
-    // Cantrips are always available for classes that get them, even if not prepared
-    const classCantrips = allSpells.filter(
-      (spell) =>
-        spell.level === 0 &&
-        spell.classes.some((c) => c.toLowerCase() === charClassNormalized)
-    );
-
-    const merged = new Map<string, SpellData>();
-    preparedSpells.forEach((spell) => merged.set(spell.id, spell));
-    classCantrips.forEach((spell) => merged.set(spell.id, spell));
-
-    return Array.from(merged.values());
-  }, [characterData.class, characterData.spells, allSpells]);
+  }, [characterData.spells, allSpells]);
 
   // Group spells by level
   const spellsByLevel = useMemo(() => {
@@ -447,8 +502,14 @@ export function DnD5eCombatPanel({
       toast({ title: "Unconscious", description: "You can't cast while at 0 HP.", variant: "destructive" });
       return;
     }
-    if (!selectedTargetId && spell.range !== "Self") {
-      toast({ title: "No Target", description: "Select a target first", variant: "destructive" });
+    
+    // Check targeting requirements for the spell
+    const targeting = getSpellTargeting(spell);
+    if (targeting.requiresTarget && !selectedTargetId) {
+      const targetDesc = targeting.isAOE 
+        ? `Select a target point for the ${targeting.aoeType || "area"} effect` 
+        : "Select a target first";
+      toast({ title: "No Target", description: targetDesc, variant: "destructive" });
       return;
     }
 
@@ -488,6 +549,9 @@ export function DnD5eCombatPanel({
       spellLevel: spell.level,
       slotUsed: spell.level > 0 ? (slotLevel || spell.level) : 0,
       actionType,
+      isAOE: targeting.isAOE,
+      aoeType: targeting.aoeType,
+      aoeSize: targeting.aoeSize,
     });
 
     setSpellDialogOpen(false);
@@ -767,6 +831,7 @@ export function DnD5eCombatPanel({
                             {spells.map((spell) => {
                               const isBonusAction = BONUS_ACTION_SPELLS.includes(spell.name.toLowerCase());
                               const damage = getSpellDamage(spell, characterData.level || 1);
+                              const targeting = getSpellTargeting(spell);
                               return (
                                 <Button
                                   key={spell.id}
@@ -785,9 +850,16 @@ export function DnD5eCombatPanel({
                                     <div className="flex items-center gap-2 w-full">
                                       <Flame className="h-3 w-3 text-orange-500" />
                                       <span className="font-medium">{spell.name}</span>
-                                      {isBonusAction && (
-                                        <Badge variant="secondary" className="text-xs ml-auto">Bonus</Badge>
-                                      )}
+                                      <div className="flex gap-1 ml-auto">
+                                        {isBonusAction && (
+                                          <Badge variant="secondary" className="text-xs">Bonus</Badge>
+                                        )}
+                                        {targeting.isAOE && (
+                                          <Badge variant="destructive" className="text-xs">
+                                            AOE {targeting.aoeType ? `(${targeting.aoeSize})` : ""}
+                                          </Badge>
+                                        )}
+                                      </div>
                                     </div>
                                     <div className="text-xs text-muted-foreground mt-1">
                                       {spell.school} • {spell.castingTime} • {spell.range}
