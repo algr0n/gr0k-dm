@@ -948,11 +948,20 @@ export default function RoomPage() {
             duration: 3000,
           });
         } else if (data.type === "character_update") {
-          // Check if this update is for the current user's character using ref for latest value
-          const isMyCharacter = data.playerId === userIdRef.current;
-          if (isMyCharacter) {
-            setLiveHp({ current: data.currentHp, max: data.maxHp });
+          // Server may send either { playerId, currentHp, maxHp } OR { characterId, updates: { currentHp, maxHp } }
+          // Consider it for the current user's character if either matches
+          const currentSavedCharId = savedCharacterIdRef.current;
+          const isMyCharacter = (data.playerId && data.playerId === userIdRef.current) ||
+            (data.characterId && data.characterId === currentSavedCharId);
+
+          // Normalize hp values from both possible payload shapes
+          const updatedCurrentHp = data.currentHp ?? data.updates?.currentHp ?? undefined;
+          const updatedMaxHp = data.maxHp ?? data.updates?.maxHp ?? undefined;
+
+          if (isMyCharacter && (updatedCurrentHp !== undefined || updatedMaxHp !== undefined)) {
+            setLiveHp({ current: updatedCurrentHp ?? 0, max: updatedMaxHp ?? 0 });
           }
+
           // Always invalidate queries to update the UI for all viewers
           queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "my-character"] });
           queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "room-characters"] });
