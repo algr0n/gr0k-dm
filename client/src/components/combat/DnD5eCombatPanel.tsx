@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -232,6 +232,19 @@ export function DnD5eCombatPanel({
     movement: characterData.speed || 30,
     maxMovement: characterData.speed || 30,
   });
+
+  // Ensure action economy resets when it becomes *your* turn (covers server-driven turn advances)
+  useEffect(() => {
+    if (isMyTurn) {
+      setActionEconomy({
+        action: true,
+        bonusAction: true,
+        reaction: true,
+        movement: characterData.speed || 30,
+        maxMovement: characterData.speed || 30,
+      });
+    }
+  }, [isMyTurn, characterData.speed, myActorId]);
 
   // Get character's known spells with full data
   const knownSpells = useMemo(() => {
