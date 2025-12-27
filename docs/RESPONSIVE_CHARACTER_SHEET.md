@@ -128,16 +128,6 @@ Run the layout breakpoint hook test:
 npm test -- tests/hooks/useLayoutBreakpoint.test.ts
 ```
 
-Run the new component responsiveness tests (covers Skills/Inventory/Spells accordions and CharacterSheet breakpoint-driven behavior):
-```bash
-npm test -- tests/components/character-sheet-responsiveness.test.tsx
-```
-
-These tests verify:
-- `SkillsAccordion` auto-expands on `desktop` and is collapsed by default on `mobile` (and toggles open on user click)
-- `InventoryAccordion` and `SpellsAccordion` respect the `defaultOpen` prop and update when it changes
-- `CharacterSheet` integration: accordions receive breakpoint from `useLayoutBreakpoint` and the UI shows/hides sections accordingly
-
 ### Browser DevTools Testing
 
 1. Open Chrome/Firefox DevTools
