@@ -29,6 +29,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { inferSpellEffects } from "@shared/spell-text";
 
 // D&D 5e Spell data structure
 interface SpellData {
@@ -539,18 +540,31 @@ export function DnD5eCombatPanel({
 
     const damage = getSpellDamage(spell, characterData.level || 1);
 
-    const savePayload = useSaveMode ? {
-      ability: saveAbility,
-      dc: spellSaveDc,
-      onSuccess: saveOnSuccess,
-    } : undefined;
+    const inferred = inferSpellEffects({ description: spell.description, name: spell.name } as any);
+    const savePayload = useSaveMode
+      ? {
+          ability: saveAbility,
+          dc: spellSaveDc,
+          onSuccess: saveOnSuccess,
+        }
+      : inferred.saveAbility
+        ? {
+            ability: inferred.saveAbility,
+            dc: spellSaveDc,
+            onSuccess: inferred.onSuccess || "half",
+          }
+        : undefined;
+
+    const resolvedDamage = (damage && damage !== "0")
+      ? damage
+      : (inferred.damageExpression || "0");
 
     combatActionMutation.mutate({
       actorId: myActorId,
       type: "spell",
       targetId: selectedTargetId || myActorId,
       attackBonus: spellAttackBonus,
-      damageExpression: damage || "0",
+      damageExpression: resolvedDamage,
       spellName: spell.name,
       spellLevel: spell.level,
       slotUsed: spell.level > 0 ? (slotLevel || spell.level) : 0,
@@ -837,6 +851,8 @@ export function DnD5eCombatPanel({
                             {spells.map((spell) => {
                               const isBonusAction = BONUS_ACTION_SPELLS.includes(spell.name.toLowerCase());
                               const damage = getSpellDamage(spell, characterData.level || 1);
+                              const inferred = inferSpellEffects({ description: spell.description, name: spell.name } as any);
+                              const autoSave = inferred.saveAbility;
                               const targeting = getSpellTargeting(spell);
                               return (
                                 <Button
@@ -850,7 +866,15 @@ export function DnD5eCombatPanel({
                                     (spell.level > 0 && (characterData.spellSlots?.current[spell.level] || 0) <= 0) ||
                                     waitingForTurn || passTurnMutation.isPending
                                   }
-                                  onClick={() => handleCastSpell(spell)}
+                                  onClick={() => {
+                                    // Auto-enable save mode for save-based spells, otherwise keep manual toggle
+                                    if (autoSave) {
+                                      setUseSaveMode(true);
+                                      setSaveAbility(autoSave);
+                                      setSaveOnSuccess(inferred.onSuccess === "none" ? "none" : "half");
+                                    }
+                                    handleCastSpell(spell);
+                                  }}
                                 >
                                   <div className="flex flex-col items-start w-full">
                                     <div className="flex items-center gap-2 w-full">
