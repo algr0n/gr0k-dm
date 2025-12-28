@@ -5491,6 +5491,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             }
           }
 
+          // Broadcast a structured combat_result for UI (cards/logs)
+          broadcastToRoom(code, {
+            type: 'combat_result',
+            actorId: currentActor.id,
+            targetId: randomTarget.id,
+            attackRoll: result.d20,
+            attackTotal: result.attackTotal,
+            hit: result.hit,
+            isCritical: result.isCritical,
+            damageRolls: result.damageRolls,
+            damageTotal: result.damageTotal,
+            targetHp: randomTarget.currentHp,
+            timestamp: Date.now(),
+          });
+
           // If a player drops to 0 HP, announce. Only end combat if every player is truly dead (3 failed saves or marked dead)
           if (result.hit && randomTarget.controller === 'player' && (randomTarget.currentHp ?? 0) <= 0 && !randomTarget.metadata?.deathSaves) {
             broadcastToRoom(code, {
