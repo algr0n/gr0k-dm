@@ -5373,156 +5373,166 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           // Choose random player target
           const randomTarget = playerTargets[Math.floor(Math.random() * playerTargets.length)];
           
-          // Execute attack using combat engine
-          try {
-            console.log(`[Combat] NPC ${currentActor.name} metadata:`, JSON.stringify(currentActor.metadata, null, 2));
-            const attackBonus = currentActor.metadata?.attackBonus ?? 0;
-            const damageExpression = currentActor.metadata?.damageExpression ?? '1d6';
-            const attackRollExpression = currentActor.metadata?.attackRollExpression ?? null;
-            const rollOptions: RollOptions = {
-              traits: currentActor.metadata?.traits,
-              context: {
-                attackerId: currentActor.id,
-                attackerName: currentActor.name,
-                targetId: randomTarget.id,
-                targetName: randomTarget.name,
-                isMonster: true,
-              },
-            };
-            const targetAc = randomTarget.ac ?? 10;
+          // Execute attack using combat engine (fails loud if invalid)
+          console.log(`[Combat] NPC ${currentActor.name} metadata:`, JSON.stringify(currentActor.metadata, null, 2));
+          const attackBonus = currentActor.metadata?.attackBonus ?? 0;
+          const damageExpression = currentActor.metadata?.damageExpression ?? '1d6';
+          const attackRollExpression = currentActor.metadata?.attackRollExpression ?? null;
+          const rollOptions: RollOptions = {
+            traits: currentActor.metadata?.traits,
+            context: {
+              attackerId: currentActor.id,
+              attackerName: currentActor.name,
+              targetId: randomTarget.id,
+              targetName: randomTarget.name,
+              isMonster: true,
+            },
+          };
+          const targetAc = randomTarget.ac ?? 10;
+          
+          console.log(`[Combat] NPC ${currentActor.name} attacking with bonus=${attackBonus}, damage=${damageExpression}, target AC=${targetAc}`);
+          const result = resolveAttack(attackRollExpression, attackBonus, targetAc, damageExpression, rollOptions);
+          console.log(`[Combat] Attack result:`, result);
+          const hasInlineAttackBonus = typeof attackRollExpression === 'string' && /[+-]\d+/.test(attackRollExpression);
+          const attackBreakdown = hasInlineAttackBonus ? `${attackRollExpression}` : `${result.d20} + ${attackBonus}`;
+          
+          // Build narrative
+          let narrative = '';
+          if (result.isFumble) {
+            narrative = `The attack misses completely! (Rolled 1)`;
+          } else if (result.isCritical) {
+            narrative = `Critical hit! Rolled ${attackBreakdown} = ${result.attackTotal} vs AC ${targetAc}. ${result.damageTotal} damage!`;
+          } else if (result.hit) {
+            narrative = `Hit! Rolled ${attackBreakdown} = ${result.attackTotal} vs AC ${targetAc}. ${result.damageTotal} damage!`;
+          } else {
+            narrative = `Miss! Rolled ${attackBreakdown} = ${result.attackTotal} vs AC ${targetAc}.`;
+          }
+          
+          // Apply damage to target (D&D 5e: temp HP absorbs damage first)
+          if (result.hit && randomTarget.currentHp !== undefined) {
+            const wasUnconscious = randomTarget.currentHp <= 0;
+            let damageRemaining = result.damageTotal;
             
-            console.log(`[Combat] NPC ${currentActor.name} attacking with bonus=${attackBonus}, damage=${damageExpression}, target AC=${targetAc}`);
-            const result = resolveAttack(attackRollExpression, attackBonus, targetAc, damageExpression, rollOptions);
-            console.log(`[Combat] Attack result:`, result);
-            const hasInlineAttackBonus = typeof attackRollExpression === 'string' && /[+-]\d+/.test(attackRollExpression);
-            const attackBreakdown = hasInlineAttackBonus ? `${attackRollExpression}` : `${result.d20} + ${attackBonus}`;
-            
-            // Build narrative
-            let narrative = '';
-            if (result.isFumble) {
-              narrative = `The attack misses completely! (Rolled 1)`;
-            } else if (result.isCritical) {
-              narrative = `Critical hit! Rolled ${attackBreakdown} = ${result.attackTotal} vs AC ${targetAc}. ${result.damageTotal} damage!`;
-            } else if (result.hit) {
-              narrative = `Hit! Rolled ${attackBreakdown} = ${result.attackTotal} vs AC ${targetAc}. ${result.damageTotal} damage!`;
-            } else {
-              narrative = `Miss! Rolled ${attackBreakdown} = ${result.attackTotal} vs AC ${targetAc}.`;
-            }
-            
-            // Apply damage to target (D&D 5e: temp HP absorbs damage first)
-            if (result.hit && randomTarget.currentHp !== undefined) {
-              const wasUnconscious = randomTarget.currentHp <= 0;
-              let damageRemaining = result.damageTotal;
-              
-              // Temp HP absorbs damage first (doesn't stack, doesn't heal)
-              if (randomTarget.temporaryHp && randomTarget.temporaryHp > 0) {
-                if (randomTarget.temporaryHp >= damageRemaining) {
-                  randomTarget.temporaryHp -= damageRemaining;
-                  damageRemaining = 0;
-                } else {
-                  damageRemaining -= randomTarget.temporaryHp;
-                  randomTarget.temporaryHp = 0;
-                }
-              }
-              
-              // Apply remaining damage to actual HP
-              randomTarget.currentHp = Math.max(0, randomTarget.currentHp - damageRemaining);
-              
-              // D&D 5e Rule: Taking damage while at 0 HP causes failed death saves
-              if (wasUnconscious && result.damageTotal > 0) {
-                randomTarget.metadata = randomTarget.metadata || {};
-                const death = randomTarget.metadata.deathSaves || { successes: 0, failures: 0 };
-                
-                // Critical hits or melee attacks within 5 feet cause 2 failed death saves
-                const failuresAdded = result.isCritical ? 2 : 1;
-                death.failures += failuresAdded;
-                randomTarget.metadata.deathSaves = death;
-                
-                // Check for instant death (damage >= max HP while at 0)
-                if (result.damageTotal >= (randomTarget.maxHp ?? 0)) {
-                  death.failures = 3;
-                  broadcastToRoom(code, {
-                    type: 'system',
-                    content: `${randomTarget.name} takes massive damage and dies instantly!`,
-                  });
-                } else {
-                  broadcastToRoom(code, {
-                    type: 'system',
-                    content: `${randomTarget.name} takes ${result.damageTotal} damage while unconscious! ${failuresAdded} failed death save${failuresAdded > 1 ? 's' : ''} (${death.failures}/3).`,
-                  });
-                }
-                
-                // If 3+ failures, mark as dead
-                if (death.failures >= 3) {
-                  broadcastToRoom(code, {
-                    type: 'system',
-                    content: `${randomTarget.name} has died.`,
-                  });
-                }
+            // Temp HP absorbs damage first (doesn't stack, doesn't heal)
+            if (randomTarget.temporaryHp && randomTarget.temporaryHp > 0) {
+              if (randomTarget.temporaryHp >= damageRemaining) {
+                randomTarget.temporaryHp -= damageRemaining;
+                damageRemaining = 0;
+              } else {
+                damageRemaining -= randomTarget.temporaryHp;
+                randomTarget.temporaryHp = 0;
               }
             }
-
-            // If a player drops to 0 HP, announce. Only end combat if every player is truly dead (3 failed saves or marked dead)
-            if (result.hit && randomTarget.controller === 'player' && (randomTarget.currentHp ?? 0) <= 0 && !randomTarget.metadata?.deathSaves) {
-              broadcastToRoom(code, {
-                type: 'system',
-                content: `${randomTarget.name} drops unconscious at 0 HP!`,
-              });
-
-              const anyStanding = state.initiatives.some(
-                (i: any) => i.controller === 'player' && (i.currentHp ?? 0) > 0
-              );
-
-              const anyNotDead = state.initiatives.some((i: any) => {
-                if (i.controller !== 'player') return false;
-                const hp = i.currentHp ?? 0;
-                const failures = i.metadata?.deathSaves?.failures ?? 0;
-                const isDead = failures >= 3 || i.isAlive === false;
-                return hp > 0 || !isDead;
-              });
-
-              // Only end if everyone is actually dead (no conscious or death-save-eligible players)
-              if (!anyStanding && !anyNotDead) {
-                state.isActive = false;
-                roomCombatState.set(code, state);
-                broadcastToRoom(code, { type: 'combat_update', combat: state });
+            
+            // Apply remaining damage to actual HP
+            randomTarget.currentHp = Math.max(0, randomTarget.currentHp - damageRemaining);
+            
+            // D&D 5e Rule: Taking damage while at 0 HP causes failed death saves
+            if (wasUnconscious && result.damageTotal > 0) {
+              randomTarget.metadata = randomTarget.metadata || {};
+              const death = randomTarget.metadata.deathSaves || { successes: 0, failures: 0 };
+              
+              // Critical hits or melee attacks within 5 feet cause 2 failed death saves
+              const failuresAdded = result.isCritical ? 2 : 1;
+              death.failures += failuresAdded;
+              randomTarget.metadata.deathSaves = death;
+              
+              // Check for instant death (damage >= max HP while at 0)
+              if (result.damageTotal >= (randomTarget.maxHp ?? 0)) {
+                death.failures = 3;
                 broadcastToRoom(code, {
                   type: 'system',
-                  content: 'All players have died. Combat ends.',
+                  content: `${randomTarget.name} takes massive damage and dies instantly!`,
                 });
-                npcTurnProcessing.delete(code);
-                return; // abort further processing for this NPC turn
+              } else {
+                broadcastToRoom(code, {
+                  type: 'system',
+                  content: `${randomTarget.name} takes ${result.damageTotal} damage while unconscious! ${failuresAdded} failed death save${failuresAdded > 1 ? 's' : ''} (${death.failures}/3).`,
+                });
+              }
+              
+              // If 3+ failures, mark as dead
+              if (death.failures >= 3) {
+                broadcastToRoom(code, {
+                  type: 'system',
+                  content: `${randomTarget.name} has died.`,
+                });
               }
             }
-            
-            // Broadcast combat result with narrative
-            broadcastToRoom(code, {
-              type: 'dm',
-              content: `${currentActor.name} attacks ${randomTarget.name}! ${narrative}`,
-            });
-            
-            // Update combat state with damage (state was mutated when we updated randomTarget.currentHp)
-            roomCombatState.set(code, state);
-            broadcastToRoom(code, { type: 'combat_update', combat: state });
-          } catch (attackErr) {
-            console.error('[Combat] Monster attack failed, using fallback narrative:', attackErr);
-            console.error('[Combat] Attack error stack:', attackErr instanceof Error ? attackErr.stack : 'No stack');
-            // Fallback: Generate AI narration if combat engine fails
+          }
+
+          // Call AI narrator for notable moments (crit, fumble, kill)
+          const isKillingBlow = (randomTarget.currentHp ?? 0) <= 0;
+          if (result.isCritical || result.isFumble || isKillingBlow) {
             try {
-              const enemyActions = await generateCombatDMTurn(openai, room, undefined, (db as any).$client);
-              broadcastToRoom(code, {
-                type: 'dm',
-                content: enemyActions,
+              const narration = await narrateCombatMoment(openai, {
+                actorName: currentActor.name,
+                targetName: randomTarget.name,
+                actionType: "attack",
+                isCritical: result.isCritical,
+                damageTotal: result.damageTotal,
+                targetHp: randomTarget.currentHp,
+                targetMaxHp: randomTarget.maxHp,
+                isKillingBlow,
+                gameSystem: room.gameSystem,
               });
-            } catch (aiErr) {
-              console.error('[Combat] AI generation also failed:', aiErr);
-              // Final fallback: generic message
-              broadcastToRoom(code, {
-                type: 'dm',
-                content: `${currentActor.name} attacks but the outcome is unclear!`,
-              });
+              if (narration) {
+                broadcastToRoom(code, {
+                  type: "combat_narration",
+                  content: narration,
+                  actorName: currentActor.name,
+                  targetName: randomTarget.name,
+                  isCritical: result.isCritical,
+                  isKillingBlow,
+                });
+              }
+            } catch (narrationErr) {
+              console.error('[Combat] Narration failed for NPC attack:', narrationErr);
             }
           }
+
+          // If a player drops to 0 HP, announce. Only end combat if every player is truly dead (3 failed saves or marked dead)
+          if (result.hit && randomTarget.controller === 'player' && (randomTarget.currentHp ?? 0) <= 0 && !randomTarget.metadata?.deathSaves) {
+            broadcastToRoom(code, {
+              type: 'system',
+              content: `${randomTarget.name} drops unconscious at 0 HP!`,
+            });
+
+            const anyStanding = state.initiatives.some(
+              (i: any) => i.controller === 'player' && (i.currentHp ?? 0) > 0
+            );
+
+            const anyNotDead = state.initiatives.some((i: any) => {
+              if (i.controller !== 'player') return false;
+              const hp = i.currentHp ?? 0;
+              const failures = i.metadata?.deathSaves?.failures ?? 0;
+              const isDead = failures >= 3 || i.isAlive === false;
+              return hp > 0 || !isDead;
+            });
+
+            // Only end if everyone is actually dead (no conscious or death-save-eligible players)
+            if (!anyStanding && !anyNotDead) {
+              state.isActive = false;
+              roomCombatState.set(code, state);
+              broadcastToRoom(code, { type: 'combat_update', combat: state });
+              broadcastToRoom(code, {
+                type: 'system',
+                content: 'All players have died. Combat ends.',
+              });
+              npcTurnProcessing.delete(code);
+              return; // abort further processing for this NPC turn
+            }
+          }
+          
+          // Broadcast combat result with narrative
+          broadcastToRoom(code, {
+            type: 'dm',
+            content: `${currentActor.name} attacks ${randomTarget.name}! ${narrative}`,
+          });
+          
+          // Update combat state with damage (state was mutated when we updated randomTarget.currentHp)
+          roomCombatState.set(code, state);
+          broadcastToRoom(code, { type: 'combat_update', combat: state });
         } else {
           // No player targets, just narrate
           try {
@@ -5585,6 +5595,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         console.error('[Combat] NPC turn failed:', err);
         console.error('[Combat] NPC turn error stack:', err instanceof Error ? err.stack : 'No stack');
         console.error('[Combat] Failed for room:', code, 'NPC:', currentActor?.name);
+        broadcastToRoom(code, {
+          type: 'system',
+          content: `NPC turn failed for ${currentActor?.name || 'unknown NPC'}: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        });
         npcTurnProcessing.delete(code);
         // Auto-advance even on error so combat doesn't get stuck
         const currentState = roomCombatState.get(code);

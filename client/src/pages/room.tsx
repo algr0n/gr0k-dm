@@ -1597,6 +1597,32 @@ export default function RoomPage() {
               </div>
             </ScrollArea>
 
+            {/* Chat input stays adjacent to chat log */}
+            <form onSubmit={sendMessage} className="p-4 flex gap-2">
+              <Input
+                id="chat-message-input"
+                name="message"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                placeholder={
+                  gameEnded 
+                    ? "Game has ended" 
+                    : (!isMyTurn && isCombatActive)
+                      ? `Waiting for ${currentTurnCharacterName}'s turn...`
+                      : "Type a message... (use /roll 2d6+3 for dice, *asterisks* for actions)"
+                }
+                disabled={!isConnected || gameEnded || (!isMyTurn && isCombatActive)}
+                data-testid="input-chat-message"
+              />
+              <Button 
+                type="submit" 
+                disabled={!isConnected || !inputValue.trim() || gameEnded || (!isMyTurn && isCombatActive)}
+                data-testid="button-send-message"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </form>
+
             {/* Combat Results Display - Show recent combat actions */}
             {combatResults.length > 0 && combatState?.isActive && (
               <div className="px-4 pt-3">
@@ -1653,31 +1679,6 @@ export default function RoomPage() {
                 </div>
               </div>
             )}
-
-            <form onSubmit={sendMessage} className="p-4 flex gap-2">
-              <Input
-                id="chat-message-input"
-                name="message"
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                placeholder={
-                  gameEnded 
-                    ? "Game has ended" 
-                    : (!isMyTurn && isCombatActive)
-                      ? `Waiting for ${currentTurnCharacterName}'s turn...`
-                      : "Type a message... (use /roll 2d6+3 for dice, *asterisks* for actions)"
-                }
-                disabled={!isConnected || gameEnded || (!isMyTurn && isCombatActive)}
-                data-testid="input-chat-message"
-              />
-              <Button 
-                type="submit" 
-                disabled={!isConnected || !inputValue.trim() || gameEnded || (!isMyTurn && isCombatActive)}
-                data-testid="button-send-message"
-              >
-                <Send className="h-4 w-4" />
-              </Button>
-            </form>
 
             {/* Combat Actions Panel - moved below the chat input */}
             {combatState?.isActive && myCharacterData && (
