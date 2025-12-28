@@ -37,7 +37,7 @@ interface SpellData {
   name: string;
   level: number;
   school: string;
-  castingTime: string;
+              className={`w-full ${compact ? 'col-span-3 ' + btnTight : 'col-span-3'}`}
   range: string;
   components: { verbal: boolean; somatic: boolean; material: string | null };
   duration: string;
@@ -283,6 +283,9 @@ export function DnD5eCombatPanel({
   const [selectedTargetId, setSelectedTargetId] = useState<string>("");
   const [selectedSpell, setSelectedSpell] = useState<SpellData | null>(null);
   const [spellDialogOpen, setSpellDialogOpen] = useState(false);
+  const dense = compact;
+  const btnTight = dense ? "h-8 text-xs px-2 py-1" : "";
+  const sectionTight = dense ? "space-y-1" : "space-y-2";
   const [useSaveMode, setUseSaveMode] = useState(false);
   const [saveAbility, setSaveAbility] = useState<"str" | "dex" | "con" | "int" | "wis" | "cha">("dex");
   const [saveOnSuccess, setSaveOnSuccess] = useState<"half" | "none">("half");
@@ -747,12 +750,12 @@ export function DnD5eCombatPanel({
       </Card>
     );
   }
-
-  return (
+            className={`w-full ${compact ? 'col-span-2 ' + btnTight : 'col-span-3'}`}
+            size={compact ? 'sm' : undefined}
     <TooltipProvider>
       <Card className={`${compact ? 'p-2' : 'p-3'} bg-black border-2 border-green-500/30 shadow-lg shadow-green-500/20 font-mono`}>
         {/* Header with action economy */}
-        <div className="flex items-center justify-between mb-2 pb-2 border-b border-green-500/30">
+        <div className={`flex items-center justify-between ${compact ? 'mb-1 pb-1' : 'mb-2 pb-2'} border-b border-green-500/30`}>
           <div className="flex items-center gap-2">
             <span className="text-green-400">$</span>
             <span className={`${compact ? 'text-sm' : 'text-base'} text-green-400`}>COMBAT.SYS</span>
@@ -797,7 +800,7 @@ export function DnD5eCombatPanel({
 
         {/* Target selector */}
         {validTargets.length > 0 && (
-          <div className="mb-2">
+          <div className={compact ? "mb-1" : "mb-2"}>
             <Select value={selectedTargetId} onValueChange={setSelectedTargetId}>
               <SelectTrigger className={`${compact ? 'h-8 text-xs' : ''} bg-black border-green-500/50 text-green-400`}>
                 <SelectValue placeholder="&gt; SELECT TARGET..." />
@@ -820,15 +823,15 @@ export function DnD5eCombatPanel({
         )}
 
         {/* Main Action Buttons */}
-        <div className="space-y-2">
+        <div className={sectionTight}>
           <div className="text-xs font-medium text-green-500 mb-1 tracking-wider">&gt; PRIMARY_ACTIONS</div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className={`grid ${compact ? 'grid-cols-4 gap-1' : 'grid-cols-2 gap-2'}`}>
 
             <Button
               onClick={handleAttack}
               disabled={!selectedTargetId || !actionEconomy.action || combatActionMutation.isPending || waitingForTurn || passTurnMutation.isPending}
               size="sm"
-              className="w-full bg-green-900/30 hover:bg-green-900/50 text-green-400 border border-green-500/50 disabled:bg-gray-900 disabled:text-gray-600 disabled:border-gray-700"
+              className={`w-full bg-green-900/30 hover:bg-green-900/50 text-green-400 border border-green-500/50 disabled:bg-gray-900 disabled:text-gray-600 disabled:border-gray-700 ${compact ? 'col-span-2 ' + btnTight : ''}`}
             >
               <Sword className="h-4 w-4 mr-1" />
               ATTACK
@@ -839,14 +842,14 @@ export function DnD5eCombatPanel({
                 <Button
                   size="sm"
                   disabled={!actionEconomy.action && !actionEconomy.bonusAction || waitingForTurn || passTurnMutation.isPending}
-                  className="w-full bg-cyan-900/30 hover:bg-cyan-900/50 text-cyan-400 border border-cyan-500/50 disabled:bg-gray-900 disabled:text-gray-600 disabled:border-gray-700"
+                  className={`w-full bg-cyan-900/30 hover:bg-cyan-900/50 text-cyan-400 border border-cyan-500/50 disabled:bg-gray-900 disabled:text-gray-600 disabled:border-gray-700 ${compact ? 'col-span-2 ' + btnTight : ''}`}
                 >
                   <Sparkles className="h-4 w-4 mr-1" />
                   CAST_SPELL
                   {knownSpells.length > 0 && <Badge className="ml-auto text-xs bg-cyan-900/50 text-cyan-300 border-cyan-500/50">{knownSpells.length}</Badge>}
                 </Button>
               </DialogTrigger>
-                <DialogContent className="max-w-md max-h-[80vh]">
+                <DialogContent className={`max-w-md ${compact ? 'max-h-[60vh]' : 'max-h-[80vh]'}`}>
                   <DialogHeader>
                     <DialogTitle>Cast a Spell</DialogTitle>
                   </DialogHeader>
@@ -982,7 +985,7 @@ export function DnD5eCombatPanel({
           </div>
 
           {/* Utility Actions */}
-          <div className="text-xs font-medium text-amber-500 mb-1 mt-3 tracking-wider">&gt; MOVEMENT_&_DEFENSE</div>
+          <div className={`text-xs font-medium text-amber-500 mb-1 ${compact ? 'mt-2' : 'mt-3'} tracking-wider`}>&gt; MOVEMENT_&_DEFENSE</div>
           <div className="grid grid-cols-3 gap-1">
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1029,7 +1032,7 @@ export function DnD5eCombatPanel({
 
           {/* Class bonus actions */}
           {classBonusActions.length > 0 && actionEconomy.bonusAction && (
-            <div className="mt-3">
+            <div className={compact ? 'mt-2' : 'mt-3'}>
               <div className="text-xs font-medium text-purple-500 mb-1 tracking-wider">&gt; BONUS_ACTIONS</div>
               <div className="space-y-1">
                 {classBonusActions.map((ba) => (
@@ -1055,7 +1058,7 @@ export function DnD5eCombatPanel({
           {/* End Turn Button */}
           <Button
             size="sm"
-            className="w-full text-xs mt-3 bg-red-900/30 hover:bg-red-900/50 text-red-400 border border-red-500/50 disabled:bg-gray-900 disabled:text-gray-600 disabled:border-gray-700"
+            className={`w-full text-xs ${compact ? 'mt-2 ' + btnTight : 'mt-3'} bg-red-900/30 hover:bg-red-900/50 text-red-400 border border-red-500/50 disabled:bg-gray-900 disabled:text-gray-600 disabled:border-gray-700`}
             onClick={() => passTurnMutation.mutate()}
             disabled={passTurnMutation.isPending || waitingForTurn}
           >

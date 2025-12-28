@@ -310,6 +310,7 @@ export default function RoomPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const userIdRef = useRef<string | undefined>(user?.id);
   const savedCharacterIdRef = useRef<string | undefined>(undefined);
+  const characterNameRef = useRef<string | undefined>(undefined);
   
   // Keep userIdRef up to date without triggering WebSocket reconnection
   useEffect(() => {
@@ -443,6 +444,43 @@ export default function RoomPage() {
   useEffect(() => {
     savedCharacterIdRef.current = savedCharacterId;
   }, [savedCharacterId]);
+
+  // Keep character name handy for WebSocket combat updates
+  useEffect(() => {
+    const name = myCharacterData?.roomCharacter?.characterName || myCharacterData?.savedCharacter?.characterName;
+    if (name) {
+      characterNameRef.current = name;
+    }
+  }, [myCharacterData?.roomCharacter?.characterName, myCharacterData?.savedCharacter?.characterName]);
+
+  // Keep live HP synced when combat state or my character data changes (covers late data arrival)
+  useEffect(() => {
+    if (!combatState?.initiatives || !combatState.isActive) return;
+
+    const myIds = [
+      savedCharacterIdRef.current,
+      myCharacterData?.roomCharacter?.id,
+      myCharacterData?.savedCharacter?.id,
+    ].filter(Boolean);
+    const myNames = [
+      characterNameRef.current,
+      myCharacterData?.roomCharacter?.characterName,
+      myCharacterData?.savedCharacter?.characterName,
+    ].filter(Boolean) as string[];
+
+    const me = combatState.initiatives.find((i) => {
+      const idMatch = myIds.some((id) => id && i.id === id);
+      const nameMatch = myNames.some((name) => name && i.name?.toLowerCase?.() === name.toLowerCase());
+      return idMatch || nameMatch;
+    });
+
+    if (me && (me.currentHp !== undefined || me.maxHp !== undefined)) {
+      setLiveHp((prev) => ({
+        current: me.currentHp ?? prev?.current ?? 0,
+        max: me.maxHp ?? prev?.max ?? me.currentHp ?? 1,
+      }));
+    }
+  }, [combatState, myCharacterData?.roomCharacter?.id, myCharacterData?.savedCharacter?.id, myCharacterData?.roomCharacter?.characterName, myCharacterData?.savedCharacter?.characterName]);
   
   const { data: inventory, isLoading: isLoadingInventory, refetch: refetchInventory } = useQuery<CharacterInventoryItemWithDetails[]>({
     queryKey: ["/api/saved-characters", savedCharacterId, "inventory"],
@@ -1033,6 +1071,19 @@ export default function RoomPage() {
         } else if (data.type === "combat_update") {
           console.log("[WebSocket] Received combat_update:", data.combat);
           setCombatState(data.combat);
+
+          // Sync HP from combat state for the current character (fixes HP bar desync during combat)
+          const me = data.combat?.initiatives?.find((i: any) => {
+            const byId = savedCharacterIdRef.current && i.id === savedCharacterIdRef.current;
+            const byName = characterNameRef.current && i.name?.toLowerCase?.() === characterNameRef.current.toLowerCase();
+            return byId || byName;
+          });
+          if (me && (me.currentHp !== undefined || me.maxHp !== undefined)) {
+            setLiveHp((prev) => ({
+              current: me.currentHp ?? prev?.current ?? 0,
+              max: me.maxHp ?? prev?.max ?? me.currentHp ?? 1,
+            }));
+          }
         } else if (data.type === "combat_result") {
           console.log("[WebSocket] Received combat_result:", data);
           setCombatResults((prev) => [...prev, data]);
