@@ -28,7 +28,6 @@ import { InventoryLayout } from "@/components/inventory/InventoryLayout";
 import { QuestTracker } from "@/components/quest-tracker";
 import { QuestAcceptanceModal } from "@/components/quest-acceptance-modal";
 import { CombatActionsPanel } from "@/components/combat/CombatActionsPanel";
-import { CombatResultDisplay } from "@/components/combat/CombatResultDisplay";
 import { DnD5eCombatPanel } from "@/components/combat/DnD5eCombatPanel";
 import { NpcReputationPanel } from "@/components/npc-reputation-panel";
 import { Heart } from "lucide-react";
@@ -99,24 +98,6 @@ function parseMessageForItems(content: string, itemNameMap: Map<string, Item>): 
   const sortedItemNames = Array.from(itemNameMap.keys()).sort((a, b) => b.length - a.length);
   const pattern = new RegExp(
     `\\b(${sortedItemNames.map(name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`,
-    'gi'
-  );
-
-  const parts: ParsedMessagePart[] = [];
-  let lastIndex = 0;
-  let match;
-
-  while ((match = pattern.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push({ type: "text", content: content.slice(lastIndex, match.index) });
-    }
-    const matchedText = match[0];
-    const item = itemNameMap.get(matchedText.toLowerCase());
-    if (item) {
-      parts.push({ type: "item", content: matchedText, item });
-    } else {
-      parts.push({ type: "text", content: matchedText });
-    }
     lastIndex = pattern.lastIndex;
   }
 
@@ -274,7 +255,6 @@ export default function RoomPage() {
   const [gameEnded, setGameEnded] = useState(false);
   const [isRoomPublic, setIsRoomPublic] = useState(false);
   const [combatState, setCombatState] = useState<CombatState | null>(null);
-  const [combatResults, setCombatResults] = useState<any[]>([]);
   const [combatTrackerOpen, setCombatTrackerOpen] = useState(true);
   
   // Quest acceptance modal state
@@ -313,6 +293,7 @@ export default function RoomPage() {
   const characterNameRef = useRef<string | undefined>(undefined);
   const initialMessagesLoadedRef = useRef(false);
   const latestMessagesRef = useRef<Message[]>([]);
+  const combatantNamesRef = useRef<Record<string, string>>({});
 
   const appendSystemMessage = useCallback((content: string, subtype: Message["type"] = "dm") => {
     setMessages((prev) => {
@@ -327,6 +308,106 @@ export default function RoomPage() {
       return [...prev, next];
     });
   }, [code]);
+
+  const updateCombatantNames = (combat: CombatState | null | undefined) => {
+    if (!combat?.initiatives) return;
+    const map: Record<string, string> = {};
+    combat.initiatives.forEach((i) => {
+      if (i?.id) {
+        map[i.id] = i.name || i.id;
+      }
+    });
+    combatantNamesRef.current = map;
+  };
+
+  const getParticipantName = (id?: string, fallback?: string) => {
+    if (!id) return fallback || "Unknown";
+    return combatantNamesRef.current[id] || fallback || id || "Unknown";
+  };
+
+  const formatAbilityShort = (ability?: string) => {
+    if (!ability) return "";
+    const map: Record<string, string> = { str: "STR", strength: "STR", dex: "DEX", dexterity: "DEX", con: "CON", constitution: "CON", int: "INT", intelligence: "INT", wis: "WIS", wisdom: "WIS", cha: "CHA", charisma: "CHA" };
+    return map[ability.toLowerCase()] || ability.toUpperCase();
+  };
+
+  const formatCombatLogEntry = (payload: any) => {
+    if (!payload) return "Combat update";
+
+    if (payload.type === "combat_event") {
+      const actorName = getParticipantName(payload.actorId, payload.name);
+      const targetName = getParticipantName(payload.targetId, payload.name);
+      switch (payload.event) {
+        case "defeated":
+          return `Defeated: ${payload.name || targetName || actorName} has been defeated`;
+        case "pass":
+          return `Pass: ${actorName} passes their turn`;
+        case "hold":
+          return `Hold: ${actorName} is holding their action`;
+        default: {
+          const parts = [`Event: ${payload.event || "combat"}`];
+          if (payload.effect) parts.push(`Effect: ${payload.effect}`);
+          return parts.join("\n");
+        }
+      }
+    }
+
+    if (payload.type === "combat_result") {
+      const actorName = getParticipantName(payload.actorId);
+      const targetName = getParticipantName(payload.targetId);
+
+      if (typeof payload.saveDc === "number") {
+        const saveSucceeded = !!payload.saveSuccess;
+        const lines = [
+          `${saveSucceeded ? "Save Succeeded" : "Save Failed"}: ${actorName} casts ${payload.spellName || "a spell"} on ${targetName}`,
+          `Save: ${formatAbilityShort(payload.saveAbility)} vs DC ${payload.saveDc} (${payload.saveTotal ?? "?"}${payload.saveBreakdown ? ` | ${payload.saveBreakdown}` : ""})`,
+        ];
+        if (typeof payload.damageTotal === "number") {
+          lines.push(`Damage: ${payload.damageTotal}${saveSucceeded ? " (reduced)" : ""}`);
+        }
+        if (payload.targetHp !== undefined) {
+          lines.push(`${targetName} HP: ${payload.targetHp}`);
+        }
+        return lines.join("\n");
+      }
+
+      const hitTitle = payload.hit ? (payload.isCritical ? "Critical Hit!" : "Hit!") : "Miss";
+      const lines = [`${hitTitle} ${actorName} attacks ${targetName}`];
+
+      if (payload.attackRoll !== undefined || payload.attackTotal !== undefined) {
+        lines.push(`Attack: d20(${payload.attackRoll ?? "-"}) + bonus = ${payload.attackTotal ?? "-"}`);
+      }
+
+      if (payload.damageRolls && payload.damageRolls.length > 0) {
+        lines.push(`Damage: ${payload.damageRolls.map((r: number) => `d(${r})`).join(" + ")} = ${payload.damageTotal ?? "-"}`);
+      } else if (payload.damageTotal !== undefined) {
+        lines.push(`Damage: ${payload.damageTotal}`);
+      }
+
+      if (payload.targetHp !== undefined) {
+        lines.push(`${targetName} HP: ${payload.targetHp}`);
+      }
+
+      return lines.join("\n");
+    }
+
+    return "Combat update";
+  };
+
+  const appendCombatLogMessage = (content: string) => {
+    if (!content) return;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: crypto.randomUUID(),
+        roomId: code || "",
+        playerName: "Combat",
+        content,
+        type: "dm",
+        timestamp: Date.now().toString(),
+      },
+    ]);
+  };
   
   // Keep userIdRef up to date without triggering WebSocket reconnection
   useEffect(() => {
@@ -974,6 +1055,10 @@ export default function RoomPage() {
   }, [messages]);
 
   useEffect(() => {
+    updateCombatantNames(combatState);
+  }, [combatState]);
+
+  useEffect(() => {
     // Wait for auth to resolve before connecting (prevents stale user?.id in closures)
     if (!code || !playerName || isAuthLoading) return;
 
@@ -1090,12 +1175,12 @@ export default function RoomPage() {
             });
             sessionStorage.removeItem("lastRoomCode");
             sessionStorage.removeItem("playerName");
-            sessionStorage.removeItem("playerId");
             setLocation("/");
           }
         } else if (data.type === "combat_update") {
           console.log("[WebSocket] Received combat_update:", data.combat);
           setCombatState(data.combat);
+          updateCombatantNames(data.combat);
 
           // Sync HP from combat state for the current character (fixes HP bar desync during combat)
           const me = data.combat?.initiatives?.find((i: any) => {
@@ -1111,13 +1196,10 @@ export default function RoomPage() {
           }
         } else if (data.type === "combat_result") {
           console.log("[WebSocket] Received combat_result:", data);
-          setCombatResults((prev) => [...prev, data]);
+          appendCombatLogMessage(formatCombatLogEntry(data));
         } else if (data.type === "combat_event") {
           console.log("[WebSocket] Received combat_event:", data);
-          setCombatResults((prev) => [...prev, data]);
-          if (data.effect) {
-            appendSystemMessage(`${data.actorName || 'Someone'}: ${data.effect}`, "dm");
-          }
+          appendCombatLogMessage(formatCombatLogEntry(data));
           // Handle bonus action events with toast
           if (data.event === "bonus_action") {
             toast({
@@ -1917,23 +1999,6 @@ export default function RoomPage() {
                 <Send className="h-4 w-4" />
               </Button>
             </form>
-
-            {/* Combat Results Display - Show recent combat actions */}
-            {combatResults.length > 0 && combatState?.isActive && (
-              <div className="px-4 pt-3">
-                <div className="rounded-md border border-slate-700 bg-black/80 shadow-inner max-h-48 overflow-y-auto p-3 font-mono text-xs leading-tight">
-                  <CombatResultDisplay
-                    results={combatResults}
-                    participants={combatState.initiatives.map((i) => ({
-                      id: i.id,
-                      name: i.name,
-                    }))}
-                  />
-                </div>
-              </div>
-            )}
-
-
 
             <Separator />
 
