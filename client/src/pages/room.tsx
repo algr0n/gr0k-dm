@@ -1610,74 +1610,7 @@ export default function RoomPage() {
               </div>
             )}
 
-            {/* Combat Actions Panel - Use D&D 5e panel for dnd games */}
-            {combatState?.isActive && myCharacterData && (
-              <div className="px-4 pt-3">
-                {roomData?.gameSystem === "dnd" ? (
-                  <DnD5eCombatPanel
-                    roomCode={code!}
-                    myActorId={myCharacterData.savedCharacter.id}
-                    isMyTurn={
-                      combatState.initiatives[combatState.currentTurnIndex]?.name ===
-                      myCharacterData.roomCharacter.characterName
-                    }
-                    compact={true}
-                    participants={combatState.initiatives.map((i) => ({
-                      id: i.id,
-                      name: i.name,
-                      currentHp: i.currentHp,
-                      maxHp: i.maxHp,
-                      ac: i.ac,
-                      controller: i.controller,
-                    }))}
-                    characterData={{
-                      class: myCharacterData.savedCharacter.class ?? undefined,
-                      level: myCharacterData.savedCharacter.level ?? 1,
-                      stats: myCharacterData.savedCharacter.stats as Record<string, number> | undefined,
-                      spells: myCharacterData.savedCharacter.spells as string[] | undefined,
-                      spellSlots: myCharacterData.savedCharacter.spellSlots as { current: number[]; max: number[] } | undefined,
-                      speed: myCharacterData.savedCharacter.speed ?? 30,
-                    }}
-                    allSpells={allSpells}
-                  />
-                ) : (
-                  <CombatActionsPanel
-                    roomCode={code!}
-                    myActorId={myCharacterData.savedCharacter.id} // Use character ID to match combat state
-                    isMyTurn={
-                      combatState.initiatives[combatState.currentTurnIndex]?.name ===
-                      myCharacterData.roomCharacter.characterName
-                    }
-                    compact={true}
-                    participants={combatState.initiatives.map((i: any) => ({
-                      id: i.id, // Use InitiativeEntry.id from full combat state
-                      name: i.name,
-                      currentHp: i.currentHp,
-                      maxHp: i.maxHp,
-                      ac: i.ac,
-                      controller: i.controller, // Use controller field from InitiativeEntry
-                    }))}
-                    characterData={{
-                      attackBonus: (() => {
-                        const stats = myCharacterData.savedCharacter.stats as Record<string, number> | undefined;
-                        const strMod = stats?.str ? Math.floor((stats.str - 10) / 2) : 0;
-                        const profBonus = Math.floor((myCharacterData.savedCharacter.level || 1 - 1) / 4) + 2;
-                        return strMod + profBonus;
-                      })(),
-                      primaryDamage: (() => {
-                        const charClass = myCharacterData.savedCharacter.class?.toLowerCase();
-                        if (charClass === "wizard" || charClass === "sorcerer") return "1d4";
-                        if (charClass === "rogue") return "1d6";
-                        if (charClass === "fighter" || charClass === "paladin") return "1d8";
-                        if (charClass === "barbarian") return "1d12";
-                        return "1d6";
-                      })(),
-                      class: myCharacterData.savedCharacter.class ?? undefined,
-                    }}
-                  />
-                )}
-              </div>
-            )}
+
 
             <Separator />
 
@@ -1745,6 +1678,75 @@ export default function RoomPage() {
                 <Send className="h-4 w-4" />
               </Button>
             </form>
+
+            {/* Combat Actions Panel - moved below the chat input */}
+            {combatState?.isActive && myCharacterData && (
+              <div className="px-4 pt-0 pb-3">
+                {roomData?.gameSystem === "dnd" ? (
+                  <DnD5eCombatPanel
+                    roomCode={code!}
+                    myActorId={myCharacterData.savedCharacter.id}
+                    isMyTurn={
+                      combatState.initiatives[combatState.currentTurnIndex]?.name ===
+                      myCharacterData.roomCharacter.characterName
+                    }
+                    compact={true}
+                    participants={combatState.initiatives.map((i) => ({
+                      id: i.id,
+                      name: i.name,
+                      currentHp: i.currentHp,
+                      maxHp: i.maxHp,
+                      ac: i.ac,
+                      controller: i.controller,
+                    }))}
+                    characterData={{
+                      class: myCharacterData.savedCharacter.class ?? undefined,
+                      level: myCharacterData.savedCharacter.level ?? 1,
+                      stats: myCharacterData.savedCharacter.stats as Record<string, number> | undefined,
+                      spells: myCharacterData.savedCharacter.spells as string[] | undefined,
+                      spellSlots: myCharacterData.savedCharacter.spellSlots as { current: number[]; max: number[] } | undefined,
+                      speed: myCharacterData.savedCharacter.speed ?? 30,
+                    }}
+                    allSpells={allSpells}
+                  />
+                ) : (
+                  <CombatActionsPanel
+                    roomCode={code!}
+                    myActorId={myCharacterData.savedCharacter.id} // Use character ID to match combat state
+                    isMyTurn={
+                      combatState.initiatives[combatState.currentTurnIndex]?.name ===
+                      myCharacterData.roomCharacter.characterName
+                    }
+                    compact={true}
+                    participants={combatState.initiatives.map((i: any) => ({
+                      id: i.id, // Use InitiativeEntry.id from full combat state
+                      name: i.name,
+                      currentHp: i.currentHp,
+                      maxHp: i.maxHp,
+                      ac: i.ac,
+                      controller: i.controller, // Use controller field from InitiativeEntry
+                    }))}
+                    characterData={{
+                      attackBonus: (() => {
+                        const stats = myCharacterData.savedCharacter.stats as Record<string, number> | undefined;
+                        const strMod = stats?.str ? Math.floor((stats.str - 10) / 2) : 0;
+                        const profBonus = Math.floor((myCharacterData.savedCharacter.level || 1 - 1) / 4) + 2;
+                        return strMod + profBonus;
+                      })(),
+                      primaryDamage: (() => {
+                        const charClass = myCharacterData.savedCharacter.class?.toLowerCase();
+                        if (charClass === "wizard" || charClass === "sorcerer") return "1d4";
+                        if (charClass === "rogue") return "1d6";
+                        if (charClass === "fighter" || charClass === "paladin") return "1d8";
+                        if (charClass === "barbarian") return "1d12";
+                        return "1d6";
+                      })(),
+                      class: myCharacterData.savedCharacter.class ?? undefined,
+                    }}
+                  />
+                )}
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="character" className="flex-1 mt-0 overflow-auto data-[state=inactive]:hidden">
