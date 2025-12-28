@@ -41,6 +41,24 @@ declare global {
 
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
+  const useMemoryStore = process.env.USE_MEMORY_SESSION === "1" || !process.env.DATABASE_URL;
+
+  if (useMemoryStore) {
+    console.warn("[Auth] Using in-memory session store (development only). Set DATABASE_URL to enable persistent sessions.");
+    const memoryStore = new session.MemoryStore();
+    return session({
+      secret: process.env.SESSION_SECRET || "dev-secret",
+      store: memoryStore,
+      resave: false,
+      saveUninitialized: false,
+      cookie: {
+        httpOnly: true,
+        secure: false,
+        maxAge: sessionTtl,
+      },
+    });
+  }
+
   const PgStore = connectPg(session);
   const sessionStore = new PgStore({
     conString: process.env.DATABASE_URL,

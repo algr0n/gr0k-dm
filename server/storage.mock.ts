@@ -142,6 +142,7 @@ const storage = {
   async getDynamicLocationsByRoom(roomId: string) {
     return (this as any)._dynamicLocations.filter((l: any) => l.roomId === roomId).map((l: any) => ({ ...l }));
   },
+  async getStaleInactiveRooms(_: number) { return []; },
   async getQuestObjectivesByRoom(_: any) { return [] },
   async getQuestsByRoom(_: any) { return [] },
   async getAvailableQuestsForRoom(_: any) { return [] },

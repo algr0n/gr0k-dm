@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { randomUUID } from "crypto";
+import { createRequire } from "module";
 import bcrypt from "bcryptjs";
 import * as storageModule from './storage';
 
@@ -9,10 +10,12 @@ import * as storageModule from './storage';
 // Set environment variable `USE_MOCK_STORAGE=1` to load `./storage.mock` if present.
 let storage: any = (storageModule as any).storage ?? storageModule;
 
+// Optional mock storage swap for local smoke tests (no DB/Turso required)
 if (process.env.USE_MOCK_STORAGE === '1') {
   console.log('[Routes] Mock storage mode enabled');
-  // Mock storage will be loaded dynamically when needed
-  // This allows tests to import this file without side effects
+  const require = createRequire(import.meta.url);
+  const mockModule = require('./storage.mock');
+  storage = (mockModule as any).storage ?? mockModule;
 }
 import { db } from "./db";
 import { DEFAULT_GROK_MODEL } from "./constants";
