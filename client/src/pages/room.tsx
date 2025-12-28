@@ -98,6 +98,24 @@ function parseMessageForItems(content: string, itemNameMap: Map<string, Item>): 
   const sortedItemNames = Array.from(itemNameMap.keys()).sort((a, b) => b.length - a.length);
   const pattern = new RegExp(
     `\\b(${sortedItemNames.map(name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`,
+    "gi"
+  );
+
+  const parts: ParsedMessagePart[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: "text", content: content.slice(lastIndex, match.index) });
+    }
+    const matchedText = match[0];
+    const item = itemNameMap.get(matchedText.toLowerCase());
+    if (item) {
+      parts.push({ type: "item", content: matchedText, item });
+    } else {
+      parts.push({ type: "text", content: matchedText });
+    }
     lastIndex = pattern.lastIndex;
   }
 
