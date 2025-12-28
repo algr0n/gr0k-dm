@@ -1,4 +1,4 @@
-import { parseDiceExpression } from "./dice";
+import { parseDiceExpression, rollCritical, type RollOptions } from "./dice";
 import { randomUUID } from "crypto";
 
 export interface InitiativeEntry {
@@ -201,36 +201,53 @@ export function advanceTurn(state: any) {
 }
 
 // Basic attack resolution utility (deterministic)
-export function resolveAttack(attackRollExpression: string | null, attackBonus: number, targetAc: number, damageExpression: string | null) {
-  // attackRollExpression can be null (we'll roll a d20), damageExpression like "1d8+2"
-  const d20 = rollD20();
-  const attackTotal = d20 + attackBonus;
-  const isCritical = d20 === 20;
-  const isFumble = d20 === 1;
+export function resolveAttack(
+  attackRollExpression: string | null,
+  attackBonus: number,
+  targetAc: number,
+  damageExpression: string | null,
+  options: RollOptions = {},
+) {
+  // Use dice engine for attack roll (supports adv/disadv and traits). Falls back to 1d20 if parsing fails.
+  const attackContext = { ...options.context, isAttackRoll: true };
+  const attackExpr = attackRollExpression || "1d20";
+  const attackRoll = parseDiceExpression(attackExpr, { ...options, context: attackContext });
+
+  const attackBase = attackRoll ? attackRoll.total : rollD20();
+  const d20Candidates = attackRoll
+    ? attackRoll.rolls.filter(r => !r.dropped).map(r => r.value)
+    : [attackBase];
+  const d20 = d20Candidates.length > 0 ? Math.max(...d20Candidates) : attackBase;
+  const isCritical = d20Candidates.some(v => v === 20);
+  const isFumble = !isCritical && d20Candidates.every(v => v === 1);
+  const hasInlineAttackBonus = /[+-]\d+/.test(attackExpr);
+  const attackTotal = attackBase + (hasInlineAttackBonus ? 0 : attackBonus);
   const hit = !isFumble && (isCritical || attackTotal >= targetAc);
 
-  let damageRolls: number[] = [];
-  let damageTotal = 0;
+  let damageRollResult: ReturnType<typeof parseDiceExpression> | null = null;
   if (hit && damageExpression) {
-    const parsed = parseDiceExpression(damageExpression);
-    if (parsed) {
-      const rolls = parsed.rolls;
-      if (isCritical) {
-        // double dice: roll again the dice portion
-        const parsed2 = parseDiceExpression(parsed.expression);
-        if (parsed2) {
-          damageRolls = [...parsed.rolls, ...parsed2.rolls];
-        } else {
-          damageRolls = parsed.rolls;
-        }
-      } else {
-        damageRolls = parsed.rolls;
-      }
-      damageTotal = damageRolls.reduce((a, b) => a + b, 0) + parsed.modifier;
+    const damageContext = { ...options.context, isDamageRoll: true, isCritical, weaponDieSize: options.context?.weaponDieSize };
+    if (isCritical) {
+      damageRollResult = rollCritical(damageExpression, { ...options, context: damageContext });
+    } else {
+      damageRollResult = parseDiceExpression(damageExpression, { ...options, context: damageContext });
     }
   }
 
-  return { d20, attackTotal, isCritical, isFumble, hit, damageRolls, damageTotal };
+  const damageRolls = damageRollResult?.rolls?.map(r => r.value) ?? [];
+  const damageTotal = damageRollResult?.total ?? 0;
+
+  return {
+    d20,
+    attackRoll,
+    attackTotal,
+    isCritical,
+    isFumble,
+    hit,
+    damageRolls,
+    damageTotal,
+    damageBreakdown: damageRollResult?.breakdown,
+  };
 }
 
 export function updateThreat(state: any, actorId: string, amount: number) {

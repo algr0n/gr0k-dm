@@ -17,7 +17,7 @@ if (process.env.USE_MOCK_STORAGE === '1') {
 import { db } from "./db";
 import { DEFAULT_GROK_MODEL } from "./constants";
 import { client as libsqlClient } from "./db";
-import { parseDiceExpression } from "./dice";
+import { parseDiceExpression, type RollOptions } from "./dice";
 import { calculateDndMaxHp, applyDndRaceBonuses, parseHitDiceString, type HitDiceInfo } from "@shared/race-class-bonuses";
 import {
   openai,
@@ -46,6 +46,7 @@ import {
   roomAdventureProgress,
   getLevelFromXP,
   classDefinitions,
+  dndSkills,
   getAbilityModifier,
   calculateLevelUpHP,
   getMaxSpellSlots,
@@ -55,6 +56,8 @@ import {
   classSkillFeatures,
   subclassSkillFeatures,
   type DndClass,
+  getSkillBonus,
+  skillAbilityMap,
   combatEncounters,
   combatSpawns,
   dynamicNpcs,
@@ -1198,6 +1201,223 @@ function parseDMResponseTags(response: string): ParsedGameAction[] {
   }
 
   return actions;
+}
+
+// Normalize dice results to primitive rolls array (numbers) for storage/history/AI context
+function normalizeDiceResult(result: any) {
+  if (!result) return result;
+  const rollsArray = Array.isArray(result.rolls) ? result.rolls : [];
+  const rolls = rollsArray.map((r: any) => {
+    if (typeof r === "number") return r;
+    if (r && typeof r.value === "number") return r.value;
+    const n = Number(r);
+    return Number.isNaN(n) ? 0 : n;
+  });
+
+  return {
+    expression: result.expression ?? "",
+    total: typeof result.total === "number" ? result.total : Number(result.total) || 0,
+    modifier: typeof result.modifier === "number" ? result.modifier : Number(result.modifier) || 0,
+    rolls,
+    breakdown: result.breakdown,
+  } as any;
+}
+
+interface CheckRequest {
+  playerName: string;
+  check: string;
+  dc?: number;
+  advantage?: boolean;
+  disadvantage?: boolean;
+}
+
+function extractCheckRequests(response: string): CheckRequest[] {
+  const requests: CheckRequest[] = [];
+  const pattern = /\[CHECK:\s*([^|\]]+?)\s*\|\s*([^|\]]+?)(?:\s*\|\s*([^|\]]+?))?(?:\s*\|\s*([^|\]]+?))?\s*\]/gi;
+  let match;
+  while ((match = pattern.exec(response)) !== null) {
+    const playerName = match[1].trim();
+    const check = match[2].trim();
+    const extras = [match[3], match[4]].filter(Boolean).map((t) => t!.trim());
+
+    let dc: number | undefined;
+    let advantage = false;
+    let disadvantage = false;
+
+    for (const token of extras) {
+      const lower = token.toLowerCase();
+      const dcMatch = lower.match(/dc\s*=?\s*(\d+)/);
+      if (dcMatch) dc = parseInt(dcMatch[1], 10);
+      if (lower === "adv" || lower === "advantage") advantage = true;
+      if (lower === "dis" || lower === "disadvantage") disadvantage = true;
+    }
+
+    // If both adv/dis were provided, neutralize to normal roll
+    if (advantage && disadvantage) {
+      advantage = false;
+      disadvantage = false;
+    }
+
+    requests.push({ playerName, check, dc, advantage, disadvantage });
+  }
+  return requests;
+}
+
+const abilityKeyMap: Record<string, string> = {
+  str: "strength",
+  strength: "strength",
+  dex: "dexterity",
+  dexterity: "dexterity",
+  con: "constitution",
+  constitution: "constitution",
+  int: "intelligence",
+  intelligence: "intelligence",
+  wis: "wisdom",
+  wisdom: "wisdom",
+  cha: "charisma",
+  charisma: "charisma",
+};
+
+function normalizeStats(statsRaw: any): Record<string, number> {
+  const stats = typeof statsRaw === "string" ? safeJsonParse(statsRaw) : statsRaw || {};
+  const getVal = (keys: string[], fallback = 10) => {
+    for (const key of keys) {
+      const v = (stats as any)[key];
+      if (typeof v === "number") return v;
+      if (typeof v === "string" && v.trim() !== "" && !Number.isNaN(Number(v))) return Number(v);
+    }
+    return fallback;
+  };
+
+  return {
+    strength: getVal(["strength", "str", "STR"]),
+    dexterity: getVal(["dexterity", "dex", "DEX"]),
+    constitution: getVal(["constitution", "con", "CON"]),
+    intelligence: getVal(["intelligence", "int", "INT"]),
+    wisdom: getVal(["wisdom", "wis", "WIS"]),
+    charisma: getVal(["charisma", "cha", "CHA"]),
+  };
+}
+
+function safeJsonParse(payload: string) {
+  try {
+    return JSON.parse(payload);
+  } catch {
+    return {};
+  }
+}
+
+function computeCheckBonus(char: any, checkName: string): { bonus: number; label: string; ability: string } | null {
+  const normalizedCheck = checkName.trim().toLowerCase();
+  const stats = normalizeStats(char.stats);
+  const skills: string[] = Array.isArray(char.skills) ? char.skills : [];
+  const expertise: string[] = Array.isArray((char as any).expertise) ? (char as any).expertise : [];
+  const level = typeof char.level === "number" ? char.level : parseInt(char.level || "1", 10) || 1;
+  const className = char.class || char.className;
+
+  // Skill check
+  const skill = dndSkills.find((s) => s.toLowerCase() === normalizedCheck);
+  if (skill) {
+    const bonus = getSkillBonus(skill as any, {
+      stats,
+      skills,
+      level,
+      className,
+      expertise,
+    }).totalBonus;
+    const ability = skillAbilityMap[skill];
+    return { bonus, label: `${skill}`, ability };
+  }
+
+  // Ability check (supports STR/DEX/CON/INT/WIS/CHA)
+  const abilityKey = abilityKeyMap[normalizedCheck];
+  if (abilityKey) {
+    const abilityScore = (stats as any)[abilityKey];
+    const bonus = getAbilityModifier(typeof abilityScore === "number" ? abilityScore : 10);
+    const abbr = abilityKey.slice(0, 3).toUpperCase();
+    return { bonus, label: `${abbr}`, ability: abilityKey };
+  }
+
+  return null;
+}
+
+async function executeCheckRequests(params: {
+  requests: CheckRequest[];
+  room: any;
+  roomCode: string;
+  characters: any[];
+  players: any[];
+  broadcastFn: (roomCode: string, message: any) => void;
+}): Promise<Message[]> {
+  const { requests, room, roomCode, characters, players, broadcastFn } = params;
+  if (!requests || requests.length === 0) return [];
+
+  const rollMessages: Message[] = [];
+
+  const findTargets = (name: string) => {
+    const lower = name.toLowerCase();
+    if (lower === "all" || lower === "party" || lower === "group") return characters;
+    return characters.filter((c: any) =>
+      (c.characterName && c.characterName.toLowerCase() === lower) ||
+      (c.playerName && c.playerName.toLowerCase() === lower)
+    );
+  };
+
+  for (const req of requests) {
+    const targets = findTargets(req.playerName);
+    if (!targets || targets.length === 0) continue;
+
+    for (const target of targets) {
+      const bonusInfo = computeCheckBonus(target, req.check);
+      if (!bonusInfo) continue;
+
+      const baseExpr = req.advantage ? "2d20kh1" : req.disadvantage ? "2d20kl1" : "1d20";
+      const bonusPart = bonusInfo.bonus === 0 ? "" : bonusInfo.bonus > 0 ? `+${bonusInfo.bonus}` : `${bonusInfo.bonus}`;
+      const expression = `${baseExpr}${bonusPart}`;
+
+      const roll = parseDiceExpression(expression, { context: { isAbilityCheck: true } });
+      const normalized = normalizeDiceResult(roll);
+      if (!normalized) continue;
+
+      const dc = req.dc;
+      const success = typeof dc === "number" ? normalized.total >= dc : undefined;
+      const advText = req.advantage ? " (advantage)" : req.disadvantage ? " (disadvantage)" : "";
+      const dcText = typeof dc === "number" ? ` (DC ${dc})` : "";
+      const outcomeText = success === undefined ? "" : success ? " SUCCESS" : " FAIL";
+
+      const content = `${target.characterName || target.name || target.playerName || "Unknown"} ${bonusInfo.label} check${advText}${dcText}: ${normalized.total}${outcomeText}`;
+
+      const message: Message = {
+        id: randomUUID(),
+        roomId: room.id,
+        playerName: target.characterName || target.name || target.playerName || "Unknown",
+        content,
+        type: "roll",
+        timestamp: Date.now().toString(),
+        diceResult: normalized,
+      } as any;
+
+      broadcastFn(roomCode, message);
+      rollMessages.push(message);
+
+      try {
+        const player = players.find((p: any) => p.userId === target.userId);
+        await storage.createDiceRoll?.({
+          roomId: room.id,
+          playerId: player?.id ?? "",
+          expression: normalized.expression,
+          rolls: normalized.rolls,
+          modifier: normalized.modifier,
+          total: normalized.total,
+          purpose: `${bonusInfo.label} check`,
+        });
+      } catch (err) {
+        console.warn(`[Checks] Failed to persist dice roll for ${target.characterName || target.name}:`, err);
+      }
+    }
+  }
+
+  return rollMessages;
 }
 
 // ============================================================================
@@ -3122,6 +3342,77 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               content: message.content,
               timestamp: Date.now(),
             });
+          } else if (message.type === "skill_check") {
+            try {
+              const { skillName, dc, advantage = false, disadvantage = false } = message;
+              if (!skillName) return;
+
+              const room = await storage.getRoomByCode(code);
+              if (!room) return;
+
+              const characters = await storage.getCharactersByRoomCode(code);
+              const players = await storage.getPlayersByRoom(room.id);
+              const myChar = characters.find((c: any) => c.userId === ws.userId) || characters[0];
+              if (!myChar) return;
+
+              const bonusInfo = computeCheckBonus(myChar, skillName);
+              if (!bonusInfo) return;
+
+              const baseExpr = advantage ? "2d20kh1" : disadvantage ? "2d20kl1" : "1d20";
+              const bonusPart = bonusInfo.bonus === 0 ? "" : bonusInfo.bonus > 0 ? `+${bonusInfo.bonus}` : `${bonusInfo.bonus}`;
+              const expression = `${baseExpr}${bonusPart}`;
+
+              const roll = parseDiceExpression(expression, { context: { isAbilityCheck: true } });
+              const normalized = normalizeDiceResult(roll);
+              if (!normalized) return;
+
+              const success = typeof dc === "number" ? normalized.total >= dc : undefined;
+              const advText = advantage ? " (advantage)" : disadvantage ? " (disadvantage)" : "";
+              const dcText = typeof dc === "number" ? ` (DC ${dc})` : "";
+              const outcomeText = success === undefined ? "" : success ? " SUCCESS" : " FAIL";
+
+              const charName = myChar.characterName || playerName;
+              const content = `*${charName} attempts a ${skillName} check*${advText}${dcText}: ${normalized.total}${outcomeText}`;
+
+              const rollMessage: Message = {
+                id: randomUUID(),
+                roomId: room.id,
+                playerName: charName,
+                content,
+                type: "roll",
+                timestamp: Date.now().toString(),
+                diceResult: normalized,
+              } as any;
+
+              broadcastToRoom(code, rollMessage);
+
+              // Persist roll for history and AI context via queueMessage (as action for batching)
+              await queueMessage(code, {
+                type: "action",
+                playerName: charName,
+                content,
+                diceResult: normalized,
+                timestamp: Date.now(),
+              });
+
+              // Persist dice roll record if available
+              try {
+                const player = players.find((p: any) => p.userId === ws.userId);
+                await storage.createDiceRoll?.({
+                  roomId: room.id,
+                  playerId: player?.id ?? "",
+                  expression: normalized.expression,
+                  rolls: normalized.rolls,
+                  modifier: normalized.modifier,
+                  total: normalized.total,
+                  purpose: `${skillName} check`,
+                });
+              } catch (err) {
+                console.warn(`[Skill Check] Failed to persist dice roll for ${charName}:`, err);
+              }
+            } catch (err) {
+              console.error('[WebSocket] Skill check error:', err);
+            }
           } else if (message.type === "get_combat_state") {
             // Send current combat state
             const combatState = roomCombatState.get(code);
@@ -3225,7 +3516,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!messageQueue.has(roomCode)) {
       messageQueue.set(roomCode, []);
     }
-    messageQueue.get(roomCode)!.push(msg);
+    const normalizedDiceResult = msg.diceResult ? normalizeDiceResult(msg.diceResult) : undefined;
+    const queued = { ...msg, diceResult: normalizedDiceResult } as QueuedMessage;
+    messageQueue.get(roomCode)!.push(queued);
 
     // Broadcast individual message immediately for real-time feel
     broadcastToRoom(roomCode, {
@@ -3233,7 +3526,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       playerName: msg.playerName,
       content: msg.content,
       timestamp: msg.timestamp,
-      diceResult: msg.diceResult,
+      diceResult: normalizedDiceResult,
     });
 
     if (batchTimers.has(roomCode)) {
@@ -3380,6 +3673,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       broadcastToRoom(roomCode, dmMessage);
 
+      // Auto-resolve any CHECK tags in the DM response using character stats
+      const checkRequests = extractCheckRequests(dmResponse);
+      const checkMessages = await executeCheckRequests({
+        requests: checkRequests,
+        room,
+        roomCode,
+        characters,
+        players,
+        broadcastFn: broadcastToRoom,
+      });
+
       // Parse and execute game actions from DM response tags
       const gameActions = parseDMResponseTags(dmResponse);
 
@@ -3440,6 +3744,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           diceResult: msg.diceResult,
         })),
         dmMessage,
+        ...checkMessages,
       ];
 
       await storage.updateRoom(room.id, {
@@ -4868,14 +5173,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (content.startsWith("/roll ")) {
         const expression = content.slice(6).trim();
         diceResult = parseDiceExpression(expression);
-        if (diceResult) {
+        const normalized = diceResult ? normalizeDiceResult(diceResult) : undefined;
+        if (normalized) {
           await storage.createDiceRoll({
             roomId: room.id,
             playerId: "", // TODO: Add playerId if available
-            expression: diceResult.expression,
-            rolls: diceResult.rolls,
-            modifier: diceResult.modifier,
-            total: diceResult.total,
+            expression: normalized.expression,
+            rolls: normalized.rolls,
+            modifier: normalized.modifier,
+            total: normalized.total,
             purpose: "player roll",
           });
         }
@@ -4889,7 +5195,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         playerName,
         content: msgContent,
         type: msgType as any,
-        diceResult: diceResult ?? undefined,
+        diceResult: diceResult ? normalizeDiceResult(diceResult) : undefined,
         timestamp: Date.now(),
       });
 
@@ -4996,6 +5302,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Track which rooms are currently processing NPC turns to prevent concurrent execution
   const npcTurnProcessing = new Set<string>();
 
+  // Roll a dice expression (or plain number) through the dice engine with optional context
+  function rollWithDiceEngine(expression: string | number | null | undefined, options: RollOptions = {}) {
+    if (expression === null || expression === undefined) return null;
+    if (typeof expression === 'number') {
+      return { roll: null, total: expression, rolls: [expression], breakdown: `${expression}` };
+    }
+
+    const roll = parseDiceExpression(expression, options);
+    if (roll) {
+      return { roll, total: roll.total, rolls: roll.rolls.map((r) => r.value), breakdown: roll.breakdown };
+    }
+
+    const numeric = Number(expression);
+    if (!Number.isNaN(numeric)) {
+      return { roll: null, total: numeric, rolls: [numeric], breakdown: `${numeric}` };
+    }
+
+    return null;
+  }
+
   // Helper to trigger NPC turn automatically
   async function triggerNpcTurnIfNeeded(code: string) {
     console.log(`[Combat] triggerNpcTurnIfNeeded called for room ${code}`);
@@ -5052,22 +5378,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             console.log(`[Combat] NPC ${currentActor.name} metadata:`, JSON.stringify(currentActor.metadata, null, 2));
             const attackBonus = currentActor.metadata?.attackBonus ?? 0;
             const damageExpression = currentActor.metadata?.damageExpression ?? '1d6';
+            const attackRollExpression = currentActor.metadata?.attackRollExpression ?? null;
+            const rollOptions: RollOptions = {
+              traits: currentActor.metadata?.traits,
+              context: {
+                attackerId: currentActor.id,
+                attackerName: currentActor.name,
+                targetId: randomTarget.id,
+                targetName: randomTarget.name,
+                isMonster: true,
+              },
+            };
             const targetAc = randomTarget.ac ?? 10;
             
             console.log(`[Combat] NPC ${currentActor.name} attacking with bonus=${attackBonus}, damage=${damageExpression}, target AC=${targetAc}`);
-            const result = resolveAttack(null, attackBonus, targetAc, damageExpression);
+            const result = resolveAttack(attackRollExpression, attackBonus, targetAc, damageExpression, rollOptions);
             console.log(`[Combat] Attack result:`, result);
+            const hasInlineAttackBonus = typeof attackRollExpression === 'string' && /[+-]\d+/.test(attackRollExpression);
+            const attackBreakdown = hasInlineAttackBonus ? `${attackRollExpression}` : `${result.d20} + ${attackBonus}`;
             
             // Build narrative
             let narrative = '';
             if (result.isFumble) {
               narrative = `The attack misses completely! (Rolled 1)`;
             } else if (result.isCritical) {
-              narrative = `Critical hit! Rolled ${result.d20} + ${attackBonus} = ${result.attackTotal} vs AC ${targetAc}. ${result.damageTotal} damage!`;
+              narrative = `Critical hit! Rolled ${attackBreakdown} = ${result.attackTotal} vs AC ${targetAc}. ${result.damageTotal} damage!`;
             } else if (result.hit) {
-              narrative = `Hit! Rolled ${result.d20} + ${attackBonus} = ${result.attackTotal} vs AC ${targetAc}. ${result.damageTotal} damage!`;
+              narrative = `Hit! Rolled ${attackBreakdown} = ${result.attackTotal} vs AC ${targetAc}. ${result.damageTotal} damage!`;
             } else {
-              narrative = `Miss! Rolled ${result.d20} + ${attackBonus} = ${result.attackTotal} vs AC ${targetAc}.`;
+              narrative = `Miss! Rolled ${attackBreakdown} = ${result.attackTotal} vs AC ${targetAc}.`;
             }
             
             // Apply damage to target (D&D 5e: temp HP absorbs damage first)
@@ -5283,9 +5622,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
     if (type === 'attack' || type === 'spell') {
       const isSpell = type === 'spell';
-      const { targetId, attackBonus = 0, damageExpression = null, spellName, slotUsed, isAOE, aoeType, aoeSize } = action;
+      const {
+        targetId,
+        attackBonus = 0,
+        damageExpression = null,
+        spellName,
+        slotUsed,
+        isAOE,
+        aoeType,
+        aoeSize,
+        healingExpression = null,
+        healingTargetId,
+        attackRollExpression: actionAttackRollExpression = null,
+      } = action;
       const target = state.initiatives.find((i: any) => i.id === targetId);
-      if (!target) { const err:any = new Error('Target not found'); err.code = 404; throw err }
+      const healingTarget = healingTargetId ? state.initiatives.find((i: any) => i.id === healingTargetId) : null;
+      if (!target && !healingExpression) { const err:any = new Error('Target not found'); err.code = 404; throw err }
 
       // For spells with slot usage, consume the slot from the character's DB record
       if (isSpell && slotUsed && slotUsed > 0) {
@@ -5312,21 +5664,75 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      // For spells, use spell attack logic
-      let result;
-      if (isSpell) {
-        // Spell attack roll (for spells that require an attack roll)
-        result = resolveAttack(null, attackBonus, target.ac ?? 10, damageExpression);
-        
-        // If it's an AOE spell, potentially hit multiple targets
-        if (isAOE && result.hit) {
-          console.log(`[Combat] AOE spell ${spellName} hits! Type: ${aoeType}, Size: ${aoeSize}`);
-          // For now, just apply to primary target. Future: apply to area
+      const rollOptions: RollOptions = {
+        traits: currentActor.metadata?.traits ?? action.traits,
+        context: {
+          actorId,
+          actorName: currentActor.name,
+          targetId: (healingTarget || target)?.id,
+          targetName: (healingTarget || target)?.name,
+          actorController: currentActor.controller,
+          isSpell,
+        },
+      };
+
+      // Healing spells that roll dice-based healing (e.g., Healing Word, potions)
+      if (isSpell && healingExpression) {
+        const healTarget = healingTarget || target || currentActor;
+        const healingRoll = rollWithDiceEngine(healingExpression, { ...rollOptions, context: { ...rollOptions.context, isHealingRoll: true } });
+        const healAmount = healingRoll?.total ?? 0;
+        const preHp = healTarget.currentHp ?? healTarget.maxHp ?? 0;
+        const maxHp = healTarget.maxHp ?? (preHp + healAmount);
+        healTarget.currentHp = Math.min(preHp + healAmount, maxHp);
+
+        // Clear death saves if the target is back above 0
+        if (healTarget.currentHp > 0 && healTarget.metadata?.deathSaves) {
+          healTarget.metadata.deathSaves = { successes: 0, failures: 0 };
         }
-      } else {
-        // Regular weapon attack
-        result = resolveAttack(null, attackBonus, target.ac ?? 10, damageExpression);
+
+        state.actionHistory.push({
+          actorId,
+          type: 'spell',
+          targetId: healTarget.id,
+          healingExpression,
+          healingRoll: healingRoll?.roll ?? null,
+          healingTotal: healAmount,
+          spellName,
+          timestamp: Date.now(),
+        });
+
+        broadcastToRoom(code, {
+          type: 'combat_result',
+          actorId,
+          targetId: healTarget.id,
+          healing: true,
+          healingRolls: healingRoll?.rolls ?? [],
+          healingTotal: healAmount,
+          targetHp: healTarget.currentHp,
+          spellName,
+        });
+
+        const prevActorId = currentActor.id;
+        advanceTurn(state);
+        const inserted = processTrigger(state, prevActorId);
+        if (inserted.length > 0) {
+          broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
+        }
+
+        roomCombatState.set(code, state);
+        broadcastToRoom(code, { type: 'combat_update', combat: state });
+        setImmediate(() => triggerNpcTurnIfNeeded(code));
+
+        return { success: true, result: { healing: true, healingTotal: healAmount, targetId: healTarget.id } };
       }
+
+      if (!target) { const err:any = new Error('Target not found'); err.code = 404; throw err }
+
+      // Attacks and damaging spells use the dice engine for both attack and damage rolls
+      const attackRollExpression = actionAttackRollExpression ?? currentActor.metadata?.attackRollExpression ?? null;
+      const result = resolveAttack(attackRollExpression, attackBonus, target.ac ?? 10, damageExpression, rollOptions);
+      const hasInlineAttackBonus = typeof attackRollExpression === 'string' && /[+-]\d+/.test(attackRollExpression);
+      const attackBreakdown = hasInlineAttackBonus ? `${attackRollExpression}` : `${result.d20} + ${attackBonus}`;
 
       if (result.hit && result.damageTotal) {
         target.currentHp = (target.currentHp ?? target.maxHp ?? 0) - result.damageTotal;
@@ -5336,7 +5742,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       updateThreat(state, actorId, Math.max(1, result.damageTotal || (result.hit ? 5 : 1)));
 
       // Record action
-      state.actionHistory.push({ actorId, type: isSpell ? 'spell' : 'attack', targetId, result, spellName, isAOE, aoeType, timestamp: Date.now() });
+      state.actionHistory.push({ actorId, type: isSpell ? 'spell' : 'attack', targetId, result, spellName, isAOE, aoeType, timestamp: Date.now(), attackRollExpression });
 
       // Broadcast structured result
       broadcastToRoom(code, {
@@ -5345,6 +5751,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         targetId,
         attackRoll: result.d20,
         attackTotal: result.attackTotal,
+        attackBreakdown,
         hit: result.hit,
         isCritical: result.isCritical,
         damageRolls: result.damageRolls,
@@ -5470,11 +5877,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       switch (bonusActionType) {
         case 'second_wind':
           // Fighter's Second Wind: heal 1d10 + level
-          const healAmount = Math.floor(Math.random() * 10) + 1 + (currentActor.metadata?.level || 1);
+          const level = currentActor.metadata?.level || 1;
+          const healingRoll = rollWithDiceEngine(`1d10 + ${level}`, { context: { actorId, isHealingRoll: true } });
+          const healAmount = healingRoll?.total ?? 0;
           currentActor.currentHp = Math.min(
             (currentActor.currentHp ?? 0) + healAmount,
             currentActor.maxHp ?? 100
           );
+          if (currentActor.currentHp > 0 && currentActor.metadata?.deathSaves) {
+            currentActor.metadata.deathSaves = { successes: 0, failures: 0 };
+          }
           effect = `healed for ${healAmount} HP`;
           break;
         case 'rage':
@@ -5536,7 +5948,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       currentActor.metadata = currentActor.metadata || {};
       const death = currentActor.metadata.deathSaves || { successes: 0, failures: 0 };
 
-      const roll = Math.floor(Math.random() * 20) + 1;
+      const rollResult = rollWithDiceEngine('1d20', { context: { actorId, isSavingThrow: true, isDeathSave: true } });
+      const roll = rollResult?.total ?? (Math.floor(Math.random() * 20) + 1);
       if (roll === 1) {
         death.failures += 2;
       } else if (roll === 20) {
@@ -5649,7 +6062,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         err.code = 400; throw err;
       }
 
-      const result = resolveAttack(null, attackBonus, target.ac ?? 10, damageExpression);
+      const attackRollExpression = action.attackRollExpression ?? actor.metadata?.attackRollExpression ?? null;
+      const rollOptions: RollOptions = {
+        traits: actor.metadata?.traits,
+        context: { actorId, targetId, isOpportunityAttack: true },
+      };
+      const result = resolveAttack(attackRollExpression, attackBonus, target.ac ?? 10, damageExpression, rollOptions);
 
       if (result.hit && result.damageTotal) {
         target.currentHp = (target.currentHp ?? target.maxHp ?? 0) - result.damageTotal;

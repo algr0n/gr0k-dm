@@ -2016,16 +2016,14 @@ export default function RoomPage() {
                                           variant="outline"
                                           onClick={() => {
                                             if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && !gameEnded) {
-                                              const roll = Math.floor(Math.random() * 20) + 1;
-                                              const total = roll + totalMod;
                                               const charName = myCharacterData.savedCharacter.characterName || playerName;
                                               wsRef.current.send(JSON.stringify({
-                                                type: "action",
-                                                content: `*${charName} attempts a ${skillName} check* (Rolled d20: ${roll} + ${totalMod} = ${total})`,
+                                                type: "skill_check",
+                                                skillName,
                                               }));
                                               toast({
                                                 title: `${skillName} Check`,
-                                                description: `Rolled d20 (${roll}) + ${totalMod} = ${total}`,
+                                                description: `${charName} is rolling via the DM`,
                                               });
                                               setActiveTab("chat");
                                             }
