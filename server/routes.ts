@@ -240,7 +240,6 @@ async function createCombatSpawn(
         wis: statsData.wis ?? 10,
         cha: statsData.cha ?? 10,
         cr: statsData.cr || '0',
-        xp: statsData.xp ?? 10,
         actions: statsData.actions || [],
         traits: statsData.traits || [],
         source,
@@ -5704,6 +5703,99 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           isSpell,
         },
       };
+
+      const saveInfo = isSpell ? action.save : null;
+      if (isSpell && saveInfo?.dc && saveInfo?.ability) {
+        const targets = target ? [target] : [];
+        let totalThreat = 0;
+
+        for (const t of targets) {
+          const stats = t.metadata?.stats || {};
+          const abilityKey = String(saveInfo.ability || "").toLowerCase();
+          const abilityScore = stats[abilityKey] ?? stats[abilityKey.slice(0, 3)] ?? stats[abilityKey === "dexterity" ? "dex" : abilityKey === "constitution" ? "con" : abilityKey === "wisdom" ? "wis" : abilityKey === "charisma" ? "cha" : abilityKey === "intelligence" ? "int" : abilityKey === "strength" ? "str" : abilityKey];
+          const abilityMod = typeof abilityScore === "number" ? getAbilityModifier(abilityScore) : 0;
+          const levelForProf = typeof t.metadata?.level === "number" ? t.metadata.level : undefined;
+          const profBonus = levelForProf ? Math.floor(((levelForProf || 1) - 1) / 4) + 2 : 0;
+
+          const saveRoll = rollWithDiceEngine("1d20", { context: { ...rollOptions.context, targetId: t.id, targetName: t.name, isSavingThrow: true } });
+          const saveRollTotal = (saveRoll?.total ?? 0) + abilityMod + profBonus;
+          const saveSucceeded = saveRollTotal >= saveInfo.dc;
+
+          // Damage roll (use success expression if provided and success, else base)
+          const successExpr = saveInfo.onSuccess === "custom" && saveInfo.successDamageExpression ? saveInfo.successDamageExpression : null;
+          const baseDamageExpr = damageExpression || "0";
+          const damageExprToUse = saveSucceeded && successExpr ? successExpr : baseDamageExpr;
+          const damageRoll = rollWithDiceEngine(damageExprToUse, { ...rollOptions, context: { ...rollOptions.context, targetId: t.id, targetName: t.name, isDamageRoll: true } });
+          let appliedDamage = damageRoll?.total ?? 0;
+          if (saveSucceeded) {
+            if (saveInfo.onSuccess === "half" || !saveInfo.onSuccess) {
+              appliedDamage = Math.floor(appliedDamage / 2);
+            } else if (saveInfo.onSuccess === "none") {
+              appliedDamage = 0;
+            }
+          }
+
+          if (appliedDamage > 0) {
+            t.currentHp = (t.currentHp ?? t.maxHp ?? 0) - appliedDamage;
+          }
+
+          totalThreat += Math.max(1, appliedDamage || 1);
+
+          const saveBreakdown = saveRoll?.breakdown ?? `d20 + ${abilityMod}${profBonus ? ` + ${profBonus}` : ""}`;
+          const damageRolls = damageRoll?.rolls ?? [];
+
+          state.actionHistory.push({
+            actorId,
+            type: 'spell',
+            targetId: t.id,
+            spellName,
+            save: {
+              ability: saveInfo.ability,
+              dc: saveInfo.dc,
+              roll: saveRoll?.roll ?? null,
+              total: saveRollTotal,
+              success: saveSucceeded,
+              breakdown: saveBreakdown,
+            },
+            damageRoll: damageRoll?.roll ?? null,
+            damageTotal: appliedDamage,
+            timestamp: Date.now(),
+          });
+
+          broadcastToRoom(code, {
+            type: 'combat_result',
+            actorId,
+            targetId: t.id,
+            hit: appliedDamage > 0,
+            damageRolls,
+            damageTotal: appliedDamage,
+            targetHp: t.currentHp,
+            spellName,
+            saveDc: saveInfo.dc,
+            saveAbility: saveInfo.ability,
+            saveRoll: saveRoll?.rolls ?? (saveRoll?.roll ? saveRoll.rolls?.map((r: any) => r.value) : []),
+            saveTotal: saveRollTotal,
+            saveSuccess: saveSucceeded,
+            saveBreakdown,
+          });
+        }
+
+        // Threat update for caster
+        updateThreat(state, actorId, Math.max(1, totalThreat));
+
+        const prevActorId = currentActor.id;
+        advanceTurn(state);
+        const inserted = processTrigger(state, prevActorId);
+        if (inserted.length > 0) {
+          broadcastToRoom(code, { type: 'combat_event', event: 'held_triggered', inserted });
+        }
+
+        roomCombatState.set(code, state);
+        broadcastToRoom(code, { type: 'combat_update', combat: state });
+        setImmediate(() => triggerNpcTurnIfNeeded(code));
+
+        return { success: true };
+      }
 
       // Healing spells that roll dice-based healing (e.g., Healing Word, potions)
       if (isSpell && healingExpression) {

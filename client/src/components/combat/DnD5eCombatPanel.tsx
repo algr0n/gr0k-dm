@@ -280,6 +280,9 @@ export function DnD5eCombatPanel({
   const [selectedTargetId, setSelectedTargetId] = useState<string>("");
   const [selectedSpell, setSelectedSpell] = useState<SpellData | null>(null);
   const [spellDialogOpen, setSpellDialogOpen] = useState(false);
+  const [useSaveMode, setUseSaveMode] = useState(false);
+  const [saveAbility, setSaveAbility] = useState<"str" | "dex" | "con" | "int" | "wis" | "cha">("dex");
+  const [saveOnSuccess, setSaveOnSuccess] = useState<"half" | "none">("half");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -375,6 +378,7 @@ export function DnD5eCombatPanel({
   
   const spellAttackBonus = spellMod + profBonus;
   const attackBonus = Math.max(strMod, dexMod) + profBonus;
+  const spellSaveDc = 8 + profBonus + spellMod;
 
   // Mutations
   const combatActionMutation = useMutation({
@@ -535,6 +539,12 @@ export function DnD5eCombatPanel({
 
     const damage = getSpellDamage(spell, characterData.level || 1);
 
+    const savePayload = useSaveMode ? {
+      ability: saveAbility,
+      dc: spellSaveDc,
+      onSuccess: saveOnSuccess,
+    } : undefined;
+
     combatActionMutation.mutate({
       actorId: myActorId,
       type: "spell",
@@ -548,6 +558,7 @@ export function DnD5eCombatPanel({
       isAOE: targeting.isAOE,
       aoeType: targeting.aoeType,
       aoeSize: targeting.aoeSize,
+      save: savePayload,
     });
 
     setSpellDialogOpen(false);
@@ -767,6 +778,49 @@ export function DnD5eCombatPanel({
                   <DialogHeader>
                     <DialogTitle>Cast a Spell</DialogTitle>
                   </DialogHeader>
+                  <div className="space-y-2 mb-2 text-xs">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={useSaveMode}
+                        onChange={(e) => setUseSaveMode(e.target.checked)}
+                      />
+                      <span className="text-sm">Resolve with saving throw</span>
+                    </label>
+                    {useSaveMode && (
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="col-span-1">
+                          <Select value={saveAbility} onValueChange={(v) => setSaveAbility(v as any)}>
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue placeholder="Ability" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="dex">DEX</SelectItem>
+                              <SelectItem value="con">CON</SelectItem>
+                              <SelectItem value="wis">WIS</SelectItem>
+                              <SelectItem value="int">INT</SelectItem>
+                              <SelectItem value="cha">CHA</SelectItem>
+                              <SelectItem value="str">STR</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="col-span-1">
+                          <Select value={saveOnSuccess} onValueChange={(v) => setSaveOnSuccess(v as any)}>
+                            <SelectTrigger className="h-8 text-xs">
+                              <SelectValue placeholder="On success" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="half">Half damage</SelectItem>
+                              <SelectItem value="none">No damage</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="col-span-1 flex items-center text-muted-foreground justify-end pr-1">
+                          DC {spellSaveDc}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   {knownSpells.length > 0 ? (
                     <ScrollArea className="h-[400px] pr-4">
                       {Object.entries(spellsByLevel).sort(([a], [b]) => Number(a) - Number(b)).map(([level, spells]) => (

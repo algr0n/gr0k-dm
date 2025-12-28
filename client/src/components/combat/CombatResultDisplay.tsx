@@ -15,6 +15,13 @@ interface CombatResult {
   damageRolls?: number[];
   damageTotal?: number;
   targetHp?: number;
+   spellName?: string;
+   saveDc?: number;
+   saveAbility?: string;
+   saveRoll?: number[];
+   saveTotal?: number;
+   saveSuccess?: boolean;
+   saveBreakdown?: string;
   timestamp?: number;
 }
 
@@ -51,9 +58,36 @@ export function CombatResultDisplay({
     return participant?.name || "Unknown";
   };
 
+  const formatAbility = (ability?: string) => {
+    if (!ability) return "";
+    const map: Record<string, string> = { str: "STR", strength: "STR", dex: "DEX", dexterity: "DEX", con: "CON", constitution: "CON", int: "INT", intelligence: "INT", wis: "WIS", wisdom: "WIS", cha: "CHA", charisma: "CHA" };
+    return map[ability.toLowerCase()] || ability.toUpperCase();
+  };
+
   const formatCombatResult = (result: CombatResult) => {
     const actorName = getParticipantName(result.actorId);
     const targetName = getParticipantName(result.targetId);
+
+    // Saving throw–based spells
+    if (typeof result.saveDc === "number") {
+      const saveSucceeded = !!result.saveSuccess;
+      const title = saveSucceeded ? "Save Succeeded" : "Save Failed";
+      const icon = saveSucceeded ? Shield : Skull;
+      const iconColor = saveSucceeded ? "text-blue-400" : "text-red-500";
+      const damageLine = typeof result.damageTotal === "number"
+        ? `Damage: ${result.damageTotal}${saveSucceeded ? " (reduced)" : ""}`
+        : "Damage: -";
+      const saveLine = `Save: ${formatAbility(result.saveAbility)} vs DC ${result.saveDc} (${result.saveTotal ?? "?"}${result.saveBreakdown ? ` | ${result.saveBreakdown}` : ""})`;
+
+      return {
+        icon,
+        iconColor,
+        title,
+        description: `${actorName} casts ${result.spellName || "a spell"} on ${targetName}`,
+        details: [saveLine, damageLine, `${targetName} HP: ${result.targetHp}`],
+        variant: saveSucceeded ? "secondary" : "destructive",
+      };
+    }
 
     if (result.hit) {
       return {
