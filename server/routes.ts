@@ -5535,6 +5535,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     return 2;
   };
 
+  // Persist HP changes for player-controlled combatants so non-combat UI stays in sync
+  async function persistPlayerHp(roomCode: string, target: any) {
+    if (!target || target.controller !== 'player' || !target.id) return;
+    const updates = {
+      currentHp: Math.max(0, target.currentHp ?? 0),
+      temporaryHp: Math.max(0, target.temporaryHp ?? 0),
+      isAlive: (target.currentHp ?? 0) > 0,
+    };
+
+    try {
+      await storage.updateSavedCharacter(target.id, updates as any);
+      broadcastToRoom(roomCode, { type: 'character_update', characterId: target.id, updates });
+    } catch (err) {
+      console.error(`[Combat] Failed to persist HP for ${target.name || target.id}:`, err);
+    }
+  }
+
   // Resolve a saving throw roll with advantage/disadvantage context
   function rollSavingThrow({
     abilityMod = 0,
@@ -5727,6 +5744,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
                 });
               }
             }
+
+            // Sync HP for player targets so dashboards reflect combat damage
+            await persistPlayerHp(code, randomTarget);
           }
 
           // Call AI narrator for notable moments (crit, fumble, kill)
@@ -6040,6 +6060,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             t.currentHp = (t.currentHp ?? t.maxHp ?? 0) - appliedDamage;
           }
 
+          if (t.controller === 'player') {
+            await persistPlayerHp(code, t);
+          }
+
           totalThreat += Math.max(1, appliedDamage || 1);
 
           const damageRolls = damageRoll?.rolls ?? [];
@@ -6106,6 +6130,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const maxHp = healTarget.maxHp ?? (preHp + healAmount);
         healTarget.currentHp = Math.min(preHp + healAmount, maxHp);
 
+        if (healTarget.controller === 'player') {
+          await persistPlayerHp(code, healTarget);
+        }
+
         // Clear death saves if the target is back above 0
         if (healTarget.currentHp > 0 && healTarget.metadata?.deathSaves) {
           healTarget.metadata.deathSaves = { successes: 0, failures: 0 };
@@ -6157,6 +6185,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       if (result.hit && result.damageTotal) {
         target.currentHp = (target.currentHp ?? target.maxHp ?? 0) - result.damageTotal;
+      }
+
+      if (target.controller === 'player') {
+        await persistPlayerHp(code, target);
       }
 
       // Update threat for the actor (attacker gains threat)
@@ -6307,6 +6339,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           );
           if (currentActor.currentHp > 0 && currentActor.metadata?.deathSaves) {
             currentActor.metadata.deathSaves = { successes: 0, failures: 0 };
+          }
+          if (currentActor.controller === 'player') {
+            await persistPlayerHp(code, currentActor);
           }
           effect = `healed for ${healAmount} HP`;
           break;
