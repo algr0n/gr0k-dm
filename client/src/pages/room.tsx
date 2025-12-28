@@ -419,6 +419,8 @@ export default function RoomPage() {
 
   // Function to load a saved character into the form
   const loadSavedCharacter = (savedChar: SavedCharacter) => {
+    const savedPreparedSpells = (savedChar.stats as any)?.preparedSpells || [];
+    const savedKnownSpells = savedChar.spells || [];
     setCharacterName(savedChar.characterName);
     setCharacterStats({
       ...savedChar.stats,
@@ -434,6 +436,8 @@ export default function RoomPage() {
       alignment: savedChar.alignment,
       skills: savedChar.skills || [],
       spells: savedChar.spells || [],
+      knownSpells: savedKnownSpells,
+      preparedSpells: savedPreparedSpells,
       spellSlots: savedChar.spellSlots || undefined,
     });
     setCharacterNotes(savedChar.backstory || "");
@@ -447,11 +451,15 @@ export default function RoomPage() {
   // Load character data when it exists
   useEffect(() => {
     if (existingCharacter) {
+      const existingPreparedSpells = (existingCharacter as any).stats?.preparedSpells || [];
+      const existingKnownSpells = (existingCharacter as any).spells || [];
       setCharacterName(existingCharacter.characterName);
       setCharacterStats({
         ...(existingCharacter.stats || {}),
         skills: (existingCharacter as any).skills || [],
         spells: (existingCharacter as any).spells || [],
+        knownSpells: existingKnownSpells,
+        preparedSpells: existingPreparedSpells,
       });
       setCharacterNotes(existingCharacter.backstory || "");
     }
@@ -459,25 +467,34 @@ export default function RoomPage() {
 
   // Load spell slots from saved character when myCharacterData loads
   useEffect(() => {
-    if (myCharacterData?.savedCharacter?.spellSlots) {
+    if (myCharacterData?.savedCharacter) {
+      const saved = myCharacterData.savedCharacter;
       setCharacterStats(prev => ({
         ...prev,
-        spellSlots: myCharacterData.savedCharacter.spellSlots,
+        spellSlots: prev.spellSlots || saved.spellSlots,
+        knownSpells: (prev.knownSpells && prev.knownSpells.length > 0) ? prev.knownSpells : (saved.spells || []),
+        preparedSpells: (prev.preparedSpells && prev.preparedSpells.length > 0)
+          ? prev.preparedSpells
+          : ((saved.stats as any)?.preparedSpells || []),
       }));
     }
-  }, [myCharacterData?.savedCharacter?.spellSlots]);
+  }, [myCharacterData?.savedCharacter]);
 
   const saveCharacterMutation = useMutation({
     mutationFn: async () => {
       if (!savedCharacterId) {
         throw new Error("No character to save");
       }
-      // Extract spellSlots from characterStats to send at top level
-      const { spellSlots, ...statsWithoutSpellSlots } = characterStats;
+      // Extract spell-related fields so we can persist known/prepared spells explicitly
+      const { spellSlots, knownSpells, preparedSpells, ...statsWithoutSpellSlots } = characterStats;
       const response = await apiRequest("PATCH", `/api/saved-characters/${savedCharacterId}`, {
-        stats: statsWithoutSpellSlots,
+        stats: {
+          ...statsWithoutSpellSlots,
+          preparedSpells: preparedSpells || [],
+        },
         notes: characterNotes,
         spellSlots: spellSlots,
+        spells: knownSpells || [],
       });
       return response.json();
     },
@@ -506,6 +523,48 @@ export default function RoomPage() {
       });
     },
   });
+
+  const persistKnownSpellsMutation = useMutation({
+    mutationFn: async (spells: string[]) => {
+      if (!savedCharacterId) {
+        throw new Error("No character to update");
+      }
+      const response = await apiRequest("PATCH", `/api/saved-characters/${savedCharacterId}`, { spells });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "my-character"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", code] });
+      if (savedCharacterId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/saved-characters", savedCharacterId] });
+      }
+    },
+    onError: () => {
+      toast({
+        title: "Failed to save spells",
+        description: "Could not persist known spells. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const applyKnownSpellsUpdate = (
+    compute: (prevKnown: string[], prevPrepared: string[]) => { known: string[]; prepared?: string[] }
+  ) => {
+    setCharacterStats(prev => {
+      const prevKnown = prev.knownSpells || [];
+      const prevPrepared = prev.preparedSpells || [];
+      const { known, prepared } = compute(prevKnown, prevPrepared);
+      if (savedCharacterId) {
+        persistKnownSpellsMutation.mutate(known);
+      }
+      return {
+        ...prev,
+        knownSpells: known,
+        preparedSpells: prepared ?? prevPrepared.filter((id: string) => known.includes(id)),
+      };
+    });
+  };
 
   const switchCharacterMutation = useMutation({
     mutationFn: async (savedCharacterId: string) => {
@@ -1626,7 +1685,7 @@ export default function RoomPage() {
             {/* Combat Results Display - Show recent combat actions */}
             {combatResults.length > 0 && combatState?.isActive && (
               <div className="px-4 pt-3">
-                <div className="rounded-md border border-slate-700 bg-black/70 shadow-inner max-h-64 overflow-y-auto p-3 font-mono text-xs">
+                <div className="rounded-md border border-slate-700 bg-black/80 shadow-inner max-h-48 overflow-y-auto p-3 font-mono text-xs leading-tight">
                   <CombatResultDisplay
                     results={combatResults}
                     participants={combatState.initiatives.map((i) => ({
@@ -1706,7 +1765,10 @@ export default function RoomPage() {
                       class: myCharacterData.savedCharacter.class ?? undefined,
                       level: myCharacterData.savedCharacter.level ?? 1,
                       stats: myCharacterData.savedCharacter.stats as Record<string, number> | undefined,
-                      spells: myCharacterData.savedCharacter.spells as string[] | undefined,
+                      spells:
+                        (characterStats.knownSpells && characterStats.knownSpells.length > 0
+                          ? characterStats.knownSpells
+                          : (myCharacterData.savedCharacter.spells as string[] | undefined)) as string[] | undefined,
                       spellSlots: myCharacterData.savedCharacter.spellSlots as { current: number[]; max: number[] } | undefined,
                       speed: myCharacterData.savedCharacter.speed ?? 30,
                     }}
@@ -2626,15 +2688,11 @@ export default function RoomPage() {
                       spellSlots={characterStats.spellSlots}
                       maxSpellSlots={getMaxSpellSlots(myCharacterData.savedCharacter.class || "", myCharacterData.savedCharacter.level || 1)}
                       onAddKnownSpell={(spellId) => {
-                        setCharacterStats(prev => {
-                          const known = prev.knownSpells || [];
+                        applyKnownSpellsUpdate((known, prepared) => {
                           if (known.includes(spellId)) {
-                            return prev;
+                            return { known, prepared };
                           }
-                          return {
-                            ...prev,
-                            knownSpells: [...known, spellId],
-                          };
+                          return { known: [...known, spellId], prepared };
                         });
                         toast({
                           title: "Spell Added",
@@ -2642,11 +2700,11 @@ export default function RoomPage() {
                         });
                       }}
                       onRemoveKnownSpell={(spellId) => {
-                        setCharacterStats(prev => ({
-                          ...prev,
-                          knownSpells: (prev.knownSpells || []).filter((id: string) => id !== spellId),
-                          preparedSpells: (prev.preparedSpells || []).filter((id: string) => id !== spellId),
-                        }));
+                        applyKnownSpellsUpdate((known, prepared) => {
+                          const nextKnown = known.filter((id) => id !== spellId);
+                          const nextPrepared = prepared.filter((id) => nextKnown.includes(id));
+                          return { known: nextKnown, prepared: nextPrepared };
+                        });
                         toast({
                           title: "Spell Removed",
                           description: "Removed spell from your known spells.",

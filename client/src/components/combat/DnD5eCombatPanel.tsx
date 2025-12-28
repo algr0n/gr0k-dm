@@ -280,9 +280,6 @@ export function DnD5eCombatPanel({
   const [selectedTargetId, setSelectedTargetId] = useState<string>("");
   const [selectedSpell, setSelectedSpell] = useState<SpellData | null>(null);
   const [spellDialogOpen, setSpellDialogOpen] = useState(false);
-  const [customSpellName, setCustomSpellName] = useState("Magic Missile");
-  const [customSpellDamage, setCustomSpellDamage] = useState("1d6");
-  const [customSpellIsBonus, setCustomSpellIsBonus] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -556,44 +553,6 @@ export function DnD5eCombatPanel({
     setSpellDialogOpen(false);
   };
 
-  const handleCastCustomSpell = () => {
-    if (isDown) {
-      toast({ title: "Unconscious", description: "You can't cast while at 0 HP.", variant: "destructive" });
-      return;
-    }
-
-    if (!selectedTargetId) {
-      toast({ title: "No Target", description: "Select a target first", variant: "destructive" });
-      return;
-    }
-
-    const actionType = customSpellIsBonus ? "bonus" : "action";
-    if (actionType === "action" && !actionEconomy.action) {
-      toast({ title: "No Action", description: "You've already used your action this turn", variant: "destructive" });
-      return;
-    }
-    if (actionType === "bonus" && !actionEconomy.bonusAction) {
-      toast({ title: "No Bonus Action", description: "You've already used your bonus action", variant: "destructive" });
-      return;
-    }
-
-    const damageExpression = customSpellDamage || "0";
-
-    combatActionMutation.mutate({
-      actorId: myActorId,
-      type: "spell",
-      targetId: selectedTargetId,
-      attackBonus: spellAttackBonus,
-      damageExpression,
-      spellName: customSpellName || "Custom Spell",
-      spellLevel: 0,
-      slotUsed: 0,
-      actionType,
-    });
-
-    setSpellDialogOpen(false);
-  };
-
   const handleBonusAction = (bonusAction: { name: string; type: string }) => {
     if (isDown) {
       toast({ title: "Unconscious", description: "You can't take actions at 0 HP.", variant: "destructive" });
@@ -806,7 +765,7 @@ export function DnD5eCombatPanel({
               </DialogTrigger>
                 <DialogContent className="max-w-md max-h-[80vh]">
                   <DialogHeader>
-                    <DialogTitle>{knownSpells.length > 0 ? "Cast a Spell" : "Cast a Custom Spell"}</DialogTitle>
+                    <DialogTitle>Cast a Spell</DialogTitle>
                   </DialogHeader>
                   {knownSpells.length > 0 ? (
                     <ScrollArea className="h-[400px] pr-4">
@@ -867,37 +826,11 @@ export function DnD5eCombatPanel({
                       ))}
                     </ScrollArea>
                   ) : (
-                    <div className="space-y-3">
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium">Spell Name</label>
-                        <input
-                          className="w-full rounded border bg-background px-3 py-2 text-sm"
-                          value={customSpellName}
-                          onChange={(e) => setCustomSpellName(e.target.value)}
-                          placeholder="Magic Missile"
-                        />
-                      </div>
-                      <div className="grid gap-2">
-                        <label className="text-sm font-medium">Damage Expression (e.g. 2d6+1)</label>
-                        <input
-                          className="w-full rounded border bg-background px-3 py-2 text-sm"
-                          value={customSpellDamage}
-                          onChange={(e) => setCustomSpellDamage(e.target.value)}
-                          placeholder="1d6"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={customSpellIsBonus}
-                          onChange={(e) => setCustomSpellIsBonus(e.target.checked)}
-                        />
-                        <span className="text-sm">Cast as bonus action</span>
-                      </div>
-                      <Button onClick={handleCastCustomSpell} className="w-full">
-                        <Sparkles className="h-4 w-4 mr-2" />
-                        Cast Custom Spell
-                      </Button>
+                    <div className="space-y-2 py-3 text-sm text-muted-foreground">
+                      <p>No known spells for this character.</p>
+                      <p className="text-xs text-muted-foreground/80">
+                        Add spells from the Spell Browser on your sheet to cast them here.
+                      </p>
                     </div>
                   )}
                 </DialogContent>

@@ -120,7 +120,7 @@ export function CombatResultDisplay({
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       {displayResults.map((result, idx) => {
         const formatted =
           result.type === "combat_result"
@@ -133,33 +133,23 @@ export function CombatResultDisplay({
 
         const Icon = formatted.icon;
 
-        const variantStyles =
-          formatted.variant === "destructive"
-            ? "border-red-700/80 bg-red-950/40"
-            : formatted.variant === "default"
-            ? "border-emerald-700/70 bg-emerald-950/30"
-            : "border-slate-700/70 bg-slate-900/40";
-
         return (
-          <Card
+          <div
             key={idx}
             className={cn(
-              "p-3 border-l-4 shadow-none text-xs font-mono",
-              variantStyles
+              "border-b border-slate-700/60 pb-2 last:border-0 text-xs text-slate-100 font-mono"
             )}
           >
-            <div className="flex items-start gap-3">
+            <div className="flex items-start gap-2">
               <Icon className={cn("h-4 w-4 mt-0.5", formatted.iconColor)} />
               <div className="flex-1 space-y-1">
                 <div className="flex items-center gap-2">
-                  <h4 className="font-semibold">{formatted.title}</h4>
+                  <span className="font-semibold">{formatted.title}</span>
                   <Badge variant={formatted.variant as any} className="text-[10px] uppercase tracking-wide">
                     Combat
                   </Badge>
                 </div>
-                <p className="text-xs text-slate-100/80">
-                  {formatted.description}
-                </p>
+                <div className="text-slate-100/80">{formatted.description}</div>
                 {formatted.details.length > 0 && (
                   <div className="text-[11px] text-slate-200/80 space-y-0.5 pt-1">
                     {formatted.details.map((detail, i) => (
@@ -169,7 +159,7 @@ export function CombatResultDisplay({
                 )}
               </div>
             </div>
-          </Card>
+          </div>
         );
       })}
     </div>
