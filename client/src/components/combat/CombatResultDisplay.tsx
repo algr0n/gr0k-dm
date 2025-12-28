@@ -133,29 +133,35 @@ export function CombatResultDisplay({
 
         const Icon = formatted.icon;
 
+        const variantStyles =
+          formatted.variant === "destructive"
+            ? "border-red-700/80 bg-red-950/40"
+            : formatted.variant === "default"
+            ? "border-emerald-700/70 bg-emerald-950/30"
+            : "border-slate-700/70 bg-slate-900/40";
+
         return (
           <Card
             key={idx}
             className={cn(
-              "p-3 animate-in slide-in-from-bottom-2 duration-300",
-              formatted.variant === "destructive" && "border-destructive/50 bg-destructive/5",
-              formatted.variant === "default" && "border-primary/50 bg-primary/5"
+              "p-3 border-l-4 shadow-none text-xs font-mono",
+              variantStyles
             )}
           >
             <div className="flex items-start gap-3">
-              <Icon className={cn("h-5 w-5 mt-0.5", formatted.iconColor)} />
+              <Icon className={cn("h-4 w-4 mt-0.5", formatted.iconColor)} />
               <div className="flex-1 space-y-1">
                 <div className="flex items-center gap-2">
-                  <h4 className="font-semibold text-sm">{formatted.title}</h4>
-                  <Badge variant={formatted.variant as any} className="text-xs">
+                  <h4 className="font-semibold">{formatted.title}</h4>
+                  <Badge variant={formatted.variant as any} className="text-[10px] uppercase tracking-wide">
                     Combat
                   </Badge>
                 </div>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-xs text-slate-100/80">
                   {formatted.description}
                 </p>
                 {formatted.details.length > 0 && (
-                  <div className="text-xs text-muted-foreground font-mono space-y-0.5 pt-1">
+                  <div className="text-[11px] text-slate-200/80 space-y-0.5 pt-1">
                     {formatted.details.map((detail, i) => (
                       <div key={i}>{detail}</div>
                     ))}

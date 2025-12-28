@@ -1626,13 +1626,15 @@ export default function RoomPage() {
             {/* Combat Results Display - Show recent combat actions */}
             {combatResults.length > 0 && combatState?.isActive && (
               <div className="px-4 pt-3">
-                <CombatResultDisplay
-                  results={combatResults}
-                  participants={combatState.initiatives.map((i) => ({
-                    id: i.id,
-                    name: i.name,
-                  }))}
-                />
+                <div className="rounded-md border border-slate-700 bg-black/70 shadow-inner max-h-64 overflow-y-auto p-3 font-mono text-xs">
+                  <CombatResultDisplay
+                    results={combatResults}
+                    participants={combatState.initiatives.map((i) => ({
+                      id: i.id,
+                      name: i.name,
+                    }))}
+                  />
+                </div>
               </div>
             )}
 
