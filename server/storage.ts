@@ -103,6 +103,11 @@ export interface Storage {
   deleteStatusEffectsByCharacter(characterId: string): Promise<boolean>;
   addStatusEffect(effect: any): Promise<any>;
   removeStatusEffect(id: string): Promise<boolean>;
+  createRoomStatusEffect(effect: any): Promise<any>;
+  getRoomStatusEffects(roomId: string): Promise<any[]>;
+  deleteRoomStatusEffect(id: string): Promise<boolean>;
+  addRoomStatusEffect(effect: any): Promise<any>;
+  cleanupExpiredRoomStatusEffects(nowMs?: number): Promise<number>;
 
   // Users
   getUser(id: string): Promise<User | undefined>;
@@ -543,6 +548,14 @@ class DatabaseStorage implements Storage {
 
   async addRoomStatusEffect(effect: any): Promise<any> {
     return await this.createRoomStatusEffect(effect);
+  }
+
+  async cleanupExpiredRoomStatusEffects(nowMs = Date.now()): Promise<number> {
+    const now = new Date(nowMs);
+    const result = await db.delete(roomStatusEffects)
+      .where(lt(roomStatusEffects.expiresAt, now))
+      .returning({ id: roomStatusEffects.id });
+    return result.length;
   }
 
   // ==============================================================================

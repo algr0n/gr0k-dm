@@ -1,5 +1,5 @@
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, type CharacterStatusEffect, type CharacterInventoryItemWithDetails, gameSystemLabels, type GameSystem, statusEffectDefinitions, getMaxSpellSlots, isSpellcaster, buildSkillStats, dndSkills, type DndSkill, getSpellLimitInfo, getAbilityModifier, getSpellcastingAbility, xpThresholds } from "@shared/schema";
+import { type Message, type Room, type Player, type Character, type InventoryItem, type Item, type SavedCharacter, type CharacterStatusEffect, type CharacterInventoryItemWithDetails, type RoomStatusEffect, type DynamicNpc, gameSystemLabels, type GameSystem, statusEffectDefinitions, getMaxSpellSlots, isSpellcaster, buildSkillStats, dndSkills, type DndSkill, getSpellLimitInfo, getAbilityModifier, getSpellcastingAbility, xpThresholds } from "@shared/schema";
 import { SpellBrowser } from "@/components/spell-browser";
 import { FloatingCharacterPanel } from "@/components/floating-character-panel";
 import { DMControlsPanel } from "@/components/dm-controls-panel";
@@ -293,6 +293,9 @@ export default function RoomPage() {
   
   // Character death dialog state
   const [showDeathDialog, setShowDeathDialog] = useState(false);
+
+  // Room effects UI state
+  const [removingRoomEffectId, setRemovingRoomEffectId] = useState<string | null>(null);
   
   // Character form state
   const [characterName, setCharacterName] = useState("");
@@ -325,7 +328,7 @@ export default function RoomPage() {
     }
   }, []);
 
-  const { data: roomData, isLoading, error } = useQuery<Room & { players: Player[]; characters: Character[] }>({
+  const { data: roomData, isLoading, error } = useQuery<Room & { players: Player[]; characters: Character[]; roomStatusEffects?: RoomStatusEffect[] }>({
     queryKey: ["/api/rooms", code],
     enabled: !!code,
   });
@@ -353,6 +356,19 @@ export default function RoomPage() {
       })
     : undefined;
   const isLoadingViewedCharacter = isLoading;
+
+  const activeRoomEffects = (roomData?.roomStatusEffects ?? [])
+    .filter((effect) => {
+      const expiresAt = (effect as any).expiresAt;
+      if (!expiresAt) return true;
+      const expiresMs = expiresAt instanceof Date ? expiresAt.getTime() : new Date(expiresAt).getTime();
+      return expiresMs > Date.now();
+    })
+    .sort((a, b) => {
+      const aCreated = (a as any).createdAt ? new Date((a as any).createdAt).getTime() : 0;
+      const bCreated = (b as any).createdAt ? new Date((b as any).createdAt).getTime() : 0;
+      return bCreated - aCreated;
+    });
 
   // Fetch all items for item name detection in chat
   const { data: allItems } = useQuery<Item[]>({
@@ -397,6 +413,28 @@ export default function RoomPage() {
     queryKey: ["/api/rooms", code, "my-character"],
     enabled: !!code && !!user,
   });
+
+  const { data: dynamicNpcData } = useQuery<{ npcs: DynamicNpc[] } | null>({
+    queryKey: ["dynamic-npcs", roomData?.id],
+    enabled: !!roomData?.id,
+    staleTime: 1000 * 10,
+    queryFn: async () => {
+      const response = await apiRequest("GET", `/api/rooms/${roomData?.id}/dynamic-npcs`);
+      return (await response.json()) as { npcs: DynamicNpc[] };
+    },
+  });
+
+  const npcNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (dynamicNpcData?.npcs) {
+      for (const npc of dynamicNpcData.npcs) {
+        if (npc?.id && npc?.name) {
+          map.set(npc.id, npc.name);
+        }
+      }
+    }
+    return map;
+  }, [dynamicNpcData]);
 
   // Fetch inventory for current character from saved character (with joined item details)
   const savedCharacterId = myCharacterData?.savedCharacter?.id;
@@ -602,6 +640,26 @@ export default function RoomPage() {
   const isMyTurn = !combatState?.isActive || isHost || currentTurnEntry?.name === characterName || currentTurnEntry?.controller === 'dm';
   const isCombatActive = combatState?.isActive ?? false;
   const currentTurnCharacterName = currentTurnEntry?.name || "another player";
+
+  const removeRoomEffectMutation = useMutation({
+    mutationFn: async (effectId: string) => {
+      setRemovingRoomEffectId(effectId);
+      const response = await apiRequest("DELETE", `/api/rooms/${code}/status-effects/${effectId}`);
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || "Failed to remove room effect");
+      }
+      return payload;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", code] });
+      toast({ title: "Effect removed", description: "Room effect has been removed." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to remove", description: error?.message || "Could not remove room effect.", variant: "destructive" });
+    },
+    onSettled: () => setRemovingRoomEffectId(null),
+  });
 
   const deleteInventoryItemMutation = useMutation({
     mutationFn: async (itemId: string) => {
@@ -1063,6 +1121,18 @@ export default function RoomPage() {
           queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "room-characters"] });
           queryClient.invalidateQueries({ queryKey: ["/api/rooms", code] });
           queryClient.invalidateQueries({ queryKey: ["dynamic-npcs", roomData?.id] });
+
+        } else if (data.type === "combat_prompt") {
+          const description = data.spellText ? data.spellText.substring(0, 120) : "A loud event may draw foes.";
+          if (isHost && !gameEnded) {
+            toast({ title: "Loud event: consider combat", description, duration: 5000 });
+          } else {
+            toast({ title: "Loud event", description, duration: 4000 });
+          }
+
+        } else if (data.type === "room_status_effect_removed") {
+          queryClient.invalidateQueries({ queryKey: ["/api/rooms", code] });
+          toast({ title: "Effect removed", description: "A room effect has ended." });
 
         } else if (data.type === "npc_reputation_changed") {
           // NPC reputation changed; validate payload and refresh NPC list
@@ -1609,6 +1679,85 @@ export default function RoomPage() {
           <TabsContent value="chat" className="flex-1 flex flex-col mt-0 overflow-hidden data-[state=inactive]:hidden">
             <ScrollArea className="flex-1 min-h-0 p-4">
               <div className="space-y-4 max-w-3xl mx-auto">
+                <Card className="border-primary/20 bg-background/80">
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-purple-400" />
+                      <CardTitle className="text-sm font-semibold">Room Effects</CardTitle>
+                      <Badge variant="outline" className="text-[10px]">{activeRoomEffects.length}</Badge>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {activeRoomEffects.length === 0 ? "None active" : "Active spell effects"}
+                    </span>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {activeRoomEffects.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No active room or object effects yet.</p>
+                    ) : (
+                      activeRoomEffects.map((effect) => {
+                        const metadata = (effect as RoomStatusEffect).metadata as Record<string, unknown> | undefined;
+                        const tags = Array.isArray(metadata?.tags) ? metadata?.tags : [];
+                        const targetType = (metadata as any)?.targetType as string | undefined;
+                        const targetId = (metadata as any)?.targetId as string | undefined;
+                        const targetLabel = (() => {
+                          if (!targetType) return null;
+                          if (targetType === "npc" && targetId && npcNameMap.has(targetId)) {
+                            return `NPC: ${npcNameMap.get(targetId)}`;
+                          }
+                          return `${targetType.toUpperCase()}${targetId ? `: ${targetId}` : ""}`;
+                        })();
+                        const expiresMs = effect.expiresAt ? new Date(effect.expiresAt as any).getTime() : Number.NaN;
+                        const expiresLabel = Number.isFinite(expiresMs) ? `Expires ${new Date(expiresMs).toLocaleString()}` : null;
+                        return (
+                          <div
+                            key={effect.id}
+                            className="rounded-md border p-3 bg-muted/30 flex flex-col gap-2"
+                            data-testid={`room-effect-${effect.id}`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="space-y-2 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <Badge variant="secondary">{effect.name}</Badge>
+                                  {targetLabel && <Badge variant="outline" className="text-[11px]">{targetLabel}</Badge>}
+                                  {effect.duration && <Badge variant="outline" className="text-[11px]">{effect.duration}</Badge>}
+                                  {expiresLabel && <Badge variant="outline" className="text-[11px]">{expiresLabel}</Badge>}
+                                </div>
+                                {effect.description && (
+                                  <p className="text-sm text-muted-foreground leading-snug">{effect.description}</p>
+                                )}
+                              </div>
+                              {isHost && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8"
+                                  onClick={() => removeRoomEffectMutation.mutate(effect.id)}
+                                  disabled={removeRoomEffectMutation.isPending && removingRoomEffectId === effect.id}
+                                  aria-label="Remove room effect"
+                                >
+                                  {removeRoomEffectMutation.isPending && removingRoomEffectId === effect.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              )}
+                            </div>
+                            {tags && tags.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {tags.map((tag) => (
+                                  <Badge key={`${effect.id}-${String(tag)}`} variant="outline" className="text-[11px]">
+                                    {String(tag)}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </CardContent>
+                </Card>
                 {messages.map((message) => (
                   <div
                     key={message.id}

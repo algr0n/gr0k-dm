@@ -123,4 +123,19 @@ describe('apply spell handler', () => {
     expect(meta.targetType).toBe('npc');
     expect(meta.targetId).toBe('npc-1');
   });
+
+  it('emits combat_prompt when isLoud is true', async () => {
+    const broadcast = vi.fn();
+    const handler = createApplySpellHandler(mockStorage, broadcast);
+
+    const req = makeReq({ code: 'ROOM1' }, { spellText: 'Shatter', isLoud: true });
+    const res = makeRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    const types = broadcast.mock.calls.map(call => call[1]?.type);
+    expect(types).toContain('spell_applied');
+    expect(types).toContain('combat_prompt');
+  });
 });

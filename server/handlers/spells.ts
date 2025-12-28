@@ -85,8 +85,18 @@ export function createApplySpellHandler(storage: any, broadcastToRoom: (roomCode
         applied.push({ targetType: 'room', created });
       }
 
-      // Broadcast to room so clients can update UI; do not auto-start combat unless flagged by isLoud
+      // Broadcast to room so clients can update UI
       broadcastToRoom(code, { type: 'spell_applied', casterId, spellText, effects, applied, isLoud: !!isLoud });
+
+      // Optional loudness policy: nudge DM/players that combat might start
+      if (isLoud) {
+        broadcastToRoom(code, {
+          type: 'combat_prompt',
+          reason: 'Loud spell or effect',
+          spellText,
+          applied,
+        });
+      }
 
       res.json({ success: true, applied, effects });
     } catch (error) {

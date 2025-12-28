@@ -1,6 +1,7 @@
 
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
+import { storage } from "./storage";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedSpells } from "./seed-spells";
@@ -85,6 +86,19 @@ app.use((req, res, next) => {
     const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);
   }
+
+  // Scheduled cleanup for expired room status effects (optional background sweep)
+  const cleanupIntervalMs = parseInt(process.env.ROOM_EFFECT_CLEANUP_MS || "300000", 10); // default 5 minutes
+  setInterval(() => {
+    storage
+      .cleanupExpiredRoomStatusEffects()
+      .then((count) => {
+        if (count > 0) {
+          log(`Cleaned up ${count} expired room effects`, "cleanup");
+        }
+      })
+      .catch((err) => console.error("[Cleanup] Failed to purge room effects", err));
+  }, cleanupIntervalMs);
 
   const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(

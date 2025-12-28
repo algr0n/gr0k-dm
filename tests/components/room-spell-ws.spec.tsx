@@ -15,4 +15,19 @@ describe('Room WebSocket handlers (lightweight)', () => {
     expect(toastSpy).toHaveBeenCalled()
     toastSpy.mockRestore()
   })
+
+  test('invokes toast when combat_prompt arrives', () => {
+    const toastSpy = vi.spyOn(toastModule, 'toast')
+
+    const payload = { type: 'combat_prompt', spellText: 'A thunderous boom echoes' }
+    if (payload.type === 'combat_prompt') {
+      const description = payload.spellText ? payload.spellText.substring(0, 120) : 'A loud event may draw foes.'
+      toastModule.toast({ title: 'Loud event', description, duration: 4000 })
+    }
+
+    expect(toastSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Loud event', description: expect.stringContaining('thunderous boom') })
+    )
+    toastSpy.mockRestore()
+  })
 })

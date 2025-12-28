@@ -1,47 +1,38 @@
 # AI Agent Handoff: Non-Combat Spell Effects
 
 ## Current State
-- Implemented room-level status effects table `room_status_effects` and storage helpers.
-- Added HTTP endpoint `POST /api/rooms/:code/spells/apply` to apply spell effects outside combat; broadcasts `spell_applied` WS event.
-- Client combat panel can toggle "Apply outside combat" to hit the new endpoint; room page listens for `spell_applied` and refetches data.
-- Inference uses `shared/spell-text.ts` to auto-detect save ability/onSuccess/damage/tags.
-- Type checks pass (`npm run check`).
+- Migration 016 adds the `room_status_effects` table plus storage helpers and mock reset.
+- `POST /api/rooms/:code/spells/apply` supports character/object/npc/room targets, merges tags/metadata, and broadcasts `spell_applied` (WS handler refetches).
+- Room info and `/api/rooms/:code/status-effects` return active room status effects; expired rows are purged on fetch; `DELETE /api/rooms/:code/status-effects/:effectId` lets the DM remove and broadcasts `room_status_effect_removed`.
+- Room page shows a Room Effects card (tags/targets/duration/expiry) with DM removal; listens for `spell_applied` and `room_status_effect_removed` to invalidate queries.
+- Loud spells emit a `combat_prompt` WS event so the DM gets nudged to start combat; UI toasts for hosts.
+- Background cleanup interval purges expired room effects (env: `ROOM_EFFECT_CLEANUP_MS`, default 5m) in addition to fetch-time purge.
+- Room Effects card now shows friendly NPC names for NPC targets.
+- Latest targeted tests passing: `CI=1 npx vitest run tests/server/spells-apply.spec.ts tests/components/room-spell-ws.spec.tsx tests/components/room-ws-handler.spec.tsx tests/lib/spells.spec.ts --reporter dot`.
 
 ## Key Files
 - [shared/schema.ts](shared/schema.ts#L604-L647): `room_status_effects` table and insert schema.
-- [server/storage.ts](server/storage.ts#L520-L566): room status effect CRUD helpers.
-- [server/storage.mock.ts](server/storage.mock.ts#L40-L80): mock implementations for tests.
-- [server/routes.ts](server/routes.ts#L5195-L5285): `POST /api/rooms/:code/spells/apply` handler and WS broadcast.
-- [shared/spell-text.ts](shared/spell-text.ts): spell text inference.
+- [server/storage.ts](server/storage.ts#L520-L544): room status effect CRUD helpers.
+- [server/storage.mock.ts](server/storage.mock.ts#L28-L86): in-memory effects plus reset for tests.
+- [server/routes.ts](server/routes.ts#L4915-L5003): active-effect fetch/cleanup helper, GET status-effects, room info includes `roomStatusEffects`, and DM delete + broadcast.
+- [server/handlers/spells.ts](server/handlers/spells.ts#L1-L120): apply handler writing room/object/npc effects with metadata/tags.
+- [client/src/pages/room.tsx](client/src/pages/room.tsx#L1654-L1708): Room Effects card with tags/targets/expiry and DM removal; [WebSocket handling](client/src/pages/room.tsx#L1098-L1107) for apply/remove events.
 - [client/src/components/combat/DnD5eCombatPanel.tsx](client/src/components/combat/DnD5eCombatPanel.tsx#L500-L575): apply-outside-combat toggle + mutation to new endpoint.
-- [client/src/pages/room.tsx](client/src/pages/room.tsx#L1045-L1065): handles `spell_applied` WS event, toasts, refetches.
 - [docs/non-combat-spells.md](docs/non-combat-spells.md): quick doc of the flow.
 
 ## Pending / High Priority
-1) **Add DB migration** for `room_status_effects` (not yet created); ensure `migrations/016_add_room_status_effects.sql` (or next number) matches schema.
-2) **Tests**
-   - Server: unit/integration for `/api/rooms/:code/spells/apply` (character target, room target, bad params, permission check).
-   - Client: mutation happy-path and WS handling (Vitest + React Testing Library with mocked fetch/WS).
-3) **Object/NPC support**
-   - Allow passing object/NPC IDs from client; persist in `metadata` with richer tags (e.g., `manipulation`, `buff`, `debuff`).
-4) **UI surfacing**
-   - Display active room effects (and allow DM removal/expiry); consider filtering by tags.
-5) **Optional loudness → combat**
-   - If `isLoud` true, optionally trigger combat start or DM prompt; decide policy.
-6) **Expiry/cleanup**
-   - Add scheduled cleanup or on-fetch filtering using `expiresAt`; consider migrations for indexes if needed.
+- None for this feature set. Optional items have been addressed (combat prompt, background cleanup, NPC labels).
 
 ## Notes / Risks
-- **Schema mismatch risk**: production DB will miss `room_status_effects` until migration is added and run.
-- `spellText` is free-form; inference is best-effort. Consider adding optional `spellId` to fetch canonical text.
-- Endpoint currently allows any authenticated user; ensure room membership checks are sufficient for your threat model.
+- DELETE `/api/rooms/:code/status-effects/:effectId` now checks the authenticated user is the room host (players.isHost) instead of trusting `hostName` from the client.
+- Expired effects are purged on fetch/list; stale rows remain until a fetch occurs.
+- `spellText` is free-form; consider adding optional `spellId` to fetch canonical text.
 
 ## Quick Commands
 - Type check: `npm run check`
-- Run all SQL migrations (Turso): `node scripts/run-all-migrations.js` (uses TURSO_DATABASE_URL/TURSO_AUTH_TOKEN)
-- After authoring the new room_status_effects migration, run the script above; prefer the JS migration hook if needed.
+- Targeted tests: `CI=1 npx vitest run tests/server/spells-apply.spec.ts tests/components/room-spell-ws.spec.tsx tests/components/room-ws-handler.spec.tsx tests/lib/spells.spec.ts --reporter dot`
 
 ## Suggested Next Steps
-- Author migration for `room_status_effects`, run locally, commit.
-- Add tests (server + client) and wire object/NPC targeting.
-- Extend UI to show active room effects and support removals/expiry.
+- Tighten auth for room effect deletion (user-bound host check vs `hostName`).
+- Add object/scene label resolution for non-NPC targets if/when objects have names in state.
+- Extend tests to cover `combat_prompt` path and cleanup interval (mock time) if desired.

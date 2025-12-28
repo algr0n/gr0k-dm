@@ -4912,6 +4912,43 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  const fetchActiveRoomStatusEffects = async (roomId: string) => {
+    const effects = await storage.getRoomStatusEffects(roomId);
+    const now = Date.now();
+    const expiredIds: string[] = [];
+    const active = effects.filter((effect: any) => {
+      const expiresAt = effect?.expiresAt;
+      const expiresMs = expiresAt ? new Date(expiresAt).getTime() : null;
+      if (expiresMs && expiresMs <= now) {
+        expiredIds.push(effect.id);
+        return false;
+      }
+      return true;
+    });
+
+    if (expiredIds.length > 0) {
+      await Promise.all(expiredIds.map((id) => storage.deleteRoomStatusEffect(id)));
+    }
+
+    return active;
+  };
+
+  app.get("/api/rooms/:code/status-effects", async (req, res) => {
+    try {
+      const { code } = req.params;
+      const room = await storage.getRoomByCode(code);
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+
+      const activeEffects = await fetchActiveRoomStatusEffects(room.id);
+      res.json(activeEffects);
+    } catch (error) {
+      console.error("Error fetching room status effects:", error);
+      res.status(500).json({ error: "Failed to fetch room status effects" });
+    }
+  });
+
   // Get room info
   app.get("/api/rooms/:code", async (req, res) => {
     try {
@@ -4924,13 +4961,47 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const players = await storage.getPlayersByRoom(room.id);
       // Use savedCharacters table via roomCode for correct character data
       const characters = await storage.getCharactersByRoomCode(code);
+      const roomStatusEffects = await fetchActiveRoomStatusEffects(room.id);
 
       // Return room data merged with players and characters, exclude passwordHash and add isPrivate
       const { passwordHash, ...roomWithoutHash } = room;
-      res.json({ ...roomWithoutHash, isPrivate: !!passwordHash, players, characters });
+      res.json({ ...roomWithoutHash, isPrivate: !!passwordHash, players, characters, roomStatusEffects });
     } catch (error) {
       console.error("Error getting room info:", error);
       res.status(500).json({ error: "Failed to get room info" });
+    }
+  });
+
+  app.delete("/api/rooms/:code/status-effects/:effectId", isAuthenticated, async (req, res) => {
+    try {
+      const { code, effectId } = req.params;
+      const userId = req.user!.id;
+
+      const room = await storage.getRoomByCode(code);
+      if (!room) {
+        return res.status(404).json({ error: "Room not found" });
+      }
+
+      const players = await storage.getPlayersByRoom(room.id);
+      const currentPlayer = players.find((p: any) => p.userId === userId);
+      if (!currentPlayer || !currentPlayer.isHost) {
+        return res.status(403).json({ error: "Only the DM can remove room effects" });
+      }
+
+      const removed = await storage.deleteRoomStatusEffect(effectId);
+      if (!removed) {
+        return res.status(404).json({ error: "Status effect not found" });
+      }
+
+      broadcastToRoom(code, {
+        type: "room_status_effect_removed",
+        effectId,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing room status effect:", error);
+      res.status(500).json({ error: "Failed to remove room status effect" });
     }
   });
 

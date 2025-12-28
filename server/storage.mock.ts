@@ -54,6 +54,8 @@ const storage = {
   reset() {
     characters[0] = { id: 'c1', userId: 'u1', characterName: 'Alice', xp: 0, level: 1, maxHp: 10, currentHp: 10, class: 'Fighter', stats: { constitution: 12 }, gold: 0, currentRoomCode: 'ROOM1' };
     characters[1] = { id: 'c2', userId: 'u2', characterName: 'Bob', xp: 0, level: 1, maxHp: 8, currentHp: 8, class: 'Wizard', stats: { constitution: 10 }, gold: 0, currentRoomCode: 'ROOM1' };
+    (this as any)._roomStatusEffects = [];
+    (this as any)._encounters = [];
   },
   // Minimal stubs for functions used elsewhere to avoid runtime errors in the test harness
   async addStatusEffect(_: any) { return null },
@@ -68,6 +70,9 @@ const storage = {
     (this as any)._roomStatusEffects.push(e);
     return e;
   },
+  async createRoomStatusEffect(effect: any) {
+    return this.addRoomStatusEffect(effect);
+  },
   async getRoomStatusEffects(roomId: string) {
     return (this as any)._roomStatusEffects.filter((r: any) => r.roomId === roomId);
   },
@@ -76,6 +81,12 @@ const storage = {
     if (idx === -1) return false;
     (this as any)._roomStatusEffects.splice(idx, 1);
     return true;
+  },
+  async cleanupExpiredRoomStatusEffects() {
+    const now = Date.now();
+    const before = (this as any)._roomStatusEffects.length;
+    (this as any)._roomStatusEffects = (this as any)._roomStatusEffects.filter((r: any) => !r.expiresAt || new Date(r.expiresAt).getTime() > now);
+    return before - (this as any)._roomStatusEffects.length;
   },
   async getAllItems() { return [] },
   async getItemByName(_: any) { return null },
