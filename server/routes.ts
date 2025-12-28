@@ -5301,6 +5301,50 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Track which rooms are currently processing NPC turns to prevent concurrent execution
   const npcTurnProcessing = new Set<string>();
 
+  // Proficiency bonus helper for non-player creatures (approximate 5e table)
+  const profFromCR = (cr: number): number => {
+    if (cr >= 17) return 6;
+    if (cr >= 13) return 5;
+    if (cr >= 9) return 4;
+    if (cr >= 5) return 3;
+    return 2;
+  };
+
+  // Resolve a saving throw roll with advantage/disadvantage context
+  function rollSavingThrow({
+    abilityMod = 0,
+    profBonus = 0,
+    hasAdvantage = false,
+    hasDisadvantage = false,
+    rollOptions = {},
+    dc,
+    targetId,
+    targetName,
+  }: {
+    abilityMod?: number;
+    profBonus?: number;
+    hasAdvantage?: boolean;
+    hasDisadvantage?: boolean;
+    rollOptions?: RollOptions;
+    dc: number;
+    targetId: string;
+    targetName: string;
+  }) {
+    const baseExpr = hasAdvantage ? "2d20kh1" : hasDisadvantage ? "2d20kl1" : "1d20";
+    const saveRoll = rollWithDiceEngine(baseExpr, {
+      ...rollOptions,
+      context: { ...rollOptions.context, targetId, targetName, isSavingThrow: true },
+    });
+    const total = (saveRoll?.total ?? 0) + abilityMod + profBonus;
+    const breakdown = `${saveRoll?.breakdown || baseExpr} + ${abilityMod}${profBonus ? ` + ${profBonus}` : ""}`;
+    return {
+      saveRoll,
+      total,
+      success: total >= dc,
+      breakdown,
+    };
+  }
+
   // Roll a dice expression (or plain number) through the dice engine with optional context
   function rollWithDiceEngine(expression: string | number | null | undefined, options: RollOptions = {}) {
     if (expression === null || expression === undefined) return null;
@@ -5706,20 +5750,52 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const saveInfo = isSpell ? action.save : null;
       if (isSpell && saveInfo?.dc && saveInfo?.ability) {
-        const targets = target ? [target] : [];
+        const targetIds: string[] = Array.isArray(action.targetIds) && action.targetIds.length > 0
+          ? action.targetIds
+          : (target ? [target.id] : []);
+        const targets = targetIds
+          .map((tid) => state.initiatives.find((i: any) => i.id === tid))
+          .filter(Boolean) as any[];
+
         let totalThreat = 0;
 
         for (const t of targets) {
           const stats = t.metadata?.stats || {};
           const abilityKey = String(saveInfo.ability || "").toLowerCase();
-          const abilityScore = stats[abilityKey] ?? stats[abilityKey.slice(0, 3)] ?? stats[abilityKey === "dexterity" ? "dex" : abilityKey === "constitution" ? "con" : abilityKey === "wisdom" ? "wis" : abilityKey === "charisma" ? "cha" : abilityKey === "intelligence" ? "int" : abilityKey === "strength" ? "str" : abilityKey];
+          const abilityScore = stats[abilityKey] ?? stats[abilityKey.slice(0, 3)] ?? stats[
+            abilityKey === "dexterity" ? "dex" :
+            abilityKey === "constitution" ? "con" :
+            abilityKey === "wisdom" ? "wis" :
+            abilityKey === "charisma" ? "cha" :
+            abilityKey === "intelligence" ? "int" :
+            abilityKey === "strength" ? "str" : abilityKey];
           const abilityMod = typeof abilityScore === "number" ? getAbilityModifier(abilityScore) : 0;
-          const levelForProf = typeof t.metadata?.level === "number" ? t.metadata.level : undefined;
-          const profBonus = levelForProf ? Math.floor(((levelForProf || 1) - 1) / 4) + 2 : 0;
 
-          const saveRoll = rollWithDiceEngine("1d20", { context: { ...rollOptions.context, targetId: t.id, targetName: t.name, isSavingThrow: true } });
-          const saveRollTotal = (saveRoll?.total ?? 0) + abilityMod + profBonus;
-          const saveSucceeded = saveRollTotal >= saveInfo.dc;
+          // Proficiency bonus: use level for PCs; for monsters approximate from CR or metadata.profBonus
+          const levelForProf = typeof t.metadata?.level === "number" ? t.metadata.level : undefined;
+          const crValue = typeof t.metadata?.cr === "number"
+            ? t.metadata.cr
+            : (typeof t.metadata?.cr === "string" ? Number(t.metadata.cr.split("/").reduce((a: any, b: any) => Number(a) / Number(b))) : null);
+          const profBonus = typeof t.metadata?.profBonus === "number"
+            ? t.metadata.profBonus
+            : levelForProf
+              ? Math.floor(((levelForProf || 1) - 1) / 4) + 2
+              : (typeof crValue === "number" && !Number.isNaN(crValue) ? profFromCR(crValue) : 2);
+
+          const hasMagicResistance = Array.isArray(t.metadata?.traits)
+            ? t.metadata.traits.some((tr: any) => typeof tr === "string" && tr.toLowerCase().includes("magic resistance"))
+            : false;
+
+          const { saveRoll, total: saveTotal, success: saveSucceeded, breakdown: saveBreakdown } = rollSavingThrow({
+            abilityMod,
+            profBonus,
+            hasAdvantage: !!hasMagicResistance,
+            hasDisadvantage: false,
+            rollOptions,
+            dc: saveInfo.dc,
+            targetId: t.id,
+            targetName: t.name,
+          });
 
           // Damage roll (use success expression if provided and success, else base)
           const successExpr = saveInfo.onSuccess === "custom" && saveInfo.successDamageExpression ? saveInfo.successDamageExpression : null;
@@ -5741,7 +5817,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
           totalThreat += Math.max(1, appliedDamage || 1);
 
-          const saveBreakdown = saveRoll?.breakdown ?? `d20 + ${abilityMod}${profBonus ? ` + ${profBonus}` : ""}`;
           const damageRolls = damageRoll?.rolls ?? [];
 
           state.actionHistory.push({
@@ -5753,7 +5828,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               ability: saveInfo.ability,
               dc: saveInfo.dc,
               roll: saveRoll?.roll ?? null,
-              total: saveRollTotal,
+              total: saveTotal,
               success: saveSucceeded,
               breakdown: saveBreakdown,
             },
@@ -5774,7 +5849,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             saveDc: saveInfo.dc,
             saveAbility: saveInfo.ability,
             saveRoll: saveRoll?.rolls ?? (saveRoll?.roll ? saveRoll.rolls?.map((r: any) => r.value) : []),
-            saveTotal: saveRollTotal,
+            saveTotal,
             saveSuccess: saveSucceeded,
             saveBreakdown,
           });
