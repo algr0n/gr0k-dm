@@ -46,7 +46,15 @@ export function createApplySpellHandler(storage: any, broadcastToRoom: (roomCode
               });
               applied.push({ targetType: 'character', targetId: id, created });
             }
-          } else if (t.type === 'object' || t.type === 'room') {
+          } else if (t.type === 'object' || t.type === 'room' || t.type === 'npc') {
+            const mergedTags = Array.from(new Set([...(effects.tags || []), ...((t.tags as string[] | undefined) || [])]));
+            const metadata = {
+              ...(t.metadata || {}),
+              tags: mergedTags,
+              inferred: effects,
+              targetType: t.type,
+              targetId: t.id || null,
+            };
             const created = await storage.addRoomStatusEffect({
               roomId: room.id,
               name: `Spell: ${spellText.substring(0, 40)}`,
@@ -54,7 +62,7 @@ export function createApplySpellHandler(storage: any, broadcastToRoom: (roomCode
               appliedBy: 'player',
               sourceId: t.id || null,
               duration: duration || null,
-              metadata: { tags: effects.tags || [], inferred: effects },
+              metadata,
               createdAt: Date.now(),
             });
             applied.push({ targetType: t.type, targetId: t.id || null, created });
@@ -71,7 +79,7 @@ export function createApplySpellHandler(storage: any, broadcastToRoom: (roomCode
           description: effects.onSuccess || spellText,
           appliedBy: 'player',
           duration: duration || null,
-          metadata: { tags: effects.tags || [], inferred: effects },
+          metadata: { tags: effects.tags || [], inferred: effects, targetType: 'room' },
           createdAt: Date.now(),
         });
         applied.push({ targetType: 'room', created });

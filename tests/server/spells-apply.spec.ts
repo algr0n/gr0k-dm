@@ -103,4 +103,24 @@ describe('apply spell handler', () => {
     expect(broadcast).toHaveBeenCalledWith('ROOM1', expect.objectContaining({ type: 'spell_applied' }));
     expect(res.body.applied[0].targetType).toBe('room');
   });
+
+  it('applies object/npc targets with metadata tags', async () => {
+    const broadcast = vi.fn();
+    const handler = createApplySpellHandler(mockStorage, broadcast);
+
+    const addRoomSpy = vi.spyOn(mockStorage, 'addRoomStatusEffect');
+
+    const req = makeReq({ code: 'ROOM1' }, { spellText: 'Hold Person', targets: [{ type: 'npc', id: 'npc-1', tags: ['debuff'], metadata: { kind: 'humanoid' } }] });
+    const res = makeRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(addRoomSpy).toHaveBeenCalled();
+    const meta = res.body.applied[0].created.metadata;
+    expect(meta.tags).toContain('debuff');
+    expect(meta.targetType).toBe('npc');
+    expect(meta.targetId).toBe('npc-1');
+  });
 });

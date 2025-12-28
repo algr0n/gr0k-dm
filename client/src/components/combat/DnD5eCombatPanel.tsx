@@ -267,6 +267,7 @@ interface DnD5eCombatPanelProps {
   };
   allSpells: SpellData[];
   compact?: boolean;
+  externalTargets?: Array<{ type: 'npc' | 'object' | 'room'; id?: string; tags?: string[]; metadata?: Record<string, unknown> }>;
 }
 
 export function DnD5eCombatPanel({
@@ -277,6 +278,7 @@ export function DnD5eCombatPanel({
   characterData,
   allSpells,
   compact = false,
+  externalTargets = [],
 }: DnD5eCombatPanelProps) {
   const [selectedTargetId, setSelectedTargetId] = useState<string>("");
   const [selectedSpell, setSelectedSpell] = useState<SpellData | null>(null);
@@ -501,17 +503,10 @@ export function DnD5eCombatPanel({
 
   const applySpellMutation = useMutation({
     mutationFn: async (payload: any) => {
-      const res = await fetch(`/api/rooms/${roomCode}/spells/apply`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to apply spell');
-      }
-      return res.json();
+      // Use shared helper for easier testing
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { applySpell } = require('@/lib/spells');
+      return await applySpell(roomCode, payload);
     },
     onSuccess: () => {
       toast({ title: 'Spell applied', description: 'Effect applied outside combat', variant: 'default' });
@@ -538,6 +533,11 @@ export function DnD5eCombatPanel({
     const payloadTargets: any[] = [];
     if (selectedTargetId) {
       payloadTargets.push({ type: 'character', ids: [selectedTargetId] });
+    }
+
+    // Allow callers to pass NPC/object/room targets explicitly
+    if (externalTargets && externalTargets.length > 0) {
+      payloadTargets.push(...externalTargets);
     }
 
     applySpellMutation.mutate({
