@@ -37,7 +37,6 @@ interface SpellData {
   name: string;
   level: number;
   school: string;
-              className={`w-full ${compact ? 'col-span-3 ' + btnTight : 'col-span-3'}`}
   range: string;
   components: { verbal: boolean; somatic: boolean; material: string | null };
   duration: string;
@@ -750,8 +749,7 @@ export function DnD5eCombatPanel({
       </Card>
     );
   }
-            className={`w-full ${compact ? 'col-span-2 ' + btnTight : 'col-span-3'}`}
-            size={compact ? 'sm' : undefined}
+  return (
     <TooltipProvider>
       <Card className={`${compact ? 'p-2' : 'p-3'} bg-black border-2 border-green-500/30 shadow-lg shadow-green-500/20 font-mono`}>
         {/* Header with action economy */}
