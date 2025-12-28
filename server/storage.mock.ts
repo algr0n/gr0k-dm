@@ -26,6 +26,9 @@ const characters: Character[] = [
 ];
 
 const storage = {
+  _dynamicAdventureContexts: [] as any[],
+  _dynamicNpcs: [] as any[],
+  _dynamicLocations: [] as any[],
   async getCharactersByRoomCode(roomCode: string) {
     // Return characters in this room
     return characters.filter(c => c.currentRoomCode === roomCode).map(c => ({ ...c }));
@@ -56,6 +59,9 @@ const storage = {
     characters[1] = { id: 'c2', userId: 'u2', characterName: 'Bob', xp: 0, level: 1, maxHp: 8, currentHp: 8, class: 'Wizard', stats: { constitution: 10 }, gold: 0, currentRoomCode: 'ROOM1' };
     (this as any)._roomStatusEffects = [];
     (this as any)._encounters = [];
+    (this as any)._dynamicAdventureContexts = [];
+    (this as any)._dynamicNpcs = [];
+    (this as any)._dynamicLocations = [];
   },
   // Minimal stubs for functions used elsewhere to avoid runtime errors in the test harness
   async addStatusEffect(_: any) { return null },
@@ -88,6 +94,29 @@ const storage = {
     (this as any)._roomStatusEffects = (this as any)._roomStatusEffects.filter((r: any) => !r.expiresAt || new Date(r.expiresAt).getTime() > now);
     return before - (this as any)._roomStatusEffects.length;
   },
+  async createDynamicAdventureContext(ctx: any) {
+    const id = ctx.id || `dac:${Math.random().toString(36).slice(2)}`;
+    const row = { status: 'active', activeQuestIds: [], npcIds: [], locationIds: [], encounterIds: [], ...ctx, id };
+    (this as any)._dynamicAdventureContexts.push(row);
+    return { ...row };
+  },
+  async getActiveDynamicAdventureForRoom(roomId: string) {
+    return (this as any)._dynamicAdventureContexts.find((c: any) => c.roomId === roomId && c.status === 'active');
+  },
+  async updateDynamicAdventureContext(id: string, updates: any) {
+    const row = (this as any)._dynamicAdventureContexts.find((c: any) => c.id === id);
+    if (!row) return undefined;
+    Object.assign(row, updates);
+    return { ...row };
+  },
+  async deleteDynamicAdventureContext(id: string) {
+    (this as any)._dynamicNpcs = (this as any)._dynamicNpcs.filter((n: any) => n.adventureContextId !== id);
+    (this as any)._dynamicLocations = (this as any)._dynamicLocations.filter((l: any) => l.adventureContextId !== id);
+    (this as any)._encounters = (this as any)._encounters.filter((e: any) => e.adventureContextId !== id);
+    const before = (this as any)._dynamicAdventureContexts.length;
+    (this as any)._dynamicAdventureContexts = (this as any)._dynamicAdventureContexts.filter((c: any) => c.id !== id);
+    return (this as any)._dynamicAdventureContexts.length < before;
+  },
   async getAllItems() { return [] },
   async getItemByName(_: any) { return null },
   async getItem(_: any) { return null },
@@ -96,11 +125,26 @@ const storage = {
   async updateSavedInventoryItem(_: any) { return null },
   async addToSavedInventory(_: any) { return null },
   async deleteSavedInventoryItem(_: any) { return null },
-  async createDynamicNpc(_: any) { return { id: 'npc-1', name: 'Mock NPC' } },
+  async createDynamicNpc(npc: any) {
+    const row = { id: npc.id || `npc:${Math.random().toString(36).slice(2)}`, name: npc.name || 'Mock NPC', ...npc };
+    (this as any)._dynamicNpcs.push(row);
+    return { ...row };
+  },
   async createStoryEvent(_: any) { return { id: 'event-1', title: 'Mock Event' } },
-  async createDynamicLocation(_: any) { return { id: 'loc-1', name: 'Mock Location' } },
+  async createDynamicLocation(loc: any) {
+    const row = { id: loc.id || `loc:${Math.random().toString(36).slice(2)}`, name: loc.name || 'Mock Location', ...loc };
+    (this as any)._dynamicLocations.push(row);
+    return { ...row };
+  },
+  async getDynamicNpcsByRoom(roomId: string) {
+    return (this as any)._dynamicNpcs.filter((n: any) => n.roomId === roomId).map((n: any) => ({ ...n }));
+  },
+  async getDynamicLocationsByRoom(roomId: string) {
+    return (this as any)._dynamicLocations.filter((l: any) => l.roomId === roomId).map((l: any) => ({ ...l }));
+  },
   async getQuestObjectivesByRoom(_: any) { return [] },
   async getQuestsByRoom(_: any) { return [] },
+  async getAvailableQuestsForRoom(_: any) { return [] },
 
   // In-memory encounter store for tests
   _encounters: [] as any[],

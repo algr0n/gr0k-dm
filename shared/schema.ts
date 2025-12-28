@@ -1682,10 +1682,35 @@ export function getSkillBonus(
 // Advanced Combat System Tables
 // =============================================================================
 
+// Dynamic Adventure Contexts - generated adventures per room
+export const dynamicAdventureContexts = sqliteTable("dynamic_adventure_contexts", {
+  id: text("id").primaryKey().default(generateUUID()),
+  roomId: text("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  status: text("status").notNull().default("active"), // active | completed | deleted
+  seed: text("seed"),
+  summary: text("summary"),
+  currentLocationId: text("current_location_id"),
+  activeQuestIds: text("active_quest_ids", { mode: 'json' }).$type<string[]>().default(sql`'[]'`),
+  npcIds: text("npc_ids", { mode: 'json' }).$type<string[]>().default(sql`'[]'`),
+  locationIds: text("location_ids", { mode: 'json' }).$type<string[]>().default(sql`'[]'`),
+  encounterIds: text("encounter_ids", { mode: 'json' }).$type<string[]>().default(sql`'[]'`),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(currentTimestamp()),
+}, (table) => [
+  index("idx_dynamic_adv_room").on(table.roomId),
+  index("idx_dynamic_adv_status").on(table.status),
+]);
+
+export type DynamicAdventureContext = typeof dynamicAdventureContexts.$inferSelect;
+export type InsertDynamicAdventureContext = typeof dynamicAdventureContexts.$inferInsert;
+export const insertDynamicAdventureContextSchema = createInsertSchema(dynamicAdventureContexts).omit({ id: true, createdAt: true });
+
 // Combat Encounters - persistent combat scenarios
 export const combatEncounters = sqliteTable("combat_encounters", {
   id: text("id").primaryKey().default(generateUUID()),
   roomId: text("room_id").references(() => rooms.id, { onDelete: "cascade" }),
+  adventureContextId: text("adventure_context_id").references(() => dynamicAdventureContexts.id, { onDelete: "set null" }),
   locationId: text("location_id"), // Reference to dynamic_locations if needed
   name: text("name").notNull(),
   seed: text("seed"), // Random seed for reproducible generation
@@ -1744,6 +1769,7 @@ export type InsertCombatSpawn = typeof combatSpawns.$inferInsert;
 export const dynamicNpcs = sqliteTable("dynamic_npcs", {
   id: text("id").primaryKey().default(generateUUID()),
   roomId: text("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  adventureContextId: text("adventure_context_id").references(() => dynamicAdventureContexts.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   role: text("role"), // "enemy" | "ally" | "neutral" | "questgiver"
   description: text("description"),
@@ -1768,6 +1794,7 @@ export type InsertDynamicNpc = typeof dynamicNpcs.$inferInsert;
 export const dynamicLocations = sqliteTable("dynamic_locations", {
   id: text("id").primaryKey().default(generateUUID()),
   roomId: text("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  adventureContextId: text("adventure_context_id").references(() => dynamicAdventureContexts.id, { onDelete: "set null" }),
   name: text("name").notNull(),
   type: text("type").notNull().default("other"), // "dungeon" | "town" | "wilderness" | "building" | "other"
   description: text("description"),

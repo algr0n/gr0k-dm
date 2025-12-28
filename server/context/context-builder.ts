@@ -16,6 +16,7 @@ import { monsterCacheManager } from "../cache/monster-cache";
 // Adventure context for AI DM
 export interface AdventureContext {
   adventureName: string;
+  summary?: string;
   currentChapter?: AdventureChapter;
   currentLocation?: AdventureLocation;
   activeQuests?: AdventureQuest[];
@@ -74,6 +75,10 @@ export class ContextBuilder {
 
   addAdventureContext(context: AdventureContext): this {
     let adventurePrompt = `ADVENTURE MODE: ${context.adventureName}\n\n`;
+
+    if (context.summary) {
+      adventurePrompt += `ADVENTURE SUMMARY: ${context.summary}\n\n`;
+    }
     
     if (context.currentChapter) {
       adventurePrompt += `CURRENT CHAPTER: ${context.currentChapter.title}\n`;

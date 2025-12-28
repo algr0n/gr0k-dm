@@ -160,6 +160,7 @@ export const combatEncounters = sqliteTable("combat_encounters", {
   adventureId: text("adventure_id").references(() => adventures.id, { onDelete: "set null" }),
   locationId: text("location_id").references(() => adventureLocations.id, { onDelete: "set null" }),
   roomId: text("room_id"),
+  adventureContextId: text("adventure_context_id").references(() => dynamicAdventureContexts.id, { onDelete: 'set null' }),
   name: text("name").notNull(),
   seed: text("seed"),
   generatedBy: text("generated_by"), // 'AI' or 'DM'
@@ -405,12 +406,42 @@ export const insertSessionSummarySchema = createInsertSchema(sessionSummaries).o
 });
 
 // =============================================================================
+// Dynamic Adventure Contexts - Tracks generated adventures per room
+// =============================================================================
+
+export const dynamicAdventureContexts = sqliteTable("dynamic_adventure_contexts", {
+  id: text("id").primaryKey().default(generateUUID()),
+  roomId: text("room_id")
+    .notNull()
+    .references(() => rooms.id, { onDelete: 'cascade' }),
+  title: text("title").notNull(),
+  status: text("status").notNull().default("active"), // active | completed | deleted
+  seed: text("seed"),
+  summary: text("summary"),
+  currentLocationId: text("current_location_id"),
+  activeQuestIds: text("active_quest_ids", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
+  npcIds: text("npc_ids", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
+  locationIds: text("location_ids", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
+  encounterIds: text("encounter_ids", { mode: 'json' }).$type<string[]>().default(emptyJsonArray()),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+  updatedAt: integer("updated_at", { mode: 'timestamp' }).default(currentTimestamp()),
+}, (table) => [
+  index("idx_dynamic_adv_room").on(table.roomId),
+  index("idx_dynamic_adv_status").on(table.status),
+]);
+
+export type DynamicAdventureContext = typeof dynamicAdventureContexts.$inferSelect;
+export type InsertDynamicAdventureContext = typeof dynamicAdventureContexts.$inferInsert;
+export const insertDynamicAdventureContextSchema = createInsertSchema(dynamicAdventureContexts).omit({ id: true, createdAt: true });
+
+// =============================================================================
 // Dynamic NPCs - AI-generated or DM-created persistent NPCs for a specific room
 // =============================================================================
 
 export const dynamicNpcs = sqliteTable("dynamic_npcs", {
   id: text("id").primaryKey().default(generateUUID()),
   roomId: text("room_id").notNull().references(() => rooms.id, { onDelete: 'cascade' }),
+  adventureContextId: text("adventure_context_id").references(() => dynamicAdventureContexts.id, { onDelete: 'set null' }),
   name: text("name").notNull(),
   role: text("role"),
   description: text("description"),
@@ -435,6 +466,7 @@ export const insertDynamicNpcSchema = createInsertSchema(dynamicNpcs).omit({ id:
 export const dynamicLocations = sqliteTable("dynamic_locations", {
   id: text("id").primaryKey().default(generateUUID()),
   roomId: text("room_id").notNull().references(() => rooms.id, { onDelete: 'cascade' }),
+  adventureContextId: text("adventure_context_id").references(() => dynamicAdventureContexts.id, { onDelete: 'set null' }),
   name: text("name").notNull(),
   type: text("type").notNull().default("other"),
   description: text("description"),
@@ -536,6 +568,7 @@ export const questObjectiveProgressRelations = relations(questObjectiveProgress,
 // =============================================================================
 export interface AdventureContext {
   adventureName: string;
+  summary?: string;
   currentChapter?: AdventureChapter;
   currentLocation?: AdventureLocation;
   activeQuests?: AdventureQuest[];

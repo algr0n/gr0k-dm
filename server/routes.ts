@@ -172,10 +172,33 @@ function isCacheableNpcType(name: string): boolean {
 }
 
 /**
+ * Ensure there is an active dynamic adventure context for non-module rooms.
+ * Returns undefined when the room is using a pre-made adventure.
+ */
+async function ensureDynamicAdventureContext(room: any): Promise<any | undefined> {
+  if (room?.useAdventureMode && room?.adventureId) return undefined;
+
+  const existing = await storage.getActiveDynamicAdventureForRoom(room.id);
+  if (existing) return existing;
+
+  const title = `Dynamic Adventure - ${room.name || room.code || room.id}`;
+  return await storage.createDynamicAdventureContext({
+    roomId: room.id,
+    title,
+    seed: room.code,
+  });
+}
+
+function appendUniqueId(list: string[] | null | undefined, id: string): string[] {
+  const base = Array.isArray(list) ? list : [];
+  return base.includes(id) ? base : [...base, id];
+}
+
+/**
  * Get or create a combat encounter for the current room
  * Combat encounters are persistent containers for spawns and environmental features
  */
-async function getOrCreateCombatEncounter(roomId: string, roomCode: string): Promise<any> {
+async function getOrCreateCombatEncounter(roomId: string, roomCode: string, adventureContextId?: string): Promise<any> {
   // Check if there's already an active encounter for this room
   const existingEncounters = await db
     .select()
@@ -184,12 +207,18 @@ async function getOrCreateCombatEncounter(roomId: string, roomCode: string): Pro
     .limit(1);
   
   if (existingEncounters.length > 0) {
-    return existingEncounters[0];
+    const encounter = existingEncounters[0];
+    if (adventureContextId && !encounter.adventureContextId && storage.updateCombatEncounter) {
+      await storage.updateCombatEncounter(encounter.id, { adventureContextId });
+      encounter.adventureContextId = adventureContextId;
+    }
+    return encounter;
   }
   
   // Create a new encounter
   const encounter = await storage.createCombatEncounter({
     roomId,
+    adventureContextId,
     name: `Combat in ${roomCode}`,
     generatedBy: 'ai',
     metadata: { roomCode },
@@ -746,6 +775,63 @@ async function fetchAdventureContext(
     console.error('[Adventure Context] Error fetching context:', error);
     return undefined;
   }
+}
+
+// Unified AI-facing adventure context helper (supports pre-made and dynamic adventures)
+async function fetchAiAdventureContext(room: any): Promise<AdventureContext | undefined> {
+  // Pre-made adventure rooms reuse the existing adventure context helper
+  if (room?.useAdventureMode && room?.adventureId) {
+    return await fetchAdventureContext(room.id, room.adventureId);
+  }
+
+  // Dynamic adventure rooms pull from the dynamic adventure context + linked entities
+  const dynamicContext = await storage.getActiveDynamicAdventureForRoom(room.id);
+  if (!dynamicContext) {
+    return undefined;
+  }
+
+  const [dynamicNpcsForRoom, dynamicLocationsForRoom, acceptedQuests, availableQuests] = await Promise.all([
+    storage.getDynamicNpcsByRoom(room.id),
+    storage.getDynamicLocationsByRoom(room.id),
+    storage.getQuestsByRoom(room.id),
+    storage.getAvailableQuestsForRoom ? storage.getAvailableQuestsForRoom(room.id) : Promise.resolve([]),
+  ]);
+
+  // Combine accepted + available dynamic quests (unique by id)
+  const questMap = new Map<string, any>();
+  [...acceptedQuests, ...availableQuests].forEach((quest: any) => {
+    if (quest?.id) questMap.set(quest.id, quest);
+  });
+  const allQuests = Array.from(questMap.values());
+
+  const activeQuestIds = Array.isArray(dynamicContext.activeQuestIds) ? dynamicContext.activeQuestIds : [];
+  const activeQuests = activeQuestIds.length > 0
+    ? allQuests.filter((q: any) => activeQuestIds.includes(q.id))
+    : allQuests;
+
+  const currentLocation = dynamicContext.currentLocationId
+    ? dynamicLocationsForRoom.find((loc: any) => loc.id === dynamicContext.currentLocationId)
+    : undefined;
+
+  return {
+    adventureName: dynamicContext.title || 'Dynamic Adventure',
+    summary: dynamicContext.summary || undefined,
+    currentLocation: currentLocation
+      ? ({
+          ...currentLocation,
+          adventureId: dynamicContext.id,
+          chapterId: null,
+          description: currentLocation.description || 'No description available yet.',
+          boxedText: currentLocation.boxedText || undefined,
+          features: currentLocation.features || [],
+          connections: currentLocation.connections || [],
+        } as any)
+      : undefined,
+    activeQuests: (activeQuests as any) || [],
+    availableNpcs: (dynamicNpcsForRoom as any) || [],
+    metNpcIds: Array.isArray(dynamicContext.npcIds) ? dynamicContext.npcIds : [],
+    discoveredLocationIds: Array.isArray(dynamicContext.locationIds) ? dynamicContext.locationIds : [],
+  };
 }
 
 // ============================================================================
@@ -2646,9 +2732,11 @@ async function executeGameActions(
         case "npc_add": {
           if (!action.npcName) break;
           try {
+            const adventureContext = await ensureDynamicAdventureContext(room);
             const props = action.customProperties ? JSON.parse(action.customProperties) : {};
             const npcRecord = await storage.createDynamicNpc({
               roomId: room.id,
+              adventureContextId: adventureContext?.id,
               name: action.npcName,
               role: action.npcRole,
               description: props.description || props.desc || undefined,
@@ -2667,6 +2755,12 @@ async function executeGameActions(
               importance: 2,
             });
 
+            if (adventureContext) {
+              await storage.updateDynamicAdventureContext(adventureContext.id, {
+                npcIds: appendUniqueId(adventureContext.npcIds, npcRecord.id),
+              });
+            }
+
             broadcastFn(roomCode, { type: 'story_event_created', event });
             console.log(`[DM Action] Created dynamic NPC '${npcRecord.name}' (id=${npcRecord.id}) in room ${roomCode}`);
 
@@ -2675,7 +2769,7 @@ async function executeGameActions(
             if (combat && combat.isActive) {
               try {
                 // Get or create encounter
-                const encounter = await getOrCreateCombatEncounter(room.id, roomCode);
+                const encounter = await getOrCreateCombatEncounter(room.id, roomCode, adventureContext?.id);
                 
                 // Extract stats from the NPC record
                 const statsBlock = npcRecord.statsBlock || {};
@@ -2729,9 +2823,11 @@ async function executeGameActions(
         case "location_add": {
           if (!action.locationName) break;
           try {
+            const adventureContext = await ensureDynamicAdventureContext(room);
             const props = action.customProperties ? JSON.parse(action.customProperties) : {};
             const locRecord = await storage.createDynamicLocation({
               roomId: room.id,
+              adventureContextId: adventureContext?.id,
               name: action.locationName,
               type: action.locationType || props.type || 'other',
               description: props.description || props.desc || undefined,
@@ -2749,6 +2845,13 @@ async function executeGameActions(
               relatedLocationId: locRecord.id,
               importance: 2,
             });
+
+            if (adventureContext) {
+              await storage.updateDynamicAdventureContext(adventureContext.id, {
+                locationIds: appendUniqueId(adventureContext.locationIds, locRecord.id),
+                currentLocationId: locRecord.id,
+              });
+            }
 
             broadcastFn(roomCode, { type: 'story_event_created', event });
             console.log(`[DM Action] Created dynamic location '${locRecord.name}' (id=${locRecord.id}) in room ${roomCode}`);
@@ -2804,6 +2907,7 @@ async function executeGameActions(
         case "quest_add": {
           if (!action.questTitle) break;
           try {
+            const adventureContext = await ensureDynamicAdventureContext(room);
             // Find quest giver NPC if specified
             let dynamicQuestGiverId: string | null = null;
             if (action.questGiver) {
@@ -2859,6 +2963,12 @@ async function executeGameActions(
             broadcastFn(roomCode, { type: 'story_event_created', event });
             broadcastFn(roomCode, { type: 'quest_created', quest: questRecord });
             console.log(`[DM Action] Created dynamic quest '${questRecord.name}' (id=${questRecord.id}) in room ${roomCode}`);
+
+            if (adventureContext) {
+              await storage.updateDynamicAdventureContext(adventureContext.id, {
+                activeQuestIds: appendUniqueId(adventureContext.activeQuestIds, questRecord.id),
+              });
+            }
           } catch (err) {
             console.error('[DM Action] Failed to create quest:', err);
           }
@@ -2869,8 +2979,9 @@ async function executeGameActions(
           if (!action.monsterName || !action.count) break;
           
           try {
+            const adventureContext = await ensureDynamicAdventureContext(room);
             // Get or create combat encounter
-            const encounter = await getOrCreateCombatEncounter(room.id, roomCode);
+            const encounter = await getOrCreateCombatEncounter(room.id, roomCode, adventureContext?.id);
             
             // Create the specified number of spawns
             for (let i = 0; i < action.count; i++) {
@@ -2894,6 +3005,12 @@ async function executeGameActions(
               broadcastFn(roomCode, {
                 type: 'combat_update',
                 combat: combatState,
+              });
+            }
+
+            if (adventureContext) {
+              await storage.updateDynamicAdventureContext(adventureContext.id, {
+                encounterIds: appendUniqueId(adventureContext.encounterIds, encounter.id),
               });
             }
           } catch (err) {
@@ -3605,13 +3722,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }));
 
     try {
-      // Fetch adventure context if room has an adventure
-      let adventureContext;
-      if (room.adventureId) {
-        adventureContext = await fetchAdventureContext(room.id, room.adventureId);
-      }
-
-      // Fetch story context (quest progress, story events, session summary)
+      // Fetch AI-facing adventure context (pre-made or dynamic) and story context
+      const adventureContext = await fetchAiAdventureContext(room);
       const storyContext = await fetchStoryContext(room.id, room.adventureId || undefined);
 
       // Try smart cache first (learns from previous AI responses)
@@ -3818,6 +3930,39 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (err) {
       console.error('[Debug] Failed to get combat debug state:', err)
       res.status(500).json({ error: 'Failed to get combat debug state' })
+    }
+  })
+
+  // AI DM state snapshot - exposes the context we feed into Grok for debugging/UX
+  app.get('/api/rooms/:code/ai/state', async (req, res) => {
+    try {
+      const { code } = req.params
+      const room = await storage.getRoomByCode(code)
+
+      if (!room) {
+        return res.status(404).json({ error: 'Room not found' })
+      }
+
+      const [adventureContext, storyContext, dynamicContext] = await Promise.all([
+        fetchAiAdventureContext(room),
+        fetchStoryContext(room.id, room.adventureId || undefined),
+        storage.getActiveDynamicAdventureForRoom(room.id),
+      ])
+
+      res.json({
+        roomId: room.id,
+        roomCode: room.code,
+        gameSystem: room.gameSystem,
+        useAdventureMode: !!room.useAdventureMode,
+        adventureId: room.adventureId,
+        adventureContext,
+        dynamicContext,
+        storyContext,
+        messageHistoryCount: room.messageHistory?.length || 0,
+      })
+    } catch (err) {
+      console.error('[AI State] Failed to get AI state snapshot:', err)
+      res.status(500).json({ error: 'Failed to get AI state' })
     }
   })
 
