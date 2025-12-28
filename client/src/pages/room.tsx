@@ -1,5 +1,5 @@
 
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -311,6 +311,22 @@ export default function RoomPage() {
   const userIdRef = useRef<string | undefined>(user?.id);
   const savedCharacterIdRef = useRef<string | undefined>(undefined);
   const characterNameRef = useRef<string | undefined>(undefined);
+  const initialMessagesLoadedRef = useRef(false);
+  const latestMessagesRef = useRef<Message[]>([]);
+
+  const appendSystemMessage = useCallback((content: string, subtype: Message["type"] = "dm") => {
+    setMessages((prev) => {
+      const next: Message = {
+        id: crypto.randomUUID(),
+        roomId: code || "",
+        playerName: "DM",
+        content,
+        type: subtype,
+        timestamp: Date.now().toString(),
+      };
+      return [...prev, next];
+    });
+  }, [code]);
   
   // Keep userIdRef up to date without triggering WebSocket reconnection
   useEffect(() => {
@@ -940,13 +956,22 @@ export default function RoomPage() {
 
   useEffect(() => {
     if (roomData) {
-      setMessages(roomData.messageHistory || []);
+      const history = roomData.messageHistory || [];
+      // Only hydrate messages if we haven't yet, or if the server has newer messages than our local buffer
+      if (!initialMessagesLoadedRef.current || history.length > (latestMessagesRef.current?.length || 0)) {
+        setMessages(history);
+        initialMessagesLoadedRef.current = true;
+      }
       setPlayers(roomData.players || []);
       setGameEnded(!roomData.isActive);
       setIsRoomPublic(roomData.isPublic || false);
       sessionStorage.setItem("lastRoomCode", code || "");
     }
   }, [roomData, code]);
+
+  useEffect(() => {
+    latestMessagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     // Wait for auth to resolve before connecting (prevents stale user?.id in closures)
@@ -1090,6 +1115,9 @@ export default function RoomPage() {
         } else if (data.type === "combat_event") {
           console.log("[WebSocket] Received combat_event:", data);
           setCombatResults((prev) => [...prev, data]);
+          if (data.effect) {
+            appendSystemMessage(`${data.actorName || 'Someone'}: ${data.effect}`, "dm");
+          }
           // Handle bonus action events with toast
           if (data.event === "bonus_action") {
             toast({
@@ -1102,6 +1130,7 @@ export default function RoomPage() {
           console.log("[WebSocket] Received combat_narration:", data);
           // Display AI narration as a special toast with dramatic styling
           const icon = data.isCritical ? "⚔️" : data.isKillingBlow ? "💀" : "✨";
+          appendSystemMessage(`${data.actorName} vs ${data.targetName}: ${data.content}`, "dm");
           toast({
             title: `${icon} ${data.actorName} vs ${data.targetName}`,
             description: data.content,
