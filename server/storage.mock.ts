@@ -59,6 +59,24 @@ const storage = {
   async addStatusEffect(_: any) { return null },
   async getCharacterStatusEffects(_: any) { return [] },
   async removeStatusEffect(_: any) { return null },
+
+  // Room status effects in-memory store for tests
+  _roomStatusEffects: [] as any[],
+  async addRoomStatusEffect(effect: any) {
+    const id = `rse:${Math.random().toString(36).slice(2)}`;
+    const e = { ...effect, id };
+    (this as any)._roomStatusEffects.push(e);
+    return e;
+  },
+  async getRoomStatusEffects(roomId: string) {
+    return (this as any)._roomStatusEffects.filter((r: any) => r.roomId === roomId);
+  },
+  async deleteRoomStatusEffect(id: string) {
+    const idx = (this as any)._roomStatusEffects.findIndex((r: any) => r.id === id);
+    if (idx === -1) return false;
+    (this as any)._roomStatusEffects.splice(idx, 1);
+    return true;
+  },
   async getAllItems() { return [] },
   async getItemByName(_: any) { return null },
   async getItem(_: any) { return null },

@@ -286,6 +286,7 @@ export function DnD5eCombatPanel({
   const [saveOnSuccess, setSaveOnSuccess] = useState<"half" | "none">("half");
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [applyOutsideCombat, setApplyOutsideCombat] = useState(false);
 
   const myParticipant = participants.find(p => p.id === myActorId);
   const isDown = (myParticipant?.currentHp ?? 0) <= 0;
@@ -498,6 +499,57 @@ export function DnD5eCombatPanel({
     });
   };
 
+  const applySpellMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const res = await fetch(`/api/rooms/${roomCode}/spells/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to apply spell');
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({ title: 'Spell applied', description: 'Effect applied outside combat', variant: 'default' });
+      queryClient.invalidateQueries({ queryKey: ['room', roomCode] });
+    },
+  });
+
+  const handleApplyOutsideCombatSpell = (spell: SpellData) => {
+    if (isDown) {
+      toast({ title: "Unconscious", description: "You can't cast while at 0 HP.", variant: "destructive" });
+      return;
+    }
+
+    const targeting = getSpellTargeting(spell);
+    if (targeting.requiresTarget && !selectedTargetId) {
+      const targetDesc = targeting.isAOE 
+        ? `Select a target point for the ${targeting.aoeType || "area"} effect` 
+        : "Select a target first";
+      toast({ title: "No Target", description: targetDesc, variant: "destructive" });
+      return;
+    }
+
+    // Build targets payload
+    const payloadTargets: any[] = [];
+    if (selectedTargetId) {
+      payloadTargets.push({ type: 'character', ids: [selectedTargetId] });
+    }
+
+    applySpellMutation.mutate({
+      casterId: myActorId,
+      spellText: spell.description || spell.name,
+      targets: payloadTargets.length > 0 ? payloadTargets : undefined,
+      duration: spell.duration,
+    });
+
+    setSpellDialogOpen(false);
+  };
+
   const handleCastSpell = (spell: SpellData, slotLevel?: number) => {
     if (isDown) {
       toast({ title: "Unconscious", description: "You can't cast while at 0 HP.", variant: "destructive" });
@@ -511,6 +563,12 @@ export function DnD5eCombatPanel({
         ? `Select a target point for the ${targeting.aoeType || "area"} effect` 
         : "Select a target first";
       toast({ title: "No Target", description: targetDesc, variant: "destructive" });
+      return;
+    }
+
+    // Allow outside-combat application if selected
+    if (applyOutsideCombat) {
+      handleApplyOutsideCombatSpell(spell);
       return;
     }
 
@@ -800,6 +858,14 @@ export function DnD5eCombatPanel({
                         onChange={(e) => setUseSaveMode(e.target.checked)}
                       />
                       <span className="text-sm">Resolve with saving throw</span>
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={applyOutsideCombat}
+                        onChange={(e) => setApplyOutsideCombat(e.target.checked)}
+                      />
+                      <span className="text-sm">Apply outside combat (affects room/NPCs without starting combat)</span>
                     </label>
                     {useSaveMode && (
                       <div className="grid grid-cols-3 gap-2">

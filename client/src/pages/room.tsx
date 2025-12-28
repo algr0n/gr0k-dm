@@ -1057,6 +1057,13 @@ export default function RoomPage() {
             toast({ title: "Quest updated", description: `${data.questName || data.questId} is now ${data.status}` });
           }
 
+        } else if (data.type === "spell_applied") {
+          // Non-combat spell effect applied to room or targets
+          toast({ title: "Spell applied", description: `${(data.spellText || '').substring(0, 120)}` });
+          queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "room-characters"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/rooms", code] });
+          queryClient.invalidateQueries({ queryKey: ["dynamic-npcs", roomData?.id] });
+
         } else if (data.type === "npc_reputation_changed") {
           // NPC reputation changed; validate payload and refresh NPC list
           const currentRoomId = roomData?.id ?? "";

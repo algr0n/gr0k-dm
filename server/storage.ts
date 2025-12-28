@@ -22,6 +22,7 @@ import type {
   InsertUser,
   Spell,
 } from "@shared/schema";
+import { roomStatusEffects } from "@shared/schema";
 
 export interface Storage {
   // Rooms
@@ -522,6 +523,26 @@ class DatabaseStorage implements Storage {
 
   async removeStatusEffect(id: string): Promise<boolean> {
     return await this.deleteStatusEffect(id);
+  }
+
+  // Room-level status effects (environmental, object, or scene-level)
+  async createRoomStatusEffect(effect: any): Promise<any> {
+    const id = randomUUID();
+    const [created] = await db.insert(roomStatusEffects).values({ ...effect, id }).returning();
+    return created;
+  }
+
+  async getRoomStatusEffects(roomId: string): Promise<any[]> {
+    return await db.select().from(roomStatusEffects).where(eq(roomStatusEffects.roomId, roomId));
+  }
+
+  async deleteRoomStatusEffect(id: string): Promise<boolean> {
+    await db.delete(roomStatusEffects).where(eq(roomStatusEffects.id, id));
+    return true;
+  }
+
+  async addRoomStatusEffect(effect: any): Promise<any> {
+    return await this.createRoomStatusEffect(effect);
   }
 
   // ==============================================================================

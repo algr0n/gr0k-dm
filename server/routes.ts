@@ -64,6 +64,8 @@ import {
 } from "@shared/schema";
 import { getMonsterByName } from "./db/bestiary";
 import { getNpcStatBlock } from "./npc-statblocks";
+import { inferSpellEffects } from "@shared/spell-text";
+import { insertRoomStatusEffectSchema, roomStatusEffects } from "@shared/schema";
 import {
   adventures,
   adventureChapters,
@@ -5201,6 +5203,83 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to send message" });
+    }
+  });
+
+  // Apply spell effects outside of combat (room or target objects/characters)
+  app.post('/api/rooms/:code/spells/apply', isAuthenticated, async (req, res) => {
+    try {
+      const { code } = req.params;
+      const { casterId, spellText, targets, duration, isLoud } = req.body;
+      if (!spellText) return res.status(400).json({ error: 'Missing spellText' });
+
+      const room = await storage.getRoomByCode(code);
+      if (!room) return res.status(404).json({ error: 'Room not found' });
+
+      // Basic permission check: if casterId provided, ensure character is in the room
+      if (casterId) {
+        const caster = await storage.getSavedCharacter(casterId);
+        if (!caster || caster.currentRoomCode !== code) return res.status(403).json({ error: 'Caster not in room' });
+      }
+
+      // Parse spell text for inferred effects
+      const effects = inferSpellEffects({ name: '', description: spellText });
+      const applied: any[] = [];
+
+      // If targets specified, apply to each target depending on type
+      if (Array.isArray(targets) && targets.length > 0) {
+        for (const t of targets) {
+          if (t.type === 'character') {
+            for (const id of (t.ids || [])) {
+              // Apply as character status effect
+              const created = await storage.addStatusEffect({
+                characterId: id,
+                name: `Spell: ${spellText.substring(0, 40)}`,
+                description: effects.onSuccess || spellText,
+                duration: duration || null,
+                appliedByDm: false,
+                createdAt: Date.now(),
+              });
+              applied.push({ targetType: 'character', targetId: id, created });
+            }
+          } else if (t.type === 'object' || t.type === 'room') {
+            const created = await storage.addRoomStatusEffect({
+              roomId: room.id,
+              name: `Spell: ${spellText.substring(0, 40)}`,
+              description: effects.onSuccess || spellText,
+              appliedBy: 'player',
+              sourceId: t.id || null,
+              duration: duration || null,
+              metadata: { tags: effects.tags || [], inferred: effects },
+              createdAt: Date.now(),
+            });
+            applied.push({ targetType: t.type, targetId: t.id || null, created });
+          } else {
+            // Unknown target type - skip
+            applied.push({ targetType: t.type, skipped: true });
+          }
+        }
+      } else {
+        // Default: apply to room-level effect
+        const created = await storage.addRoomStatusEffect({
+          roomId: room.id,
+          name: `Spell: ${spellText.substring(0, 40)}`,
+          description: effects.onSuccess || spellText,
+          appliedBy: 'player',
+          duration: duration || null,
+          metadata: { tags: effects.tags || [], inferred: effects },
+          createdAt: Date.now(),
+        });
+        applied.push({ targetType: 'room', created });
+      }
+
+      // Broadcast to room so clients can update UI; do not auto-start combat unless flagged by isLoud
+      broadcastToRoom(code, { type: 'spell_applied', casterId, spellText, effects, applied, isLoud: !!isLoud });
+
+      res.json({ success: true, applied, effects });
+    } catch (error) {
+      console.error('Apply spell error:', error);
+      res.status(500).json({ error: 'Failed to apply spell effects' });
     }
   });
 

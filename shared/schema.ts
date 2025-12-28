@@ -614,6 +614,36 @@ export const characterStatusEffectsRelations = relations(characterStatusEffects,
   }),
 }));
 
+// Room status effects table - environmental or scene-level persistent effects
+export const roomStatusEffects = sqliteTable("room_status_effects", {
+  id: text("id").primaryKey().default(generateUUID()),
+  roomId: text("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  appliedBy: text("applied_by").notNull().default("dm"), // 'dm' | 'player' | 'npc'
+  sourceId: text("source_id"), // optional actor or object id that applied the effect
+  metadata: text("metadata", { mode: 'json' }).$type<Record<string, unknown>>(),
+  duration: text("duration"),
+  expiresAt: integer("expires_at", { mode: 'timestamp' }),
+  createdAt: integer("created_at", { mode: 'timestamp' }).notNull().default(currentTimestamp()),
+}, (table) => [
+  index("idx_room_status_effects_room").on(table.roomId),
+]);
+
+export const insertRoomStatusEffectSchema = createInsertSchema(roomStatusEffects).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertRoomStatusEffect = z.infer<typeof insertRoomStatusEffectSchema>;
+export type RoomStatusEffect = typeof roomStatusEffects.$inferSelect;
+
+export const roomStatusEffectsRelations = relations(roomStatusEffects, ({ one }) => ({
+  room: one(rooms, {
+    fields: [roomStatusEffects.roomId],
+    references: [rooms.id],
+  }),
+}));
+
 // Schema to update unified character (combines room and base updates)
 export const updateUnifiedCharacterSchema = z.object({
   currentHp: z.number().int().optional(),
