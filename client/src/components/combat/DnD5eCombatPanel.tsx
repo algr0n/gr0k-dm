@@ -850,6 +850,9 @@ export function DnD5eCombatPanel({
                 <DialogContent className={`max-w-md ${compact ? 'max-h-[60vh]' : 'max-h-[80vh]'}`}>
                   <DialogHeader>
                     <DialogTitle>Cast a Spell</DialogTitle>
+                    <DialogDescription>
+                      Choose a prepared spell, then resolve as an attack or saving throw.
+                    </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-2 mb-2 text-xs">
                     <label className="flex items-center gap-2">

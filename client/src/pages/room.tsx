@@ -2084,10 +2084,14 @@ export default function RoomPage() {
                       class: myCharacterData.savedCharacter.class ?? undefined,
                       level: myCharacterData.savedCharacter.level ?? 1,
                       stats: myCharacterData.savedCharacter.stats as Record<string, number> | undefined,
+                      // Prefer prepared spells (wizard/cleric style). Fallback to known spells on the saved character.
                       spells:
-                        (characterStats.knownSpells && characterStats.knownSpells.length > 0
-                          ? characterStats.knownSpells
-                          : (myCharacterData.savedCharacter.spells as string[] | undefined)) as string[] | undefined,
+                        (characterStats.preparedSpells && characterStats.preparedSpells.length > 0
+                          ? characterStats.preparedSpells
+                          : ((myCharacterData.savedCharacter.stats as any)?.preparedSpells as string[] | undefined))
+                          ?? (characterStats.knownSpells && characterStats.knownSpells.length > 0
+                            ? characterStats.knownSpells
+                            : (myCharacterData.savedCharacter.spells as string[] | undefined)),
                       spellSlots: myCharacterData.savedCharacter.spellSlots as { current: number[]; max: number[] } | undefined,
                       speed: myCharacterData.savedCharacter.speed ?? 30,
                     }}
