@@ -31,6 +31,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { inferSpellEffects } from "@shared/spell-text";
+import { getMaxSpellSlots } from "@shared/schema";
 
 // D&D 5e Spell data structure
 interface SpellData {
@@ -350,6 +351,24 @@ export function DnD5eCombatPanel({
     return grouped;
   }, [knownSpells]);
 
+  // Normalize spell slots for display/casting (fallback to class/level defaults if missing/zeroed)
+  const normalizedSpellSlots = useMemo(() => {
+    const className = (characterData.class || "").toLowerCase();
+    const level = characterData.level || 1;
+    const computedMax = getMaxSpellSlots(className, level);
+
+    const slots = characterData.spellSlots;
+    const hasAny = (arr?: number[]) => arr?.some((v) => (v ?? 0) > 0) || false;
+
+    const max = slots?.max?.length ? slots.max : computedMax;
+    const current = slots?.current?.length ? slots.current : computedMax.slice();
+
+    return {
+      max,
+      current: hasAny(current) ? current : computedMax.slice(),
+    } as { current: number[]; max: number[] };
+  }, [characterData.class, characterData.level, characterData.spellSlots]);
+
   // Get available spell slot levels
   const availableSlots = useMemo(() => {
     if (!characterData.spellSlots) return [];
@@ -595,7 +614,7 @@ export function DnD5eCombatPanel({
     // Check spell slots for non-cantrips
     if (spell.level > 0) {
       const useSlot = slotLevel || spell.level;
-      const slotCount = characterData.spellSlots?.current[useSlot] || 0;
+      const slotCount = normalizedSpellSlots?.current[useSlot] || 0;
       if (slotCount <= 0) {
         toast({ title: "No Spell Slots", description: `No ${useSlot}${getOrdinal(useSlot)} level slots remaining`, variant: "destructive" });
         return;
@@ -915,9 +934,9 @@ export function DnD5eCombatPanel({
                         <div key={level} className="mb-4">
                           <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
                             {level === "0" ? "Cantrips" : `Level ${level}`}
-                            {Number(level) > 0 && characterData.spellSlots && (
+                            {Number(level) > 0 && normalizedSpellSlots && (
                               <Badge variant="outline" className="text-xs">
-                                {characterData.spellSlots.current[Number(level)] || 0}/{characterData.spellSlots.max[Number(level)] || 0}
+                                {normalizedSpellSlots.current[Number(level)] || 0}/{normalizedSpellSlots.max[Number(level)] || 0}
                               </Badge>
                             )}
                           </h4>
@@ -937,7 +956,7 @@ export function DnD5eCombatPanel({
                                   disabled={
                                     (isBonusAction && !actionEconomy.bonusAction) ||
                                     (!isBonusAction && !actionEconomy.action) ||
-                                    (spell.level > 0 && (characterData.spellSlots?.current[spell.level] || 0) <= 0) ||
+                                    (spell.level > 0 && (normalizedSpellSlots?.current[spell.level] || 0) <= 0) ||
                                     waitingForTurn || passTurnMutation.isPending
                                   }
                                   onClick={() => {

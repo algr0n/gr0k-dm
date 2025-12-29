@@ -2156,30 +2156,22 @@ export default function RoomPage() {
                       spellSlots: (() => {
                         const className = myCharacterData.savedCharacter.class || "";
                         const level = myCharacterData.savedCharacter.level || 1;
-                        const maxSlots = getMaxSpellSlots(className, level);
-                        const hasAny = (slots?: { current?: number[]; max?: number[] }) => {
-                          const currentHas = slots?.current?.some((v) => (v ?? 0) > 0);
-                          const maxHas = slots?.max?.some((v) => (v ?? 0) > 0);
-                          return Boolean(currentHas || maxHas);
+                        const computedMax = getMaxSpellSlots(className, level);
+
+                        const pickSlots = (slots?: { current?: number[]; max?: number[] }) => {
+                          const max = (slots?.max && slots.max.length > 0) ? slots.max : computedMax;
+                          const current = (slots?.current && slots.current.length > 0) ? slots.current : computedMax.slice();
+                          // If everything is zero, fall back to computed defaults (prevents 0/0 display for new casters)
+                          const hasAny = (arr: number[]) => arr.some((v) => (v ?? 0) > 0);
+                          return {
+                            max,
+                            current: hasAny(current) ? current : computedMax.slice(),
+                          };
                         };
 
-                        const liveSlots = characterStats.spellSlots as { current?: number[]; max?: number[] } | undefined;
-                        if (hasAny(liveSlots)) {
-                          return {
-                            current: liveSlots?.current && liveSlots.current.length ? liveSlots.current : maxSlots.slice(),
-                            max: liveSlots?.max && liveSlots.max.length ? liveSlots.max : maxSlots,
-                          };
-                        }
-
-                        const savedSlots = myCharacterData.savedCharacter.spellSlots as { current?: number[]; max?: number[] } | undefined;
-                        if (hasAny(savedSlots)) {
-                          return {
-                            current: savedSlots?.current && savedSlots.current.length ? savedSlots.current : maxSlots.slice(),
-                            max: savedSlots?.max && savedSlots.max.length ? savedSlots.max : maxSlots,
-                          };
-                        }
-
-                        return { current: maxSlots.slice(), max: maxSlots };
+                        if (characterStats.spellSlots) return pickSlots(characterStats.spellSlots as { current?: number[]; max?: number[] });
+                        if (myCharacterData.savedCharacter.spellSlots) return pickSlots(myCharacterData.savedCharacter.spellSlots as { current?: number[]; max?: number[] });
+                        return { current: computedMax.slice(), max: computedMax };
                       })(),
                       speed: myCharacterData.savedCharacter.speed ?? 30,
                     }}
