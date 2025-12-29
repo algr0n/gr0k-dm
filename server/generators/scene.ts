@@ -39,6 +39,11 @@ export async function generateStartingScene(
     race?: string | null;
     level?: number;
     background?: string | null;
+  },
+  adventureChapter?: {
+    title: string;
+    summary?: string | null;
+    description: string;
   }
 ): Promise<string> {
   const systemPrompt = getSystemPrompt(gameSystem);
@@ -60,7 +65,20 @@ export async function generateStartingScene(
     if (firstCharacter.background) {
       userPrompt += `, background: ${firstCharacter.background}`;
     }
-    userPrompt += `. Welcome them by name and acknowledge their character details naturally. Then ask 1-2 quick questions about the tone they prefer (serious/lighthearted) and any themes they'd like to explore. Keep it warm, conversational, and brief (2-3 sentences max).`;
+    
+    if (adventureChapter) {
+      // Pre-made adventure with character
+      userPrompt += `.\n\nThis is a pre-made adventure. Here's the opening chapter:\n`;
+      userPrompt += `**${adventureChapter.title}**\n`;
+      if (adventureChapter.summary) {
+        userPrompt += `${adventureChapter.summary}\n`;
+      }
+      userPrompt += `${adventureChapter.description}\n\n`;
+      userPrompt += `Welcome ${firstCharacter.characterName} by name, acknowledge their character details naturally, and introduce them to this adventure. Blend the chapter content with the character introduction to create an engaging opening scene. Keep it warm and immersive (3-4 sentences).`;
+    } else {
+      // Dynamic adventure with character
+      userPrompt += `. Welcome them by name and acknowledge their character details naturally. Then ask 1-2 quick questions about the tone they prefer (serious/lighthearted) and any themes they'd like to explore. Keep it warm, conversational, and brief (2-3 sentences max).`;
+    }
   } else {
     userPrompt += ` Welcome the players briefly, then ask 2-3 quick questions: What kind of characters are you playing? What tone do you prefer (serious/lighthearted)? Any themes you'd like to explore or avoid? Keep it conversational and brief.`;
   }

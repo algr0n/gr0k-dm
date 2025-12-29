@@ -4857,7 +4857,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             let openingNarration = "";
             
             if (room.useAdventureMode && room.adventureId) {
-              // Pre-made adventure: Get chapter 1 description
+              // Pre-made adventure: Generate opening with AI, including chapter 1 content and character
               const { adventureChapters } = await import("@shared/adventure-schema");
               const chapters = await db
                 .select()
@@ -4867,7 +4867,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               
               if (chapters.length > 0) {
                 const firstChapter = chapters[0];
-                openingNarration = `**${firstChapter.title}**\n\n${firstChapter.summary}\n\n${firstChapter.description}`;
+                const openingScene = await generateStartingScene(
+                  openai, 
+                  room.gameSystem, 
+                  room.name, 
+                  {
+                    characterName: savedCharacter.characterName,
+                    class: savedCharacter.class,
+                    race: savedCharacter.race,
+                    level: savedCharacter.level,
+                    background: savedCharacter.background,
+                  },
+                  {
+                    title: firstChapter.title,
+                    summary: firstChapter.summary,
+                    description: firstChapter.description,
+                  }
+                );
+                openingNarration = openingScene;
               } else {
                 openingNarration = "Your adventure begins...";
               }
