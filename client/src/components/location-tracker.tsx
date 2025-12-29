@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -123,6 +124,16 @@ export function LocationTracker({ roomId }: LocationTrackerProps) {
     refetchInterval: 5000, // Refresh every 5 seconds
   });
 
+  // Sort locations by creation date (newest first) - memoized for performance
+  const sortedLocations = useMemo(() => {
+    if (!locations || locations.length === 0) return [];
+    return [...locations].sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
+  }, [locations]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -143,13 +154,6 @@ export function LocationTracker({ roomId }: LocationTrackerProps) {
       </div>
     );
   }
-
-  // Sort locations by creation date (newest first)
-  const sortedLocations = [...locations].sort((a, b) => {
-    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return timeB - timeA;
-  });
 
   return (
     <ScrollArea className="h-full">
