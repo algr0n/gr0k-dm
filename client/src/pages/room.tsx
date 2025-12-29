@@ -2157,10 +2157,28 @@ export default function RoomPage() {
                         const className = myCharacterData.savedCharacter.class || "";
                         const level = myCharacterData.savedCharacter.level || 1;
                         const maxSlots = getMaxSpellSlots(className, level);
-                        const liveSlots = characterStats.spellSlots;
-                        if (liveSlots?.current?.length || liveSlots?.max?.length) return liveSlots as { current: number[]; max: number[] };
-                        const savedSlots = myCharacterData.savedCharacter.spellSlots as { current: number[]; max: number[] } | undefined;
-                        if (savedSlots?.current?.length || savedSlots?.max?.length) return savedSlots;
+                        const hasAny = (slots?: { current?: number[]; max?: number[] }) => {
+                          const currentHas = slots?.current?.some((v) => (v ?? 0) > 0);
+                          const maxHas = slots?.max?.some((v) => (v ?? 0) > 0);
+                          return Boolean(currentHas || maxHas);
+                        };
+
+                        const liveSlots = characterStats.spellSlots as { current?: number[]; max?: number[] } | undefined;
+                        if (hasAny(liveSlots)) {
+                          return {
+                            current: liveSlots?.current && liveSlots.current.length ? liveSlots.current : maxSlots.slice(),
+                            max: liveSlots?.max && liveSlots.max.length ? liveSlots.max : maxSlots,
+                          };
+                        }
+
+                        const savedSlots = myCharacterData.savedCharacter.spellSlots as { current?: number[]; max?: number[] } | undefined;
+                        if (hasAny(savedSlots)) {
+                          return {
+                            current: savedSlots?.current && savedSlots.current.length ? savedSlots.current : maxSlots.slice(),
+                            max: savedSlots?.max && savedSlots.max.length ? savedSlots.max : maxSlots,
+                          };
+                        }
+
                         return { current: maxSlots.slice(), max: maxSlots };
                       })(),
                       speed: myCharacterData.savedCharacter.speed ?? 30,
