@@ -7428,6 +7428,81 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // POST /api/characters/:characterId/inventory/:itemId/consume - Consume an item
+  // Request body: { action: "drink" | "eat" | "use", quantity?: number }
+  app.post("/api/characters/:characterId/inventory/:itemId/consume", isAuthenticated, async (req, res) => {
+    try {
+      const { characterId, itemId } = req.params;
+      const { action, quantity = 1 } = req.body;
+      
+      // Validate action
+      if (!["drink", "eat", "use"].includes(action)) {
+        return res.status(400).json({ error: "Invalid action. Must be 'drink', 'eat', or 'use'" });
+      }
+      
+      // Get the character to verify ownership
+      const character = await storage.getSavedCharacter(characterId);
+      if (!character) {
+        return res.status(404).json({ error: "Character not found" });
+      }
+      
+      // Verify the user owns this character
+      if (character.userId !== req.user?.id) {
+        return res.status(403).json({ error: "Forbidden: You do not own this character" });
+      }
+      
+      // Get character's inventory to verify item exists
+      const inventory = await storage.getSavedInventoryWithDetails(characterId);
+      const invItem = inventory.find((i: any) => i.id === itemId);
+      
+      if (!invItem) {
+        return res.status(404).json({ error: "Inventory item not found" });
+      }
+      
+      if (invItem.quantity < quantity) {
+        return res.status(400).json({ error: "Not enough items to consume" });
+      }
+      
+      // Get the full item details
+      const item = invItem.item;
+      
+      // Reduce quantity or remove item if quantity becomes 0
+      if (invItem.quantity > quantity) {
+        await storage.updateSavedInventoryItem(itemId, { 
+          quantity: invItem.quantity - quantity 
+        });
+      } else {
+        await storage.removeSavedInventoryItem(itemId);
+      }
+      
+      // Get the character's current room if they're in one
+      const roomCode = character.currentRoomCode;
+      let messageContent = `${character.characterName} ${action}s ${invItem.item.name}`;
+      
+      if (roomCode) {
+        // Broadcast to room that the item was consumed
+        broadcastToRoom(roomCode, {
+          type: "system",
+          content: messageContent,
+        });
+      }
+      
+      // Log consumption for AI context
+      console.log(`[Item Consumption] ${character.characterName} ${action} ${item.name} in room ${roomCode || 'none'}`);
+      
+      res.json({ 
+        success: true, 
+        action,
+        itemName: item.name,
+        remainingQuantity: invItem.quantity > quantity ? invItem.quantity - quantity : 0,
+        message: messageContent
+      });
+    } catch (error) {
+      console.error("Error consuming item:", error);
+      res.status(500).json({ error: "Failed to consume item" });
+    }
+  });
+
   // =============================================================================
   // Adventure Module API Endpoints
   // =============================================================================

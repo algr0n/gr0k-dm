@@ -10,6 +10,7 @@ interface ItemCardProps {
   equipped?: boolean;
   onClick?: () => void;
   onDoubleClick?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
   onDragStart?: (e: React.DragEvent) => void;
   onDragEnd?: (e: React.DragEvent) => void;
   className?: string;
@@ -79,6 +80,7 @@ export function ItemCard({
   equipped = false,
   onClick,
   onDoubleClick,
+  onContextMenu,
   onDragStart,
   onDragEnd,
   className,
@@ -99,6 +101,7 @@ export function ItemCard({
       )}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
+      onContextMenu={onContextMenu}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       draggable={draggable}

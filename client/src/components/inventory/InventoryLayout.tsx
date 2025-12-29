@@ -21,6 +21,11 @@ interface InventoryLayoutProps {
   onItemDoubleClick?: (item: CharacterInventoryItemWithDetails) => void;
   onItemDragStart?: (item: CharacterInventoryItemWithDetails, e: React.DragEvent) => void;
   onItemDragEnd?: (item: CharacterInventoryItemWithDetails, e: React.DragEvent) => void;
+  onItemDrink?: (item: CharacterInventoryItemWithDetails) => void;
+  onItemEat?: (item: CharacterInventoryItemWithDetails) => void;
+  onItemUse?: (item: CharacterInventoryItemWithDetails) => void;
+  onItemDrop?: (item: CharacterInventoryItemWithDetails) => void;
+  onItemViewDetails?: (item: CharacterInventoryItemWithDetails) => void;
   onSlotClick?: (slot: string) => void;
   onSlotDrop?: (slot: string, e: React.DragEvent) => void;
   className?: string;
@@ -39,6 +44,11 @@ export function InventoryLayout({
   onItemDoubleClick,
   onItemDragStart,
   onItemDragEnd,
+  onItemDrink,
+  onItemEat,
+  onItemUse,
+  onItemDrop,
+  onItemViewDetails,
   onSlotClick,
   onSlotDrop,
   className,
@@ -122,6 +132,11 @@ export function InventoryLayout({
             onItemDoubleClick={onItemDoubleClick}
             onItemDragStart={onItemDragStart}
             onItemDragEnd={onItemDragEnd}
+            onItemDrink={onItemDrink}
+            onItemEat={onItemEat}
+            onItemUse={onItemUse}
+            onItemDrop={onItemDrop}
+            onItemViewDetails={onItemViewDetails}
           />
         </Card>
       </div>
