@@ -1022,6 +1022,68 @@ interface ParsedGameAction {
   customStats?: any;
 }
 
+/**
+ * Validates whether a currency award from the AI is legitimate or just dialogue.
+ * Returns true if the currency should be awarded, false if it's just NPC dialogue.
+ * 
+ * This prevents the exploit where NPCs mentioning rewards in dialogue 
+ * (e.g., "offering 500 gp to defeat the dragon") triggers actual currency awards.
+ */
+function validateCurrencyAward(response: string, goldTagIndex: number): boolean {
+  // Get context around the gold tag (500 characters before and after)
+  const contextStart = Math.max(0, goldTagIndex - 500);
+  const contextEnd = Math.min(response.length, goldTagIndex + 500);
+  const context = response.substring(contextStart, contextEnd).toLowerCase();
+  
+  // Keywords that indicate this is just dialogue/quest offering (NOT an actual award)
+  const dialogueIndicators = [
+    'offering', 'offers', 'will pay', 'will give', 'promises',
+    'reward of', 'reward for', 'if you', 'once you', 'when you',
+    'should you', 'bounty of', 'price on', 'prize of',
+    'could earn', 'might earn', 'can earn', 'potential reward',
+    'mentions', 'says', 'tells', 'explains', 'describes',
+    'quest:', 'task:', 'mission:', 'job:',
+  ];
+  
+  // Keywords that indicate this IS an actual award (override dialogue indicators)
+  const awardIndicators = [
+    'receives', 'gains', 'finds', 'discovers', 'takes',
+    'loots', 'pockets', 'collects', 'acquires',
+    'you receive', 'you gain', 'you find', 'you loot',
+    'is given', 'are given', 'hands over', 'pays you',
+    'treasure contains', 'chest holds', 'pouch has',
+    'quest_update', '[quest_update', 'completed', // Near quest completion
+  ];
+  
+  // Check for quest completion nearby (within 200 chars) - strong indicator of legitimate reward
+  const questCompletionNearby = /\[quest_update[^\]]*completed/i.test(
+    response.substring(Math.max(0, goldTagIndex - 200), Math.min(response.length, goldTagIndex + 200))
+  );
+  
+  if (questCompletionNearby) {
+    // Quest completion detected - this is a legitimate reward
+    return true;
+  }
+  
+  // Count indicators in context
+  const dialogueCount = dialogueIndicators.filter(phrase => context.includes(phrase)).length;
+  const awardCount = awardIndicators.filter(phrase => context.includes(phrase)).length;
+  
+  // If there are strong award indicators, allow it
+  if (awardCount > 0) {
+    return true;
+  }
+  
+  // If there are dialogue indicators and no award indicators, block it
+  if (dialogueCount > 0) {
+    return false;
+  }
+  
+  // Default: allow the award (to avoid breaking existing functionality)
+  // This is conservative - we only block obvious dialogue cases
+  return true;
+}
+
 function parseDMResponseTags(response: string): ParsedGameAction[] {
   const actions: ParsedGameAction[] = [];
 
@@ -1064,6 +1126,12 @@ function parseDMResponseTags(response: string): ParsedGameAction[] {
 
   // Parse currency/gold: [GOLD: PlayerName | Amount]
   // Amount can be: "50 cp", "10 sp", "5 gp", or just "50" (defaults to gp)
+  // 
+  // VALIDATION: Currency should only be awarded in specific contexts:
+  // - After completing a quest (look for QUEST_UPDATE with completed status nearby)
+  // - After selling items explicitly
+  // - After finding treasure/loot explicitly described
+  // - NOT when NPCs merely mention rewards in dialogue (e.g., "offering 500 gp")
   const goldPattern = /\[GOLD:\s*([^|]+?)\s*\|\s*([^\]]+?)\s*\]/gi;
   while ((match = goldPattern.exec(response)) !== null) {
     const playerName = match[1].trim();
@@ -1082,6 +1150,15 @@ function parseDMResponseTags(response: string): ParsedGameAction[] {
       // Default to gold pieces
       const amount = parseInt(amountStr.match(/(\d+)/)?.[1] || '0', 10);
       currency.gp = amount;
+    }
+    
+    // Validate this is an actual currency award, not just dialogue about rewards
+    const isValidAward = validateCurrencyAward(response, match.index);
+    
+    if (!isValidAward) {
+      console.log(`[Currency Validation] Blocked improper currency award: ${playerName} | ${amountStr}`);
+      console.log(`[Currency Validation] Context: ...${response.substring(Math.max(0, match.index - 100), Math.min(response.length, match.index + 200))}...`);
+      continue; // Skip this currency award
     }
     
     // Apply automatic conversion
@@ -7348,6 +7425,81 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (error) {
       console.error("Error updating inventory item:", error);
       res.status(500).json({ error: "Failed to update inventory item" });
+    }
+  });
+
+  // POST /api/characters/:characterId/inventory/:itemId/consume - Consume an item
+  // Request body: { action: "drink" | "eat" | "use", quantity?: number }
+  app.post("/api/characters/:characterId/inventory/:itemId/consume", isAuthenticated, async (req, res) => {
+    try {
+      const { characterId, itemId } = req.params;
+      const { action, quantity = 1 } = req.body;
+      
+      // Validate action
+      if (!["drink", "eat", "use"].includes(action)) {
+        return res.status(400).json({ error: "Invalid action. Must be 'drink', 'eat', or 'use'" });
+      }
+      
+      // Get the character to verify ownership
+      const character = await storage.getSavedCharacter(characterId);
+      if (!character) {
+        return res.status(404).json({ error: "Character not found" });
+      }
+      
+      // Verify the user owns this character
+      if (character.userId !== req.user?.id) {
+        return res.status(403).json({ error: "Forbidden: You do not own this character" });
+      }
+      
+      // Get character's inventory to verify item exists
+      const inventory = await storage.getSavedInventoryWithDetails(characterId);
+      const invItem = inventory.find((i: any) => i.id === itemId);
+      
+      if (!invItem) {
+        return res.status(404).json({ error: "Inventory item not found" });
+      }
+      
+      if (invItem.quantity < quantity) {
+        return res.status(400).json({ error: "Not enough items to consume" });
+      }
+      
+      // Get the full item details
+      const item = invItem.item;
+      
+      // Reduce quantity or remove item if quantity becomes 0
+      if (invItem.quantity > quantity) {
+        await storage.updateSavedInventoryItem(itemId, { 
+          quantity: invItem.quantity - quantity 
+        });
+      } else {
+        await storage.removeSavedInventoryItem(itemId);
+      }
+      
+      // Get the character's current room if they're in one
+      const roomCode = character.currentRoomCode;
+      let messageContent = `${character.characterName} ${action}s ${invItem.item.name}`;
+      
+      if (roomCode) {
+        // Broadcast to room that the item was consumed
+        broadcastToRoom(roomCode, {
+          type: "system",
+          content: messageContent,
+        });
+      }
+      
+      // Log consumption for AI context
+      console.log(`[Item Consumption] ${character.characterName} ${action} ${item.name} in room ${roomCode || 'none'}`);
+      
+      res.json({ 
+        success: true, 
+        action,
+        itemName: item.name,
+        remainingQuantity: invItem.quantity > quantity ? invItem.quantity - quantity : 0,
+        message: messageContent
+      });
+    } catch (error) {
+      console.error("Error consuming item:", error);
+      res.status(500).json({ error: "Failed to consume item" });
     }
   });
 

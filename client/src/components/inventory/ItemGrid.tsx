@@ -5,6 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Search } from "lucide-react";
 import { ItemCard } from "./ItemCard";
 import { ItemTooltip } from "./ItemTooltip";
+import { ItemActionMenu } from "./ItemActionMenu";
 import type { CharacterInventoryItemWithDetails, ItemCategory } from "@shared/schema";
 
 interface ItemGridProps {
@@ -13,6 +14,11 @@ interface ItemGridProps {
   onItemDoubleClick?: (item: CharacterInventoryItemWithDetails) => void;
   onItemDragStart?: (item: CharacterInventoryItemWithDetails, e: React.DragEvent) => void;
   onItemDragEnd?: (item: CharacterInventoryItemWithDetails, e: React.DragEvent) => void;
+  onItemDrink?: (item: CharacterInventoryItemWithDetails) => void;
+  onItemEat?: (item: CharacterInventoryItemWithDetails) => void;
+  onItemUse?: (item: CharacterInventoryItemWithDetails) => void;
+  onItemDrop?: (item: CharacterInventoryItemWithDetails) => void;
+  onItemViewDetails?: (item: CharacterInventoryItemWithDetails) => void;
   className?: string;
 }
 
@@ -44,6 +50,11 @@ export function ItemGrid({
   onItemDoubleClick,
   onItemDragStart,
   onItemDragEnd,
+  onItemDrink,
+  onItemEat,
+  onItemUse,
+  onItemDrop,
+  onItemViewDetails,
   className,
 }: ItemGridProps) {
   const [search, setSearch] = useState("");
@@ -122,25 +133,38 @@ export function ItemGrid({
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   {filteredItems.map((invItem) => (
-                    <ItemTooltip
+                    <ItemActionMenu
                       key={invItem.id}
                       item={invItem.item}
                       quantity={invItem.quantity}
-                      equipped={invItem.equipped}
-                      attunementSlot={invItem.attunementSlot || false}
+                      onDrink={() => onItemDrink?.(invItem)}
+                      onEat={() => onItemEat?.(invItem)}
+                      onUse={() => onItemUse?.(invItem)}
+                      onDrop={() => onItemDrop?.(invItem)}
+                      onViewDetails={() => onItemViewDetails?.(invItem)}
                     >
-                      <div>
-                        <ItemCard
-                          item={invItem.item}
-                          quantity={invItem.quantity}
-                          equipped={invItem.equipped}
-                          onClick={() => onItemClick?.(invItem)}
-                          onDoubleClick={() => onItemDoubleClick?.(invItem)}
-                          onDragStart={(e) => onItemDragStart?.(invItem, e)}
-                          onDragEnd={(e) => onItemDragEnd?.(invItem, e)}
-                        />
-                      </div>
-                    </ItemTooltip>
+                      <ItemTooltip
+                        item={invItem.item}
+                        quantity={invItem.quantity}
+                        equipped={invItem.equipped}
+                        attunementSlot={invItem.attunementSlot || false}
+                      >
+                        <div>
+                          <ItemCard
+                            item={invItem.item}
+                            quantity={invItem.quantity}
+                            equipped={invItem.equipped}
+                            onClick={() => onItemClick?.(invItem)}
+                            onDoubleClick={() => onItemDoubleClick?.(invItem)}
+                            onContextMenu={(e) => {
+                              e.preventDefault(); // Prevent default context menu
+                            }}
+                            onDragStart={(e) => onItemDragStart?.(invItem, e)}
+                            onDragEnd={(e) => onItemDragEnd?.(invItem, e)}
+                          />
+                        </div>
+                      </ItemTooltip>
+                    </ItemActionMenu>
                   ))}
                 </div>
               )}

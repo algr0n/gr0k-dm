@@ -115,6 +115,49 @@ export function FloatingCharacterPanel({
     };
   }, [isOpen]);
 
+  // Handler for consuming items (drink, eat, use)
+  const handleConsumeItem = async (
+    item: CharacterInventoryItemWithDetails,
+    action: "drink" | "eat" | "use"
+  ) => {
+    if (!savedCharacterId) {
+      console.error("No character ID available");
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/characters/${savedCharacterId}/inventory/${item.id}/consume`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ action, quantity: 1 }),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to consume item");
+      }
+
+      const result = await response.json();
+      console.log(`[Item Consumed] ${result.message}`);
+      
+      // Refetch inventory to update UI
+      // The query will automatically refetch due to the query key
+    } catch (error) {
+      console.error("Error consuming item:", error);
+      alert(error instanceof Error ? error.message : "Failed to consume item");
+    }
+  };
+
+  const handleDropItem = (item: CharacterInventoryItemWithDetails) => {
+    if (onDropItem) {
+      onDropItem(item as InventoryWithItem);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -160,6 +203,10 @@ export function FloatingCharacterPanel({
               maxWeight={maxWeight}
               attunedCount={inventoryWithDetails?.filter(i => i.attunementSlot).length || 0}
               maxAttunement={3}
+              onItemDrink={(item) => handleConsumeItem(item, "drink")}
+              onItemEat={(item) => handleConsumeItem(item, "eat")}
+              onItemUse={(item) => handleConsumeItem(item, "use")}
+              onItemDrop={(item) => handleDropItem(item)}
               onItemDoubleClick={(item) => {
                 // TODO: Implement equip/unequip logic
                 console.log("Double clicked item:", item);
