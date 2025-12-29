@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import EncounterMap from '../components/encounter-map'
 import InitiativeTracker from '../components/initiative-tracker'
-import CombatLog from '../components/combat-log'
 import sample from '../fixtures/encounter-sample.json'
 import { holdTurn, passTurn, submitAction, confirmSuggestion, cancelSuggestion } from '../lib/combat-api'
 import { useRoomSocket } from '../hooks/useRoomSocket'
@@ -10,7 +9,7 @@ import { parseNaturalLanguageToAction } from '../lib/nl-parser'
 export default function EncounterDemoPage() {
   const [encounter] = useState(sample as any)
   const [activeId, setActiveId] = useState<string | undefined>(encounter.initiativeOrder?.[0]?.actorId)
-  const [log, setLog] = useState<any[]>([{ id: 'l1', text: 'Encounter loaded.', timestamp: Date.now() }])
+  const [, setLog] = useState<any[]>([{ id: 'l1', text: 'Encounter loaded.', timestamp: Date.now() }])
   const [tokens, setTokens] = useState(encounter.tokens)
 
   const items = (encounter.initiativeOrder ?? []).map((i:any, idx:number) => ({ id: i.actorId, name: i.name, controller: i.controller, initiative: i.initiative, currentHp: i.currentHp, maxHp: i.maxHp }))
@@ -107,8 +106,8 @@ export default function EncounterDemoPage() {
   }
 
   return (
-    <div className="p-6 grid grid-cols-3 gap-4">
-      <div className="col-span-2">
+    <div className="p-6 grid grid-cols-1 gap-4">
+      <div className="col-span-1">
         <EncounterMap
           encounter={{ mapMeta: encounter.mapMeta, tokens, features: encounter.features }}
           activeId={activeId}
@@ -224,7 +223,6 @@ export default function EncounterDemoPage() {
             }
           }}
         />
-        <CombatLog entries={log} />
       </div>
     </div>
   )
