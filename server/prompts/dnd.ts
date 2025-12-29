@@ -83,7 +83,7 @@ INVENTORY MANAGEMENT:
 Add these tags at the END of your response.
 
 CURRENCY SYSTEM (NOT INVENTORY ITEMS):
-- When granting money, use: [GOLD: PlayerName | Amount]
+- Use [GOLD: PlayerName | Amount] ONLY when currency is ACTUALLY being awarded/transferred
 - Amount formats:
   * "X cp" or "X copper" for copper pieces (e.g., [GOLD: Jared | 50 cp])
   * "X sp" or "X silver" for silver pieces (e.g., [GOLD: Jared | 10 sp])
@@ -91,11 +91,24 @@ CURRENCY SYSTEM (NOT INVENTORY ITEMS):
   * Just "X" defaults to gold pieces (e.g., [GOLD: Jared | 100])
 - Money updates the character's WALLET, NOT their inventory
 - NEVER create "gold", "silver", or "copper" as inventory items using [ITEM]
-- Examples:
-  * Finding "a pouch with 25 gold pieces" → [GOLD: Jared | 25 gp]
-  * Selling an item for 5 silver → [GOLD: Jared | 5 sp]
-  * Picking up 100 copper coins → [GOLD: Jared | 100 cp]
-- Currency automatically converts: 100cp→1sp, 100sp→1gp
+
+WHEN TO USE [GOLD:] TAGS:
+✅ Player finds treasure: "You discover a chest with 50 gold pieces" → [GOLD: Jared | 50 gp]
+✅ Player sells an item: "The merchant pays you 5 silver" → [GOLD: Jared | 5 sp]
+✅ Player picks up coins: "You collect 100 copper from the goblin's pouch" → [GOLD: Jared | 100 cp]
+✅ Quest completion reward (with [QUEST_UPDATE: QuestName | completed]): "The mayor hands you the reward" → [GOLD: Jared | 500 gp]
+✅ NPC actually gives money: "She places 20 gold pieces in your hand" → [GOLD: Jared | 20 gp]
+
+WHEN NOT TO USE [GOLD:] TAGS:
+❌ NPC mentions a quest reward: "I'll pay 500 gold if you slay the dragon" → NO TAG (quest not completed)
+❌ Discussing prices: "That sword costs 50 gold pieces" → NO TAG (not a transaction)
+❌ Quest offering dialogue: "Harbin's offering 300 gp to clear the mine" → NO TAG (just dialogue)
+❌ Hypothetical rewards: "You could earn up to 1000 gold" → NO TAG (not awarded yet)
+❌ Quest description: "Reward: 200 gp" → NO TAG (use QUEST tag for quest rewards)
+
+IMPORTANT: NPCs can TALK about rewards without players receiving them. Only use [GOLD:] when currency ACTUALLY changes hands (found, given, earned through completion).
+
+Currency automatically converts: 100cp→1sp, 100sp→1gp
 Add these tags at the END of your response.
 
 CUSTOM ITEMS WITH FULL STATS:
@@ -189,10 +202,14 @@ LOCATION DISCOVERY:
 QUEST CREATION:
 - When giving players a quest: [QUEST: Title | QuestGiver | Status | {"description":"...", "objectives":["..."], "rewards":{"xp":100,"gold":50,"items":["magic sword"]}, "urgency":"high"}]
 - Status: active, in_progress, completed, failed
+- IMPORTANT: Quest rewards (gold, XP, items) should be defined in the QUEST tag's rewards object, NOT as separate [GOLD:] or [ITEM:] tags when offering the quest
+- When quest is completed: [QUEST_UPDATE: Quest Title or ID | completed] - this triggers automatic reward distribution
 - Examples:
   * [QUEST: Find the Lost Mine | Gundren Rockseeker | active | {"description":"Locate Gundren's missing map to Wave Echo Cave", "objectives":["Find Gundren's location", "Recover the map"], "rewards":{"xp":200,"gold":100}, "urgency":"high"}]
+  * When completed: [QUEST_UPDATE: Find the Lost Mine | completed] - rewards are distributed automatically
 - To update quest status: [QUEST_UPDATE: Quest Title or ID | completed]
 - Quests track objectives and show in the player's Quest Log UI.
+- NPCs can DISCUSS quest rewards in dialogue without triggering currency/item awards - the actual rewards are only given when [QUEST_UPDATE: ... | completed] is used.
 
 DROPPED ITEMS:
 - System messages will show when players drop items from their inventory.
