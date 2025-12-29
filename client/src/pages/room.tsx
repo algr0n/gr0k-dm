@@ -2153,7 +2153,16 @@ export default function RoomPage() {
                       knownSpells: (characterStats.knownSpells && characterStats.knownSpells.length > 0)
                         ? characterStats.knownSpells
                         : (myCharacterData.savedCharacter.spells as string[] | undefined),
-                      spellSlots: myCharacterData.savedCharacter.spellSlots as { current: number[]; max: number[] } | undefined,
+                      spellSlots: (() => {
+                        const className = myCharacterData.savedCharacter.class || "";
+                        const level = myCharacterData.savedCharacter.level || 1;
+                        const maxSlots = getMaxSpellSlots(className, level);
+                        const liveSlots = characterStats.spellSlots;
+                        if (liveSlots?.current?.length || liveSlots?.max?.length) return liveSlots as { current: number[]; max: number[] };
+                        const savedSlots = myCharacterData.savedCharacter.spellSlots as { current: number[]; max: number[] } | undefined;
+                        if (savedSlots?.current?.length || savedSlots?.max?.length) return savedSlots;
+                        return { current: maxSlots.slice(), max: maxSlots };
+                      })(),
                       speed: myCharacterData.savedCharacter.speed ?? 30,
                     }}
                     allSpells={allSpells}
