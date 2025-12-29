@@ -3312,6 +3312,7 @@ export default function RoomPage() {
         maxHp={liveHp?.max}
         onDropItem={(item) => dropInventoryItemMutation.mutate(item)}
         isDropping={dropInventoryItemMutation.isPending}
+        useEnhancedInventory={true}
       />
 
       <Dialog open={showLoadCharacterDialog} onOpenChange={setShowLoadCharacterDialog}>
