@@ -2140,14 +2140,19 @@ export default function RoomPage() {
                       class: myCharacterData.savedCharacter.class ?? undefined,
                       level: myCharacterData.savedCharacter.level ?? 1,
                       stats: myCharacterData.savedCharacter.stats as Record<string, number> | undefined,
-                      // Prefer prepared spells (wizard/cleric style). Fallback to known spells on the saved character.
-                      spells:
-                        (characterStats.preparedSpells && characterStats.preparedSpells.length > 0
+                      // Prefer prepared spells (wizard/cleric style). Fallback to known spells and always include cantrips.
+                      spells: (() => {
+                        const prepared = (characterStats.preparedSpells && characterStats.preparedSpells.length > 0)
                           ? characterStats.preparedSpells
-                          : ((myCharacterData.savedCharacter.stats as any)?.preparedSpells as string[] | undefined))
-                          ?? (characterStats.knownSpells && characterStats.knownSpells.length > 0
-                            ? characterStats.knownSpells
-                            : (myCharacterData.savedCharacter.spells as string[] | undefined)),
+                          : ((myCharacterData.savedCharacter.stats as any)?.preparedSpells as string[] | undefined) || [];
+                        const known = (characterStats.knownSpells && characterStats.knownSpells.length > 0)
+                          ? characterStats.knownSpells
+                          : (myCharacterData.savedCharacter.spells as string[] | undefined) || [];
+                        return Array.from(new Set([...(prepared || []), ...known]));
+                      })(),
+                      knownSpells: (characterStats.knownSpells && characterStats.knownSpells.length > 0)
+                        ? characterStats.knownSpells
+                        : (myCharacterData.savedCharacter.spells as string[] | undefined),
                       spellSlots: myCharacterData.savedCharacter.spellSlots as { current: number[]; max: number[] } | undefined,
                       speed: myCharacterData.savedCharacter.speed ?? 30,
                     }}

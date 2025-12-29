@@ -262,6 +262,7 @@ interface DnD5eCombatPanelProps {
     level?: number;
     stats?: Record<string, number>;
     spells?: string[];
+    knownSpells?: string[];
     spellSlots?: { current: number[]; max: number[] };
     speed?: number;
   };
@@ -324,18 +325,20 @@ export function DnD5eCombatPanel({
   }, [isMyTurn, characterData.speed, myActorId]);
 
   // Get character's known spells with full data
-  // Only show spells that are explicitly in the character's spells array (known/prepared)
+  // Include both prepared list (spells) and broader known spells (for cantrips)
   const knownSpells = useMemo(() => {
     const prepared = characterData.spells || [];
-    if (prepared.length === 0) return [];
-    
-    const preparedSet = new Set(prepared.map((s) => s.toLowerCase()));
+    const known = characterData.knownSpells || [];
+    const spellList = prepared.length > 0 ? [...prepared, ...known] : known;
+    if (spellList.length === 0) return [];
+
+    const spellSet = new Set(spellList.map((s) => s.toLowerCase()));
 
     // Only include spells explicitly in the character's prepared/known list
     return allSpells.filter(
-      (spell) => preparedSet.has(spell.name.toLowerCase()) || preparedSet.has(spell.id.toLowerCase())
+      (spell) => spellSet.has(spell.name.toLowerCase()) || spellSet.has(spell.id.toLowerCase())
     );
-  }, [characterData.spells, allSpells]);
+  }, [characterData.spells, characterData.knownSpells, allSpells]);
 
   // Group spells by level
   const spellsByLevel = useMemo(() => {
