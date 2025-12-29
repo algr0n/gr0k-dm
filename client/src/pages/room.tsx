@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download, FolderOpen, Coins, Weight, Zap, Flame, Wand2, ScrollText, UsersRound, ChevronDown, ChevronRight, Terminal } from "lucide-react";
+import { Send, Dice6, Users, Copy, Check, Loader2, MessageSquare, User, XCircle, Save, Eye, Package, Trash2, LogOut, Plus, Sparkles, Swords, Globe, UserX, Shield, SkipForward, StopCircle, Download, FolderOpen, Coins, Weight, Zap, Flame, Wand2, ScrollText, UsersRound, ChevronDown, ChevronRight, Terminal, MapPin } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -30,6 +30,7 @@ import { QuestAcceptanceModal } from "@/components/quest-acceptance-modal";
 import { CombatActionsPanel } from "@/components/combat/CombatActionsPanel";
 import { DnD5eCombatPanel } from "@/components/combat/DnD5eCombatPanel";
 import { NpcReputationPanel } from "@/components/npc-reputation-panel";
+import { LocationTracker } from "@/components/location-tracker";
 import { Heart } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -1393,6 +1394,24 @@ export default function RoomPage() {
         } else if (data.type === "npc_created") {
           // New NPC created; refresh NPC list
           queryClient.invalidateQueries({ queryKey: ["dynamic-npcs", roomData?.id] });
+          // Show toast notification
+          if (data.npc?.name) {
+            toast({
+              title: "New NPC Encountered",
+              description: data.npc.name,
+            });
+          }
+
+        } else if (data.type === "location_discovered") {
+          // New location discovered; refresh location list
+          queryClient.invalidateQueries({ queryKey: ["dynamic-locations", roomData?.id] });
+          // Show toast notification
+          if (data.location?.name) {
+            toast({
+              title: "New Location Discovered",
+              description: data.location.name,
+            });
+          }
 
         } else if (data.type === "error") {
           toast({
@@ -1887,6 +1906,10 @@ export default function RoomPage() {
               <TabsTrigger value="npcs" className="gap-2" data-testid="tab-npcs">
                 <UsersRound className="h-4 w-4" />
                 NPCs
+              </TabsTrigger>
+              <TabsTrigger value="locations" className="gap-2" data-testid="tab-locations">
+                <MapPin className="h-4 w-4" />
+                Locations
               </TabsTrigger>
               {roomData?.gameSystem === "dnd" && myCharacterData?.savedCharacter?.class && isSpellcaster(myCharacterData.savedCharacter.class) && (
                 <TabsTrigger value="spells" className="gap-2" data-testid="tab-spells">
@@ -2702,6 +2725,10 @@ export default function RoomPage() {
 
           <TabsContent value="npcs" className="flex-1 mt-0 overflow-hidden data-[state=inactive]:hidden">
             <NpcReputationPanel roomId={roomData?.id || ""} />
+          </TabsContent>
+
+          <TabsContent value="locations" className="flex-1 mt-0 overflow-hidden data-[state=inactive]:hidden">
+            <LocationTracker roomId={roomData?.id || ""} />
           </TabsContent>
 
           {/* Spells Tab - for D&D spellcasters */}

@@ -2842,6 +2842,7 @@ async function executeGameActions(
             }
 
             broadcastFn(roomCode, { type: 'story_event_created', event });
+            broadcastFn(roomCode, { type: 'npc_created', npc: npcRecord });
             console.log(`[DM Action] Created dynamic NPC '${npcRecord.name}' (id=${npcRecord.id}) in room ${roomCode}`);
 
             // If combat is active, create a combat spawn and roll initiative
@@ -2934,6 +2935,7 @@ async function executeGameActions(
             }
 
             broadcastFn(roomCode, { type: 'story_event_created', event });
+            broadcastFn(roomCode, { type: 'location_discovered', location: locRecord });
             console.log(`[DM Action] Created dynamic location '${locRecord.name}' (id=${locRecord.id}) in room ${roomCode}`);
           } catch (err) {
             console.error('[DM Action] Failed to create dynamic location:', err);
