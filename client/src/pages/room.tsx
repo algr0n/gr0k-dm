@@ -309,6 +309,7 @@ export default function RoomPage() {
   const userIdRef = useRef<string | undefined>(user?.id);
   const savedCharacterIdRef = useRef<string | undefined>(undefined);
   const characterNameRef = useRef<string | undefined>(undefined);
+  const lastPersistedSpellSlotsRef = useRef<string | null>(null);
   const initialMessagesLoadedRef = useRef(false);
   const latestMessagesRef = useRef<Message[]>([]);
   const combatantNamesRef = useRef<Record<string, string>>({});
@@ -612,6 +613,18 @@ export default function RoomPage() {
   const loadSavedCharacter = (savedChar: SavedCharacter) => {
     const savedPreparedSpells = (savedChar.stats as any)?.preparedSpells || [];
     const savedKnownSpells = savedChar.spells || [];
+    const className = savedChar.class || "";
+    const level = savedChar.level || 1;
+    const maxSlots = getMaxSpellSlots(className, level);
+    const normalizedSpellSlots = savedChar.spellSlots && ((savedChar.spellSlots.max ?? []).some(Boolean) || (savedChar.spellSlots.current ?? []).some(Boolean))
+      ? {
+          max: (savedChar.spellSlots.max ?? maxSlots) as number[],
+          current: (savedChar.spellSlots.current ?? savedChar.spellSlots.max ?? maxSlots).slice(),
+        }
+      : { current: maxSlots.slice(), max: maxSlots };
+    lastPersistedSpellSlotsRef.current = savedChar.id
+      ? `${savedChar.id}:${JSON.stringify(normalizedSpellSlots)}`
+      : JSON.stringify(normalizedSpellSlots);
     setCharacterName(savedChar.characterName);
     setCharacterStats({
       ...savedChar.stats,
@@ -629,7 +642,7 @@ export default function RoomPage() {
       spells: savedChar.spells || [],
       knownSpells: savedKnownSpells,
       preparedSpells: savedPreparedSpells,
-      spellSlots: savedChar.spellSlots || undefined,
+      spellSlots: normalizedSpellSlots,
     });
     setCharacterNotes(savedChar.backstory || "");
     setShowLoadCharacterDialog(false);
@@ -660,9 +673,21 @@ export default function RoomPage() {
   useEffect(() => {
     if (myCharacterData?.savedCharacter) {
       const saved = myCharacterData.savedCharacter;
+      const className = saved.class || "";
+      const level = saved.level || 1;
+      const maxSlots = getMaxSpellSlots(className, level);
+      const normalizedSpellSlots = saved.spellSlots && ((saved.spellSlots.max ?? []).some(Boolean) || (saved.spellSlots.current ?? []).some(Boolean))
+        ? {
+            max: (saved.spellSlots.max ?? maxSlots) as number[],
+            current: (saved.spellSlots.current ?? saved.spellSlots.max ?? maxSlots).slice(),
+          }
+        : { current: maxSlots.slice(), max: maxSlots };
+      lastPersistedSpellSlotsRef.current = saved.id
+        ? `${saved.id}:${JSON.stringify(normalizedSpellSlots)}`
+        : JSON.stringify(normalizedSpellSlots);
       setCharacterStats(prev => ({
         ...prev,
-        spellSlots: prev.spellSlots || saved.spellSlots,
+        spellSlots: prev.spellSlots || normalizedSpellSlots,
         knownSpells: (prev.knownSpells && prev.knownSpells.length > 0) ? prev.knownSpells : (saved.spells || []),
         preparedSpells: (prev.preparedSpells && prev.preparedSpells.length > 0)
           ? prev.preparedSpells
@@ -700,6 +725,37 @@ export default function RoomPage() {
       }
       const newCurrentHp = characterStats.currentHp ?? 0;
       const newMaxHp = characterStats.maxHp ?? 1;
+
+  const persistSpellSlotsMutation = useMutation({
+    mutationFn: async (spellSlots: { current: number[]; max: number[] }) => {
+      if (!savedCharacterId) {
+        throw new Error("No character to update");
+      }
+      const response = await apiRequest("PATCH", `/api/saved-characters/${savedCharacterId}`, { spellSlots });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/rooms", code, "my-character"] });
+      if (savedCharacterId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/saved-characters", savedCharacterId] });
+      }
+    },
+    onError: () => {
+      toast({
+        title: "Failed to save spell slots",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const persistSpellSlots = useCallback((slots: { current: number[]; max: number[] }) => {
+    if (!savedCharacterId) return;
+    const serialized = `${savedCharacterId}:${JSON.stringify(slots)}`;
+    if (lastPersistedSpellSlotsRef.current === serialized) return;
+    lastPersistedSpellSlotsRef.current = serialized;
+    persistSpellSlotsMutation.mutate(slots);
+  }, [persistSpellSlotsMutation, savedCharacterId]);
       setLiveHp({ current: newCurrentHp, max: newMaxHp });
       toast({
         title: "Character saved",
@@ -2668,14 +2724,20 @@ export default function RoomPage() {
                                       }`}
                                       onClick={() => {
                                         setCharacterStats(prev => {
-                                          const newSlots = [...(prev.spellSlots?.current || maxSlots.slice())];
-                                          newSlots[slotLevel] = i < current ? current - 1 : current + 1;
+                                          const prevCurrentSlots = prev.spellSlots?.current?.length
+                                            ? prev.spellSlots.current
+                                            : maxSlots.slice();
+                                          const previousValue = prevCurrentSlots[slotLevel] ?? max;
+                                          const updatedCurrent = [...prevCurrentSlots];
+                                          updatedCurrent[slotLevel] = i < previousValue ? previousValue - 1 : previousValue + 1;
+                                          const updatedSlots = {
+                                            current: updatedCurrent,
+                                            max: maxSlots,
+                                          };
+                                          persistSpellSlots(updatedSlots);
                                           return {
                                             ...prev,
-                                            spellSlots: {
-                                              current: newSlots,
-                                              max: maxSlots,
-                                            },
+                                            spellSlots: updatedSlots,
                                           };
                                         });
                                       }}
@@ -2697,13 +2759,15 @@ export default function RoomPage() {
                               const className = myCharacterData.savedCharacter.class || "";
                               const level = myCharacterData.savedCharacter.level || 1;
                               const maxSlots = getMaxSpellSlots(className, level);
+                              const restoredSlots = {
+                                current: maxSlots.slice(),
+                                max: maxSlots,
+                              };
                               setCharacterStats(prev => ({
                                 ...prev,
-                                spellSlots: {
-                                  current: maxSlots.slice(),
-                                  max: maxSlots,
-                                },
+                                spellSlots: restoredSlots,
                               }));
+                              persistSpellSlots(restoredSlots);
                               toast({
                                 title: "Spell Slots Restored",
                                 description: "All spell slots have been recovered (long rest).",
